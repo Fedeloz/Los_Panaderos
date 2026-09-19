@@ -16,7 +16,7 @@ from .happyrobot import HappyRobot, EDITOR
 class Controller:
     def __init__(self):
         self.lock = threading.RLock()
-        self.sim = Simulation()
+        self.sim = Simulation(drone_count=2)
         self.robot = HappyRobot()
         self.busy = False
         self.reset_pending = False
@@ -158,7 +158,7 @@ class Controller:
                 self.reset_pending=False
                 self.repair_attempts=0
                 self.cursor = None
-                self.sim = Simulation()
+                self.sim = Simulation(drone_count=1+len(self.sim.scouts))
                 self.recording=False
                 self.error = None
                 self.auto = self.running = False
@@ -167,6 +167,11 @@ class Controller:
                 self.latency = None
                 self.frames = [self.snapshot()]
                 self.next_decision = 0
+            elif action == 'fleet':
+                self.sim.configure_fleet(data.get('count'))
+                self.sim.observe()
+            elif action == 'add_fire':
+                self.sim.add_fire(data.get('x'),data.get('y'))
             elif action == 'place_fire':
                 self.sim.place_fire(data.get('x'),data.get('y'))
             elif action == 'record_run':

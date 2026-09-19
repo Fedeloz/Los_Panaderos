@@ -1,0 +1,89 @@
+import copy
+import json
+import unittest
+from simulator.engine import Simulation
+
+class FleetTests(unittest.TestCase):
+    def decision(self,s,orders):
+        return dict(command='hold',target_x=s.base[0],target_y=s.base[1],reason='test',mission='test',scout_orders=orders)
+
+    def test_count_validation_and_maximum_fleet(self):
+        for n in (0,5,True,2.5):
+            with self.assertRaises(ValueError):Simulation(drone_count=n)
+        s=Simulation(drone_count=4)
+        self.assertEqual(len(s.scouts),3)
+        self.assertEqual({d['drone_id'] for d in s.scouts},{'scout-1','scout-2','scout-3'})
+
+    def test_fleet_and_hidden_live_ignition(self):
+        s=Simulation(drone_count=3);s.ignite();s.farmer_call()
+        before=s.payload()['world_state'];s.add_fire(40,8)
+        self.assertEqual(before,s.payload()['world_state'])
+        self.assertEqual(len(json.loads(before)['fleet']),3)
+        self.assertEqual(s.state()['drone_count'],3)
+        with self.assertRaises(ValueError):s.configure_fleet(4)
+
+    def test_scout_discovery_report_and_dedup(self):
+        s=Simulation(drone_count=2);s.ignite();s.farmer_call();s.add_fire(40,8)
+        s.scouts[0].update(x=40.,y=15.)
+        s.update_scouts()
+        self.assertEqual(s.pending_decision_event,'scout_fire_report')
+        self.assertEqual(s.scout_reports[0]['location'],[40,8])
+        self.assertTrue(any(c['x']==40 and c['y']==8 for c in s.observation))
+        s.pending_decision_event=None;s.update_scouts()
+        self.assertIsNone(s.pending_decision_event)
+        self.assertEqual(len(s.scout_reports),1)
+        self.assertEqual(s.suppressed,0)
+
+    def test_orders_atomic_and_patrol_moves(self):
+        s=Simulation(drone_count=2);s.ignite();s.farmer_call()
+        d=self.decision(s,[dict(drone_id='scout-1',command='contain',waypoints=[[20,20]],reason='bad')])
+        before=copy.deepcopy(s.truck)
+        d.update(truck_command='attack_sector',truck_target_x=40,truck_target_y=20,truck_reason='test')
+        with self.assertRaises(ValueError):s.apply(d,'bad',s.incident_id,s.tick)
+        self.assertEqual(before,s.truck)
+        d=self.decision(s,[dict(drone_id='scout-1',command='patrol',waypoints=[[20,20],[30,20]],reason='survey')])
+        s.apply(d,'ok',s.incident_id,s.tick)
+        start=(s.scouts[0]['x'],s.scouts[0]['y']);s.step()
+        self.assertNotEqual(start,(s.scouts[0]['x'],s.scouts[0]['y']))
+        self.assertEqual(s.scouts[0]['waypoints'],[[30,20]])
+        self.assertEqual(s.suppressed,0)
+
+    def test_exact_fleet_and_safety(self):
+        s=Simulation(drone_count=2)
+        for raw in [None,[],[dict(drone_id='unknown',command='hold',reason='test')]]:
+            with self.assertRaises(ValueError):s.validate_scout_orders(raw)
+        s.cells[20][20]['heat']=1;s.scouts[0].update(x=25.,y=20.);s.observe()
+        with self.assertRaises(ValueError):s.validate_scout_orders([dict(drone_id='scout-1',command='patrol',waypoints=[[20,20]],reason='test')])
+
+    def test_return_waits_for_scout(self):
+        s=Simulation(drone_count=2);s.ignited=True;s.scouts[0].update(x=20.,y=20.)
+        s.update_completion();self.assertEqual(s.phase,'returning')
+        s.step(20);self.assertEqual(s.phase,'finished')
+
+    def test_scout_warns_selected_district_and_people_reach_refuge(self):
+        s=Simulation(drone_count=2);s.ignite();s.farmer_call()
+        group=s.groups['farm'];scout=s.scouts[0];scout.update(x=float(group['home'][0]),y=float(group['home'][1]))
+        order=dict(drone_id='scout-1',command='evacuate_farm',district_id='farm',waypoints=[],reason='Nearby scout warns farm')
+        s.apply(self.decision(s,[order]),'warn',s.incident_id,s.tick)
+        self.assertEqual(group['status'],'unwarned')
+        self.assertEqual(scout['target'],group['home'])
+        s.update_scouts()
+        self.assertEqual(group['status'],'evacuating');self.assertEqual(scout['status'],'awaiting_assignment')
+        self.assertEqual(s.pending_decision_event,'evacuation_warning_delivered')
+        self.assertTrue(all(g['status']=='unwarned' for k,g in s.groups.items() if k!='farm'))
+        s.set_wind('calm');s.step(30)
+        self.assertEqual(group['status'],'safe')
+        self.assertEqual(s.suppressed,0)
+
+    def test_scout_district_validation_and_duplicate_assignment(self):
+        s=Simulation(drone_count=3)
+        def order(i,district):return dict(drone_id=f'scout-{i}',command='evacuate_town',district_id=district,reason='warn')
+        for bad in (None,'missing','farm'):
+            with self.assertRaises(ValueError):s.validate_scout_orders([order(1,bad),order(2,'town_north')])
+        orders=[order(1,'town'),order(2,'town')]
+        with self.assertRaises(ValueError):s.apply(self.decision(s,orders),'duplicate',s.incident_id,0)
+        orders=[order(1,'town'),dict(drone_id='scout-2',command='hold',reason='hold')]
+        d=self.decision(s,orders);d.update(command='evacuate_town',district_id='town')
+        with self.assertRaises(ValueError):s.apply(d,'duplicate2',s.incident_id,0)
+        s.groups['town']['status']='safe'
+        with self.assertRaises(ValueError):s.validate_scout_orders(orders)

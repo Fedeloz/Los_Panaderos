@@ -96,3 +96,11 @@ Bundled map: `simulator/static/maps/brunete.jpg`; bounds, source URL, attributio
 Wind-directed response: initial scout candidates now prefer the downwind side of the smoke report, approached around detected fire. Central and Drone prioritize the advancing front for truck orders and containment; truck local targeting prioritizes leading cells within its assigned sector. Calm wind has no preferred direction.
 
 District selection: each HappyRobot decision receives all four district IDs (town_north, town, town_south, farm), boundaries, population, status, refuge and wind exposure. Evacuation commands must return an explicit `district_id`; `town` means Centre only. The simulator rejects missing/invalid IDs and warns only the selected district, with no nearest-district fallback. Development workflow v17 supplies this field.
+
+## Configurable fleet and additional fires
+
+Before ignition, choose 1–4 drones: one extinguisher plus 0–3 scout/evacuation drones; one truck is always available. The app defaults to an extinguisher and one scout. Toggle **Add fire on map** and click the ground-truth map during an active incident to add a hidden ignition. New fires become agent evidence only through sensors or delayed satellite.
+
+Los Panaderos development v20 nests Scout Agent alongside the extinguisher under Central. Central consults Scout Agent first, reviews its assessment, then issues coordinated orders. Scouts follow 1–6 agent-selected patrol waypoints, move 4 cells/step, see radius 16 and have loudspeakers for district evacuation but no suppression jets. A separate observed focus (at least 12 cells from the original report and prior scout alerts) generates a simulated radio report and triggers reassessment. This is a digital event, not a telephone call. Patrols continue between frozen decision runs; replay stores every scout. Central ranks observed/reported fires by district exposure, wind and warning time.
+
+Scouts can receive `evacuate_town` / `evacuate_farm` with an explicit `district_id`. They fly to the selected district, deliver the warning, and become available while residents travel to refuge. HappyRobot chooses the warning vehicle using positions and competing tasks. Duplicate warning assignments to the same district are rejected before any orders are applied.
