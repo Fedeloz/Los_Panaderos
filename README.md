@@ -1,6 +1,8 @@
 # Los Panaderos
 
-HackSpain demo: one drone chooses containment or evacuation, with decisions in HappyRobot.
+HackSpain wildfire response demo: a configurable fleet follows missions decided in HappyRobot.
+
+112 CECOP wildfire operations demo for Brunete, Madrid. HappyRobot remains the only mission decision-maker; the dashboard presents coordinated fleet orders, five population groups and the simulation's observations.
 
 ## Run
 
@@ -8,11 +10,17 @@ HackSpain demo: one drone chooses containment or evacuation, with decisions in H
 python3 -m simulator.server
 ```
 
-Open [the local demo](http://127.0.0.1:8765). **Ignite → choose wind → Farmer reports smoke**. The call starts automatic playback and agent decisions. Reset between scenarios:
+Open [the local demo](http://127.0.0.1:8765). In **Preparar incidente**, choose 0–3 trucks, scouts and Squirtle (extinguisher) drones, then **Aplicar flota**. At least one vehicle is required; the default is one of each. Place and ignite the fire, choose/apply wind, then send **Aviso de humo**. The report starts automatic playback and agent decisions. Reset preserves fleet counts; during deliberation, Reset queues a fresh incident and discards the in-flight result and queued ignitions.
 
 - **East:** scout, then contain visible fire.
 - **North:** scout, then warn the farm's 100 assumed occupants before returning to containment.
 - **West:** scout, then warn threatened town neighbourhoods independently.
+
+These describe exposure scenarios, not scripted outcomes. HappyRobot chooses investigation, containment and independent district warnings from the available information.
+
+## 112 dashboard
+
+The dark CECOP console keeps two illustrated Brunete maps: ground truth on the left, and current/remembered observations with delayed synthetic satellite detections and district overlays on the right. The maps are not georeferenced. The people board, verbatim radio-order ticket and communications log remain visible around the map workspace; setup and recording tools collapse for the pitch. ES/EN changes interface labels, never agent missions or reasons. Cesium/FIRMS and the Sierra de Gata helpers remain dormant compatibility code, not the live map or simulated fire. The gitignored .env is retained, and the unused /api/config endpoint remains localhost-only.
 
 Use Pause, +1 step, speed selection, and Ask agents for manual control. The timeline supports backward/forward scrubbing and replay playback. **Live** returns to the latest state; press Play to continue. Replay is read-only and never repeats platform calls. Up to 1,500 compressed frames are retained in memory, cleared by Reset/restart. Playback pauses when the operator view confirms no active fire remains and no evacuation group is still moving or blocked; this is not an agent all-clear.
 
@@ -34,7 +42,7 @@ The clock animates at 1–8 steps/second, but **pauses during HappyRobot deliber
 
 ## HappyRobot integration
 
-[Los Panaderos development workflow](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/hv0nqn8kc39r)
+[Los Panaderos development workflow](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/njn4x0maqj9y)
 
 ```text
 Simulator Event
@@ -57,6 +65,8 @@ Completed run outputs are fetched explicitly, parsed and checked for coordinate 
 
 ```sh
 python3 -m unittest discover -s tests -v
+node --test tests/test_dashboard.cjs
+node --check simulator/static/app.js
 ```
 
 Tests cover spread timing, wind, containment, local knowledge, satellite latency, evacuation, blocked routes, stale/invalid commands, immutable replay, and MCP parsing. Restart the server after Python changes; no hot reload.
@@ -91,18 +101,22 @@ Suppression context: agents receive current observed intensity, land cover, burn
 
 Fire spread control: choose 0.25×–4× in the wind panel (default 0.5×). This divides wind-dependent ignition attempt intervals by the factor, rounded to whole steps with a one-step minimum. It leaves the base ignition probability, vehicle speed and suppression unchanged. Agents receive the factor and resulting intervals; recording frames preserve it. Reset restores 0.5×. Fire intensity grows by 0.04 per dry step and terrain burn durations are multiplied by 2, slowing both growth and natural burnout. Distance axes and scale bars use approximate ground distances.
 
-Bundled map: `simulator/static/maps/brunete.jpg`; bounds, source URL, attribution and traced roads in `brunete.json`. Work derived from PNOA máxima actualidad, CC BY 4.0 scne.es, retrieved 2026-09-19. Map imagery works offline without an API key. Both views share the historical basemap; only observed simulated fire appears in the agent view. Legacy recordings retain the illustrated background.
+Bundled map: `simulator/static/maps/brunete.jpg`; bounds, source URL, attribution and traced roads in `brunete.json`. Work derived from PNOA máxima actualidad, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) scne.es, retrieved 2026-09-19. Map imagery works offline without an API key. Both views share the historical basemap; only observed simulated fire appears in the agent view. Legacy recordings retain the illustrated background.
 
 Wind-directed response: initial scout candidates now prefer the downwind side of the smoke report, approached around detected fire. Central and Drone prioritize the advancing front for truck orders and containment; truck local targeting prioritizes leading cells within its assigned sector. Calm wind has no preferred direction.
 
-District selection: each HappyRobot decision receives all four district IDs (town_north, town, town_south, farm), boundaries, population, status, refuge and wind exposure. Evacuation commands must return an explicit `district_id`; `town` means Centre only. The simulator rejects missing/invalid IDs and warns only the selected district, with no nearest-district fallback. Development workflow v17 supplies this field.
+District selection: HappyRobot receives all five district IDs (town, town_north, town_south, town_rosales, farm), neighbourhood geometry, population, status, refuge and wind exposure. These represent Casco Histórico, Prado Alto, Prado Nuevo, Valle de los Rosales and El Álamo Farm respectively. Evacuation commands require an explicit district_id and warn only that district. Missing or invalid IDs are rejected; there is no nearest-district fallback. Duplicate warning reservations are reconciled without inventing new strategic destinations: one assignment is retained, redundant vehicles are held, and HappyRobot is asked to reassign them.
 
 ## Configurable fleet and additional fires
 
-Before ignition, use the **Response fleet** panel to choose 0–3 trucks, scouts and extinguisher drones independently, then click **Apply fleet**. At least one vehicle is required. Counts persist on Reset; reset before changing a running fleet. Toggle **Add fire on map** and click the ground-truth map during an active incident to add a hidden ignition. New fires become agent evidence only through sensors or delayed satellite.
+Before ignition, use the **Medios de respuesta** panel to choose 0–3 trucks, scouts and Squirtle drones independently, then click **Aplicar flota**. At least one vehicle is required. Counts persist on Reset; reset before changing a running fleet. Toggle **Añadir fuego en el mapa** and click the ground-truth map during an active incident to add a hidden ignition. New fires become agent evidence only through sensors or delayed satellite. The first extinguisher is displayed as Squirtle; its command ID remains drone-1.
 
-Los Panaderos development v21 nests Scout Agent alongside the extinguisher under Central. Central consults Scout Agent first, reviews its assessment, then issues coordinated orders. Scouts follow 1–6 agent-selected patrol waypoints, move 4 cells/step, see radius 16 and have loudspeakers for district evacuation but no suppression jets. A separate observed focus (at least 12 cells from the original report and prior scout alerts) generates a simulated radio report and triggers reassessment. This is a digital event, not a telephone call. Patrols continue between frozen decision runs; replay stores every scout. Central ranks observed/reported fires by district exposure, wind and warning time.
+While HappyRobot is deciding, additional map clicks queue validated ignitions without advancing the clock or changing the world seen by the in-flight decision. The duty banner shows the queued count; they are applied after deliberation. Reset clears the queue. New fires become agent evidence only through observations; the dashboard does not assign local missions.
 
-Scouts can receive `evacuate_town` / `evacuate_farm` with an explicit `district_id`. They fly to the selected district, deliver the warning, and become available while residents travel to refuge. HappyRobot chooses the warning vehicle using positions and competing tasks. Duplicate warning assignments to the same district are rejected before any orders are applied.
+Los Panaderos development v21 nests Scout Agent alongside the extinguisher under Central. Central consults Scout Agent first, reviews its assessment, then issues coordinated orders. Scouts follow 1–6 agent-selected patrol waypoints, move 4 cells/step, see radius 12 and have loudspeakers for district evacuation but no suppression jets. A separate observed focus (at least 12 cells from the original report and prior scout alerts) generates a simulated radio report and triggers reassessment. This is a digital event, not a telephone call. Patrols continue between frozen decision runs; replay stores every scout. Central ranks observed/reported fires by district exposure, wind and warning time.
+
+Scouts can receive `evacuate_town` / `evacuate_farm` with an explicit `district_id`. They fly to the selected district, deliver the warning, and become available while residents travel to refuge. HappyRobot chooses the warning vehicle using positions and competing tasks. Duplicate warnings for one district retain an existing warning assignment when present, then prefer a scout and a stable vehicle ID. Redundant vehicles are held and reported to HappyRobot through a coordination_conflict event for reassignment.
 
 Every extinguisher and truck receives its own ID-specific order in `extinguisher_orders` and `truck_orders`. Empty roles use empty arrays, have no sensor coverage and perform no actions. Commands validate as one transaction before any vehicle changes. Fleet counts, positions and missions are included in recordings and agent context.
+
+Scout confirmation of the original fire triggers immediate mission reassessment, without waiting for Squirtle to arrive at its old waypoint. A newly blocked target similarly requests a replan once; remembered fire remains excluded from safe containment positions. New destinations and strategic missions still come from HappyRobot. The fire-placement cursor appears only while Add fire is armed and placement is available; busy-state clicks retain the existing ignition queue behavior.

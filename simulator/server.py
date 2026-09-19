@@ -10,7 +10,29 @@ import zlib
 from urllib.parse import urlparse
 
 from .engine import Simulation
+from .geo import PLACE
 from .happyrobot import HappyRobot, EDITOR
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _env_file():
+    values = {}
+    path = ROOT / '.env'
+    if not path.exists():
+        return values
+    for line in path.read_text(encoding='utf-8').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def local_host(host_header):
+    """Only the loopback interface may read local API keys."""
+    return (host_header or '').split(':')[0] in {'127.0.0.1', 'localhost'}
 
 
 class Controller:
@@ -250,7 +272,16 @@ def serve(port=8765):
                 self.reply(200,dict(format='los-panaderos-recording-v1',frames=frames))
             elif path == '/api/state':
                 self.reply(200, controller.state())
-            elif path in {'/', '/app.js', '/observation-map.js', '/vendor/bootstrap-icons.js', '/style.css', '/flamethrower-cursor.svg', '/maps/brunete.jpg', '/maps/brunete-illustrated.png'}:
+            elif path == '/api/config':
+                if not local_host(self.headers.get('Host')):
+                    self.reply(403, {'error': 'Local config only.'})
+                    return
+                env = _env_file()
+                self.reply(200, dict(
+                    cesium_token=env.get('CESIUM_API_KEY') or None,
+                    nasa_key=env.get('NASA_KEY') or None,
+                    place=dict(PLACE)))
+            elif path in {'/', '/app.js', '/ops.js', '/observation-map.js', '/vendor/bootstrap-icons.js', '/style.css', '/flamethrower-cursor.svg', '/maps/brunete.jpg', '/maps/brunete-illustrated.png'}:
                 name = 'index.html' if path == '/' else path[1:]
                 types = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.jpg':'image/jpeg', '.png':'image/png', '.svg':'image/svg+xml'}
                 file = static/name

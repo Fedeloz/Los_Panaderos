@@ -216,25 +216,307 @@ window.AerialView = (() => {
 })();
 
 let spreadDirty=false;
-let state, replayTimer, pending=false, windDirty=false, recordingPlayback=null;
+let state, replayTimer, pending=false, windDirty=false, recordingPlayback=null, lang='es', busySince=0, setupCollapsed=false;
+let fleetDirty=false,addingFire=false;
+let viewEpoch=0,requestsInFlight=0,loadEpoch=0,replayEpoch=0,replayStarting=false,clientError='',pollingError='';
 const $=id=>document.getElementById(id);
-async function act(action,extra={}){if(recordingPlayback&&action==='seek'){showRecorded(extra.index);return true}if(action==='live')recordingPlayback=null;try{const res=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json','X-Simulator-Request':'1'},body:JSON.stringify({action,...extra})});const s=await res.json();if(!res.ok)throw Error(s.error);if(action==='reset'){recordingPlayback=null;windDirty=false}render(s);return true;}catch(e){$('error').hidden=false;$('error').textContent=e.message;return false;}}
+const I18N={
+es:{eyebrow:'CENTRAL DE OPERACIONES · CECOP',subhead:'PROTECCIÓN CIVIL · EXTINCIÓN',setup:'Preparar incidente',hint:'Configura la flota antes de empezar. Clic en el mapa para el origen, ignición, viento y aviso de humo. Durante el incidente, activa Añadir fuego para nuevos focos; si los agentes deliberan, quedan en cola.',truth:'Situación real',truthTag:'BRUNETE · TERRENO ILUSTRADO',truthCesiumTag:'BRUNETE · TERRENO ILUSTRADO',truthIllustratedTag:'BRUNETE · TERRENO ILUSTRADO',belief:'Lo que el sistema ve',beliefTag:'SENSORES + SATÉLITE RETARDADO',mission:'MISIÓN / ORDEN',trail:'COMUNICACIONES',inspect:'Registro técnico de HappyRobot',explain:'HappyRobot decide explorar, contener o avisar a cada distrito. Terreno ilustrado, fuego y satélite simulados. No es una predicción operativa.',footerNote:'HappyRobot decide. Ilustración inspirada en Brunete; rejilla educativa, no Rothermel/Catastro. El reloj se pausa durante la deliberación; la reproducción no llama a la IA.',workflow:'Flujo',watch:'Vigilancia',active:'Activo',busy:'AGENTES DELIBERANDO · RELOJ EN PAUSA',live:'En curso',paused:'Pausado',replay:'Reproducción',mapFallback:'Ilustración no georreferenciada · escala aproximada',firmsDown:'FIRMS no disponible',
+kClock:'Reloj',kThreat:'Amenaza',kPeople:'PERSONAS EN RIESGO',kDrone:'Drones',kCrew:'Camiones',kAgents:'Agentes',
+recordRun:'Iniciar grabación',stopRec:'Detener',playRec:'Reproducir grabación',download:'Descargar',openRec:'Abrir',ignite:'1 · Ignición',call:'2 · Aviso de humo',step:'+1',speed:'Velocidad',wind:'VIENTO',windHelp:'X este · Y sur · unidades demo',applyWind:'Aplicar',calmWind:'Calma',ask:'Preguntar a los agentes',reset:'↺ Reiniciar',liveBtn:'En vivo',spread:'Propagación',
+windStrength:'Fuerza',windStrong:' · fuerte',windPreview:'Vista previa · pulsa Aplicar viento',windApplied:'Viento aplicado',
+replayStart:'▶ Repetir',replayStop:'Ⅱ Repetir',playBtn:'Reproducir',pauseBtn:'Pausar',
+legendSim:'Frente simulado (rejilla educativa)',legendFirms:'FIRMS · focos reales 24 h (NASA)',legendDrone:'Squirtle',legendScout:'Explorador',legendTruck:'Camión',legendArea:'Distritos ilustrados',
+lblIgnition:'IGNICIÓN',lblRefuge:'REFUGIO',lblSmoke:'AVISO DE HUMO',lblEngine:'DOTACIÓN 1',lblDrone:'DRON 01',lblWind:'VIENTO',
+viewTruth:'VISTA AÉREA · TERRENO SIMULADO',viewBelief:'OBSERVACIÓN / CAPA TÉRMICA',
+cellsBurning:'celdas ardiendo',crewWord:'dotación',firesDrone:'fuegos (dron)',firesShared:'fuegos en vista compartida',droneWord:'dron',truckWord:'camión',satellite:'satélite',notYet:'aún no',tealHint:'puntos turquesa = posiciones seguras',
+unwarnedLbl:'sin aviso',evacLbl:'evacuando',safeLbl:'a salvo',exposedLbl:'expuestos',
+agentChain:'HappyRobot · Central → Exploración / Extinción',orderChannel:'HAPPYROBOT · CENTRAL',mapPaused:'RELOJ EN PAUSA',
+incidentActive:'Incidente en curso',incidentReady:'Incidente preparado',recordTools:'Archivo y reproducción',
+radioChannel:'CANAL OPERATIVO',radioEmpty:'A la espera de comunicaciones.',
+knowledgeNote:'Observaciones locales y satélite simulado retardado. No es el frente real.',
+backFrame:'Fotograma anterior',forwardFrame:'Fotograma siguiente',recordedFrame:'Fotograma grabado',changeLanguage:'Switch to English',
+serverUnavailable:'Servidor local no disponible',uiError:'Error de interfaz',downloadFailed:'No se pudo descargar',
+recordingTooLarge:'La grabación debe ocupar menos de 100 MB.',invalidRecording:'Grabación de simulación no válida.',actionFailed:'No se pudo completar la solicitud.',recordingLoadFailed:'No se pudo cargar la grabación.',replayReadOnly:'Vuelve a En vivo para cambiar la simulación.',invalidFrame:'Fotograma no válido.',
+recordingLabel:'Grabando',framesLabel:'fotogramas',resetQueued:'Reinicio en cola',resetPending:'reinicio al terminar la deliberación',
+populationSummary:'Brunete: {total} habitantes (padrón municipal {year}). Reparto por distritos estimado; granja: {farm} ocupantes supuestos, aparte del padrón. Ilustración no georreferenciada; límites no oficiales.',
+peopleWord:'personas',refugeArrivals:'llegadas al refugio',
+legendTown:'Viviendas urbanas',legendFarm:'Viviendas de granja',legendFields:'Cultivos',legendWoodland:'Bosque',legendRefuge:'Refugio',legendDistricts:'Distritos ficticios · terreno ilustrado',observationLegend:'Leyenda del mapa de observación',
+archiveHeadline:'Reproducción · escenario histórico',archiveTag:'ARCHIVO · TERRENO DE LA GRABACIÓN',archiveNote:'Escenario histórico de la grabación; no representa el incidente actual de Brunete.',archiveCode:'ARCHIVO',
+censusLink:'Ayuntamiento de Brunete · padrón 2025',censusAssumptions:'Distribución por distritos estimada; ocupación de granja y refugios supuestos.',pnoaIntro:'Ilustración adaptada de una referencia',
+fleetTitle:'Medios de respuesta',fleetTrucks:'camiones',fleetScouts:'exploradores',fleetExtinguishers:'drones Squirtle',scoutsShort:'exploración',extinguishersShort:'Squirtle',applyFleet:'Aplicar flota',fleetHelp:'Configura antes de la ignición. Reinicia para cambiar los medios; los recuentos se conservan.',noVehicles:'Sin vehículos',addFire:'Añadir fuego en el mapa',addFireArmed:'Añadir fuego · ACTIVADO',addFireHint:'Modo ignición activado: clic en el mapa. Durante la deliberación, el fuego queda en cola.',queuedFires:'igniciones en cola',
+sources:{central:'Central',edge:'Agente dron',drone:'Dron','drone → truck':'Dron → Dotación','scout agent':'Agente explorador','scout → central':'Explorador → Central','drone-1':'Squirtle',system:'Sistema',simulation:'Simulación',dispatch:'Despacho',autopilot:'Navegación',weather:'Meteorología',farmer:'Avisante',people:'Población'}},
+en:{eyebrow:'OPERATIONS CENTER · CECOP',subhead:'CIVIL PROTECTION · WILDLAND RESPONSE',setup:'Set up incident',hint:'Configure the fleet before starting. Click the map for the origin, ignite, apply wind and send the smoke report. During the incident, enable Add fire for new ignitions; they queue while agents deliberate.',truth:'Actual situation',truthTag:'BRUNETE · ILLUSTRATED TERRAIN',truthCesiumTag:'BRUNETE · ILLUSTRATED TERRAIN',truthIllustratedTag:'BRUNETE · ILLUSTRATED TERRAIN',belief:'What the system sees',beliefTag:'SENSORS + DELAYED SATELLITE',mission:'MISSION / ORDER',trail:'COMMUNICATIONS',inspect:'HappyRobot technical record',explain:'HappyRobot chooses scouting, containment or district warnings. Illustrated terrain, simulated fire and satellite. Not an operational forecast.',footerNote:'HappyRobot decides. Illustration inspired by Brunete; educational grid, not Rothermel/Catastro. Clock pauses during deliberation; replay never calls AI.',workflow:'Workflow',watch:'Watch',active:'Active',busy:'AGENTS DELIBERATING · CLOCK PAUSED',live:'Live',paused:'Paused',replay:'Replay',mapFallback:'Non-georeferenced illustration · approximate scale',firmsDown:'FIRMS unavailable',
+kClock:'Clock',kThreat:'Threat',kPeople:'PEOPLE AT RISK',kDrone:'Drones',kCrew:'Trucks',kAgents:'Agents',
+recordRun:'Start recording',stopRec:'Stop',playRec:'Play recording',download:'Download',openRec:'Open',ignite:'1 · Ignite',call:'2 · Smoke report',step:'+1',speed:'Speed',wind:'WIND',windHelp:'X east · Y south · demo units',applyWind:'Apply',calmWind:'Calm',ask:'Ask agents',reset:'↺ Reset',liveBtn:'Live',spread:'Fire spread',
+windStrength:'Strength',windStrong:' · strong',windPreview:'Preview · press Apply wind',windApplied:'Applied wind',
+replayStart:'▶ Replay',replayStop:'Ⅱ Replay',playBtn:'Play',pauseBtn:'Pause',
+legendSim:'Simulated front (educational grid)',legendFirms:'FIRMS · real 24 h hotspots (NASA)',legendDrone:'Squirtle',legendScout:'Scout',legendTruck:'Engine',legendArea:'Illustrated districts',
+lblIgnition:'IGNITION',lblRefuge:'REFUGE',lblSmoke:'SMOKE REPORT',lblEngine:'ENGINE 1',lblDrone:'DRONE 01',lblWind:'WIND',
+viewTruth:'AERIAL VIEW · SIMULATED TERRAIN',viewBelief:'OBSERVATION / THERMAL OVERLAY',
+cellsBurning:'burning',crewWord:'crew',firesDrone:'fires (drone)',firesShared:'fires in shared view',droneWord:'drone',truckWord:'truck',satellite:'satellite',notYet:'n/a',tealHint:'teal dots = safe flight positions',
+unwarnedLbl:'unwarned',evacLbl:'evacuating',safeLbl:'safe',exposedLbl:'exposed',
+agentChain:'HappyRobot · Central → Scout / Extinguisher',orderChannel:'HAPPYROBOT · CENTRAL',mapPaused:'CLOCK PAUSED',
+incidentActive:'Incident in progress',incidentReady:'Incident prepared',recordTools:'Archive and replay',
+radioChannel:'OPERATIONS CHANNEL',radioEmpty:'Awaiting communications.',
+knowledgeNote:'Local observations and delayed simulated satellite. Not the actual fire front.',
+backFrame:'Previous frame',forwardFrame:'Next frame',recordedFrame:'Recorded frame',changeLanguage:'Cambiar a español',
+serverUnavailable:'Local server unavailable',uiError:'UI error',downloadFailed:'Download failed',
+recordingTooLarge:'Recording must be under 100 MB.',invalidRecording:'Invalid simulation recording.',actionFailed:'The request could not be completed.',recordingLoadFailed:'The recording could not be loaded.',replayReadOnly:'Return to Live to change the simulation.',invalidFrame:'Invalid frame.',
+recordingLabel:'Recording',framesLabel:'frames',resetQueued:'Reset queued',resetPending:'reset after deliberation',
+populationSummary:'Brunete: {total} residents ({year} municipal census). District split is estimated; farm: {farm} assumed occupants, separate from the census. Illustration is not georeferenced; boundaries are not official.',
+peopleWord:'people',refugeArrivals:'refuge arrivals',
+legendTown:'Town homes',legendFarm:'Farm homes',legendFields:'Fields',legendWoodland:'Woodland',legendRefuge:'Refuge',legendDistricts:'Fictional districts · illustrated terrain',observationLegend:'Observation map legend',
+archiveHeadline:'Replay · historical scenario',archiveTag:'ARCHIVE · RECORDED TERRAIN',archiveNote:'Historical recording scenario; not the current Brunete incident.',archiveCode:'ARCHIVE',
+censusLink:'Brunete Town Council · 2025 census',censusAssumptions:'Estimated district allocations; assumed farm occupancy and refuges.',pnoaIntro:'Illustration adapted from a reference',
+fleetTitle:'Response assets',fleetTrucks:'trucks',fleetScouts:'scouts',fleetExtinguishers:'Squirtle drones',scoutsShort:'scout',extinguishersShort:'Squirtle',applyFleet:'Apply fleet',fleetHelp:'Configure before ignition. Reset to change assets; counts are preserved.',noVehicles:'No vehicles',addFire:'Add fire on map',addFireArmed:'Add fire · ON',addFireHint:'Ignition mode on: click the map. Fires are queued during deliberation.',queuedFires:'queued ignitions',
+sources:{central:'Central',edge:'Drone agent',drone:'Drone','drone → truck':'Drone → Engine','scout agent':'Scout agent','scout → central':'Scout → Central','drone-1':'Squirtle',system:'System',simulation:'Simulation',dispatch:'Dispatch',autopilot:'Navigation',weather:'Weather',farmer:'Caller',people:'People'}}
+};
+const STATUS_I18N={
+es:{at_station:'en base',mobilizing:'movilizando',en_route:'en ruta',suppressing:'suprimiendo',returning:'regresando',retreating:'replegando',blocked:'bloqueado',trapped:'atrapado',holding:'en espera',awaiting_assignment:'esperando misión',hold:'mantener',scout:'explorar',contain:'contener',warn:'avisar',patrol:'patrullando',continue:'continuar',on_scene:'en zona',evacuate_town:'avisar distrito',evacuate_farm:'avisar granja',unwarned:'sin aviso',evacuating:'evacuando',safe:'a salvo',burnt:'expuestos'},
+en:{at_station:'at station',mobilizing:'mobilizing',en_route:'en route',suppressing:'suppressing',returning:'returning',retreating:'retreating',blocked:'blocked',trapped:'trapped',holding:'holding',awaiting_assignment:'awaiting assignment',hold:'hold',scout:'scout',contain:'contain',warn:'warn',patrol:'patrolling',continue:'continue',on_scene:'on scene',evacuate_town:'warn district',evacuate_farm:'warn farm',unwarned:'unwarned',evacuating:'evacuating',safe:'safe',burnt:'exposed'}
+};
+function statusText(v){const labels=STATUS_I18N[lang]||{};return Object.hasOwn(labels,v)?labels[v]:v}
+function updateErrors(){const messages=[clientError,pollingError,state?.error].filter(Boolean);$('error').textContent=[...new Set(messages)].join('\n');$('error').hidden=!messages.length}
+function setClientError(error){clientError=error?.message||String(error);updateErrors()}
+async function responseJSON(response,fallback){let data;try{data=await response.json()}catch{throw Error(fallback)}if(!response.ok)throw Error(typeof data?.error==='string'?data.error:fallback);return data}
+function validateRecording(data){
+  const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
+  const text=v=>typeof v==='string',finite=Number.isFinite;
+  const positive=v=>finite(v)&&v>0,nonnegative=v=>finite(v)&&v>=0,integer=v=>Number.isInteger(v)&&v>=0;
+  const list=(v,check)=>Array.isArray(v)&&v.every(check);
+  const optional=(v,check)=>v==null||check(v);
+  const pair=v=>Array.isArray(v)&&v.length===2&&v.every(finite);
+  const point=v=>object(v)&&finite(v.x)&&finite(v.y)&&optional(v.intensity,nonnegative);
+  const vehicle=v=>point(v)&&text(v.status)&&['mode','name','role','drone_id','truck_id'].every(k=>optional(v[k],text))&&
+    (v.role!=='scout'||typeof v.drone_id==='string'&&/^scout-\d+$/.test(v.drone_id))&&
+    ['route','last_drops','waypoints'].every(k=>optional(v[k],a=>list(a,pair)))&&
+    ['target','last_drop'].every(k=>optional(v[k],pair))&&
+    ['observed_fire','safe_containment_positions'].every(k=>optional(v[k],a=>list(a,point)))&&optional(v.sensor_radius,positive);
+  const person=v=>point(v)&&integer(v.count)&&text(v.status)&&optional(v.burnt,n=>integer(n)&&n<=v.count)&&
+    ['name','short_name','kind'].every(k=>optional(v[k],text))&&optional(v.refuge,pair);
+  const zone=v=>object(v)&&list(v.polygon,pair)&&v.polygon.length>=3&&
+    ['name','short_name','id','kind','color'].every(k=>optional(v[k],text))&&
+    ['anchor','refuge'].every(k=>optional(v[k],pair))&&optional(v.homes,a=>list(a,pair));
+  const geography=v=>object(v)&&['id','name','map_style'].every(k=>optional(v[k],text))&&
+    optional(v.meters_per_cell_approx,positive)&&optional(v.image_crop,a=>Array.isArray(a)&&a.length===4&&a.every(finite)&&a[2]>0&&a[3]>0)&&
+    optional(v.observation_zones,a=>list(a,zone))&&optional(v.population_source,p=>object(p)&&integer(p.official_total)&&integer(p.reference_year)&&optional(p.farm_occupancy,f=>object(f)&&integer(f.count)));
+  const validFrame=f=>{
+    if(!object(f)||f.width!==80||f.height!==56||!integer(f.tick)||!text(f.mission)||!pair(f.wind)||
+      !['base','town','farm'].every(k=>pair(f[k]))||!optional(f.incident_id,text)||
+      !list(f.cells,row=>list(row,c=>object(c)&&nonnegative(c.heat)&&nonnegative(c.fuel)&&optional(c.burned,nonnegative))&&row.length===80)||f.cells.length!==56||
+      !object(f.people)||!Object.values(f.people).every(person)||
+      !list(f.history,e=>object(e)&&integer(e.tick)&&text(e.source)&&text(e.message))||!list(f.observation,point)||
+      !optional(f.observed_cells,a=>list(a,c=>point(c)&&integer(c.observed_at)))||!optional(f.roads,a=>list(a,pair))||
+      !['ignition_point','report'].every(k=>optional(f[k],pair))||
+      !['drone','truck'].every(k=>optional(f[k],vehicle))||!['scouts','extinguishers','trucks'].every(k=>optional(f[k],a=>list(a,vehicle)))||
+      (!f.drone&&!Array.isArray(f.extinguishers))||
+      !['burning','extinguished','crew_extinguished'].every(k=>optional(f[k],nonnegative))||
+      !optional(f.rules,r=>object(r)&&optional(r.spread_factor,n=>finite(n)&&n>=0.25&&n<=4))||
+      !optional(f.satellite,s=>object(s)&&integer(s.captured_at)&&list(s.blocks,pair))||!optional(f.geography,geography))return false;
+    if(f.fleet_counts!=null){
+      const vehicles=fleetVehicles(f);
+      if(!object(f.fleet_counts)||!['trucks','scouts','extinguishers'].every(k=>integer(f.fleet_counts[k])&&f.fleet_counts[k]<=3&&f.fleet_counts[k]===vehicles[k].length))return false;
+    }
+    return true;
+  };
+  if(!object(data)||data.format!=='los-panaderos-recording-v1'||!Array.isArray(data.frames)||!data.frames.length||data.frames.length>1500||!data.frames.every(validFrame))throw Error(I18N[lang].invalidRecording);
+  return data.frames;
+}
+function fleetVehicles(s){
+  return {trucks:Array.isArray(s.trucks)?s.trucks:(s.truck?[s.truck]:[]),scouts:s.scouts||[],extinguishers:Array.isArray(s.extinguishers)?s.extinguishers:(s.drone?[s.drone]:[])};
+}
+function fleetCounts(s){
+  const vehicles=fleetVehicles(s);
+  return s.fleet_counts||Object.fromEntries(Object.entries(vehicles).map(([role,list])=>[role,list.length]));
+}
+function statusSummary(vehicles){
+  const counts=new Map();
+  for(const v of vehicles){const label=statusText(v.status);counts.set(label,(counts.get(label)||0)+1)}
+  return [...counts].map(([label,count])=>`${count} ${label}`).join(' · ')||I18N[lang].noVehicles;
+}
+function renderFireControl(s){
+  const t=I18N[lang],queued=s.replay?0:(s.pending_fires||0);
+  $('addFire').disabled=!!(s.replay||s.reset_pending||(s.ignited&&s.phase!=='active'));
+  const placing=addingFire&&!$('addFire').disabled;
+  $('addFire').setAttribute('aria-pressed',String(addingFire));
+  $('addFire').textContent=(addingFire?t.addFireArmed:t.addFire)+(queued?` · ${queued} ${t.queuedFires}`:'');
+  $('firePlacementHint').hidden=!placing;
+  $('firePlacementHint').textContent=t.addFireHint;
+  document.body.classList.toggle('is-adding-fire',placing);
+  $('truth').classList.toggle('fire-placement',placing);
+}
+function renderFleet(s){
+  const t=I18N[lang],counts=fleetCounts(s),vehicles=fleetVehicles(s);
+  const locked=!!(s.ignited||s.called||s.busy||s.replay||s.reset_pending);
+  if(!fleetDirty||s.replay||locked)for(const role of ['trucks','scouts','extinguishers'])$('fleet-'+role).value=counts[role];
+  for(const role of ['trucks','scouts','extinguishers'])$('fleet-'+role).disabled=locked;
+  $('applyFleet').disabled=locked;
+  $('fleetSummary').textContent=`${counts.trucks} ${t.fleetTrucks} · ${counts.scouts} ${t.fleetScouts} · ${counts.extinguishers} ${t.fleetExtinguishers}`;
+  $('droneKpi').textContent=`${counts.scouts} ${t.scoutsShort} · ${counts.extinguishers} ${t.extinguishersShort}`;
+  $('droneStatus').textContent=statusSummary([...vehicles.scouts,...vehicles.extinguishers]);
+  $('crew').textContent=`${counts.trucks} ${t.fleetTrucks}`;
+  $('crewStatus').textContent=statusSummary(vehicles.trucks);
+}
+function observedCount(vehicles){
+  return new Set(vehicles.flatMap(v=>(v.observed_fire||[]).map(f=>`${f.x},${f.y}`))).size;
+}
+function applyMapMode(){
+  const st = {ready:false, reason:'illustrated', firms:false};
+  const archived=!!state?.replay&&!state?.geography?.id?.startsWith('brunete-');
+  $('globe').hidden = !st.ready;
+  $('truth').hidden = st.ready;
+  const t = I18N[lang];
+  const msg=archived?t.archiveNote:(!st.ready?t.mapFallback:(!st.firms?t.firmsDown:''));
+  $('mapNote').textContent = msg;
+  $('mapNote').hidden = !msg;
+  $('legendFirms').hidden = !(st.ready && st.firms);
+  $('truthTag').textContent=archived?t.archiveTag:(st.ready?(st.firms?t.truthTag:t.truthCesiumTag):t.truthIllustratedTag);
+  $('headline').textContent=archived?t.archiveHeadline:'Brunete · Madrid';
+  if (st.ready && window.AerialView && window.AerialView.forget) window.AerialView.forget($('truth'));
+  if (st.ready) requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  $('wx').hidden=true;
+}
+function applyLang(){const t=I18N[lang];document.documentElement.lang=lang;window.uiLang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{const v=t[el.dataset.i18n];if(v!==undefined)el.textContent=v});document.querySelectorAll('[data-i18n-aria-label]').forEach(el=>{const value=t[el.dataset.i18nAriaLabel];if(value)el.setAttribute('aria-label',value)});$('langToggle').textContent=lang==='es'?'EN':'ES';$('replayPlay').textContent=replayTimer||replayStarting?t.replayStop:t.replayStart;applyMapMode()}
+$('langToggle').onclick=()=>{lang=lang==='es'?'en':'es';applyLang();if(state)render(state)};
+async function act(action,extra={},loadToken=null){
+  if(loadToken===null)loadEpoch++;else if(loadToken!==loadEpoch)return false;
+  if(recordingPlayback&&action==='seek'){
+    viewEpoch++;
+    try{showRecorded(extra.index);clientError='';updateErrors();return true}catch(e){stopReplay();setClientError(e);return false}
+  }
+  if(recordingPlayback&&!['pause','stop_recording','live','reset'].includes(action)){setClientError(I18N[lang].replayReadOnly);return false}
+  if(action==='live'||action==='reset')stopReplay();
+  const epoch=++viewEpoch;
+  requestsInFlight++;
+  try{
+    const res=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json','X-Simulator-Request':'1'},body:JSON.stringify({action,...extra})});
+    const s=await responseJSON(res,I18N[lang].actionFailed);
+    if(epoch!==viewEpoch)return false;
+    if(action==='live'||action==='reset')recordingPlayback=null;
+    if(action==='reset'){windDirty=false;spreadDirty=false;fleetDirty=false;addingFire=false}
+    clientError='';pollingError='';
+    if(recordingPlayback)updateErrors();else render(s);
+    return true;
+  }catch(e){if(epoch===viewEpoch)setClientError(e);return false}
+  finally{requestsInFlight--}
+}
+window.act=act;
 document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>{stopReplay();act(b.dataset.action)});
-$('play').onclick=()=>act(state.running?'pause':'play');$('speed').onchange=e=>act('speed',{speed:+e.target.value});
+$('play').onclick=()=>state&&act(state.running?'pause':'play');$('speed').onchange=e=>act('speed',{speed:+e.target.value});
 $('timeline').oninput=e=>{stopReplay();act('seek',{index:+e.target.value})};
-$('back').onclick=()=>{stopReplay();act('seek',{index:Math.max(0,state.frame_index-1)})};$('forward').onclick=()=>act('seek',{index:Math.min(state.frame_count-1,state.frame_index+1)});
-function stopReplay(){clearInterval(replayTimer);replayTimer=null;$('replayPlay').textContent='▶ Replay'}
-$('replayPlay').onclick=async()=>{if(replayTimer){stopReplay();return}if(!state.replay||state.frame_index===state.frame_count-1)await act('seek',{index:0});$('replayPlay').textContent='Ⅱ Replay';replayTimer=setInterval(async()=>{if(pending)return;if(state.frame_index>=state.frame_count-1){stopReplay();return}pending=true;await act('seek',{index:state.frame_index+1});pending=false},250)};
-function pixelMap(canvas,s,belief){window.AerialView.draw(canvas,s,belief)}
-let addingFire=false;
-$('addFire').onclick=()=>{addingFire=!addingFire;$('truth').classList.toggle('fire-placement',addingFire);$('addFire').setAttribute('aria-pressed',String(addingFire));$('addFire').textContent=addingFire?'🔥 Click map to ignite · ON':'🔥 Add fire on map'};
-let fleetDirty=false;
-for(const role of ['trucks','scouts','extinguishers'])$('fleet-'+role).onchange=()=>{fleetDirty=true};
-$('applyFleet').onclick=async()=>{await act('fleet',{counts:Object.fromEntries(['trucks','scouts','extinguishers'].map(role=>[role,Number($('fleet-'+role).value)]))});fleetDirty=false};
-function render(s){state=s;const counts=s.fleet_counts||{trucks:s.truck?1:0,extinguishers:s.drone?1:0,scouts:(s.scouts||[]).length};if(!fleetDirty||s.replay)for(const role of Object.keys(counts))$('fleet-'+role).value=counts[role];$('fleetSummary').textContent=`${counts.trucks} trucks · ${counts.scouts} scouts · ${counts.extinguishers} Squirtle drones`;const source=s.geography?.population_source;$('populationSource').hidden=!source;if(source)$('populationSource').textContent=`Brunete: ${source.official_total.toLocaleString('en-US')} residents (${source.reference_year} municipal census). District split is estimated; farm: ${source.farm_occupancy.count.toLocaleString('en-US')} assumed occupants. Illustrated map, not official district boundaries.`;$('belief').setAttribute('role','img');$('belief').setAttribute('aria-label','Observation map. '+Object.entries(s.people||{}).map(([name,g])=>`${g.name||name}: ${g.count} people, ${g.status}; refuge: ${g.status==='safe'?Math.max(0,g.count-(g.burnt||0)):0} arrived`).join('. '));$('error').hidden=!s.error;if(s.error)$('error').textContent=s.error;$('workflow').href=s.workflow_url;$('clock').textContent=`T+${s.tick} steps`;$('connection').textContent=s.reset_pending?'Reset queued · waiting for HappyRobot':s.busy?'HappyRobot deliberating · clock paused':s.replay?'Viewing recorded history':s.running?'Live · simulation running':'Paused';$('crew').textContent=s.truck?`Truck 1 · ${s.truck.status} · (${s.truck.x}, ${s.truck.y})`:'Truck at station';$('runs').textContent=`${s.workflow_calls} HappyRobot runs${s.latency?' · last '+s.latency+'s':''}`;$('play').textContent=s.running?'Ⅱ Pause':'▶ Play';if(!windDirty||s.replay){$('windX').value=s.wind[0];$('windY').value=s.wind[1];windDirty=false}updateWindPreview();for(const id of ['windX','windY','applyWind','calmWind','spreadFactor'])$(id).disabled=s.busy||s.replay;if(!spreadDirty||s.replay){$('spreadFactor').value=s.rules?.spread_factor??1;$('spreadFactorValue').textContent=`${$('spreadFactor').value}×`;}$('speed').value=s.speed;$('mission').textContent=s.mission;$('truthstats').textContent=`${s.burning} burning cells · ${s.extinguished} extinguished by drone · ${s.crew_extinguished} by crew`;$('beliefstats').textContent=`${s.observation.length} fires in shared view · ${s.drone?.observed_fire?.length||0} drone / ${s.truck?.observed_fire?.length||0} truck / ${(s.scouts||[]).reduce((n,d)=>n+(d.observed_fire?.length||0),0)} scouts · satellite ${s.satellite?`age ${s.tick-s.satellite.captured_at} steps, 8×8-cell blocks`:'not yet available'} · teal dots = safe flight positions`;$('timeline').max=s.frame_count-1;$('timeline').value=s.frame_index;$('replayPlay').disabled=s.frame_count<2;$('frame').textContent=s.replay?`Replay ${s.frame_index+1}/${s.frame_count}`:'Live';$('people').replaceChildren(...Object.entries(s.people).map(([name,g])=>{const el=document.createElement('span');el.className='person';el.textContent=`${g.name||name.toUpperCase()} · ${g.count.toLocaleString('en-US')} people · ${g.status==='burnt'?'0 unwarned':g.status} · Burnt: ${g.burnt||0}`;return el}));$('trail').replaceChildren(...s.history.slice().reverse().map(e=>{const row=document.createElement('div');row.className='entry';const b=document.createElement('b');b.textContent=`T+${e.tick} ${e.source==='drone-1'?'SQUIRTLE':e.source.toUpperCase()}`;const t=document.createElement('span');t.textContent=e.message;row.append(b,t);return row}));$('evidence').textContent=s.run_evidence||'No platform run yet.';document.querySelectorAll('.toolbar button,.toolbar select').forEach(b=>{b.disabled=(s.busy||s.replay)&&b.id!=='play'});for(const role of ['trucks','scouts','extinguishers'])$('fleet-'+role).disabled=s.ignited||s.busy||s.replay;$('applyFleet').disabled=s.ignited||s.busy||s.replay;$('addFire').disabled=s.replay||s.reset_pending;$('truth').classList.toggle('fire-placement',addingFire&&!s.replay&&!s.reset_pending);$('addFire').textContent=(addingFire?'🔥 Click map to ignite · ON':'🔥 Add fire on map')+(s.pending_fires?` · ${s.pending_fires} queued`:'');$('resetSim').disabled=!!s.reset_pending;$('resetSim').textContent=s.reset_pending?'↺ Reset queued…':'↺ Reset simulation';$('play').disabled=s.replay||s.busy&&!s.running;$('recordRun').disabled=s.busy||s.replay||s.recording;$('stopRecord').disabled=!s.recording;$('downloadRecord').disabled=!s.recorded_frames;$('playRecord').disabled=!s.recorded_frames||s.recording;$('recordRun').textContent=s.recording?`● Recording · ${s.recorded_frames} frames`:'● Run & record';pixelMap($('truth'),s,false);pixelMap($('belief'),s,true)}
-async function poll(){try{if(recordingPlayback)return;const r=await fetch('/api/state');if(r.ok)render(await r.json())}catch(e){$('connection').textContent='Local server unavailable'}finally{setTimeout(poll,600)}}poll();
+$('back').onclick=()=>{if(!state)return;stopReplay();act('seek',{index:Math.max(0,state.frame_index-1)})};$('forward').onclick=()=>{if(!state)return;stopReplay();act('seek',{index:Math.min(state.frame_count-1,state.frame_index+1)})};
+function stopReplay(){clearInterval(replayTimer);replayTimer=null;replayStarting=false;replayEpoch++;$('replayPlay').textContent=I18N[lang].replayStart}
+async function startReplay(){
+  if(!state||state.frame_count<2||replayTimer||replayStarting)return;
+  const epoch=++replayEpoch;
+  replayStarting=true;$('replayPlay').textContent=I18N[lang].replayStop;
+  try{
+    if((!state.replay||state.frame_index===state.frame_count-1)&&!await act('seek',{index:0})){if(epoch===replayEpoch)stopReplay();return}
+    if(epoch!==replayEpoch)return;
+    replayTimer=setInterval(async()=>{
+      if(epoch!==replayEpoch||pending)return;
+      if(state.frame_index>=state.frame_count-1){stopReplay();return}
+      pending=true;
+      try{if(!await act('seek',{index:state.frame_index+1})&&epoch===replayEpoch)stopReplay()}
+      finally{pending=false}
+    },250);
+  }finally{if(epoch===replayEpoch){replayStarting=false;$('replayPlay').textContent=replayTimer?I18N[lang].replayStop:I18N[lang].replayStart}}
+}
+$('replayPlay').onclick=()=>{if(replayTimer||replayStarting){stopReplay();return}return startReplay()};
 
-function updateWindPreview(){const x=+$('windX').value,y=+$('windY').value;$('windStrength').textContent=`Strength ${Math.hypot(x,y).toFixed(2)}${Math.hypot(x,y)>=2?" · strong":""}`;$('windPending').textContent=windDirty?'Preview · press Apply wind':'Applied wind';const px=43+Math.sign(x)*Math.sqrt(Math.abs(x)/3)*30,py=43+Math.sign(y)*Math.sqrt(Math.abs(y)/3)*30;$('windArrow').setAttribute('d',`M43 43 L${px} ${py}`);$('windTip').setAttribute('cx',px);$('windTip').setAttribute('cy',py)}
+function pixelMap(canvas,s,belief){window.AerialView.draw(canvas,s,belief)}
+function renderRadio(s){
+  const t=I18N[lang];
+  const history=(s.history||[]).slice().reverse();
+  let latestAgent=false;
+  const rows=history.map(e=>{
+    const source=e.source||'system';
+    const vehicleSource=/^(drone|scout|engine)-\d+$/.test(source)||source==='scout agent'||source==='scout → central';
+    const agent=vehicleSource||['central','edge','drone','drone → truck'].includes(source);
+    const kind=vehicleSource?'drone':source==='drone'||source==='edge'||source==='drone → truck'?'drone':['central','system','dispatch','autopilot'].includes(source)?'system':['simulation','weather'].includes(source)?'simulation':'human';
+    const row=document.createElement('div');row.className=`entry source-${kind}`;
+    if(agent&&!latestAgent){row.classList.add('latest-agent');latestAgent=true}
+    const time=document.createElement('time');time.textContent=`T+${e.tick}`;
+    const label=document.createElement('b');label.className='entry-source';label.textContent=(Object.hasOwn(t.sources,source)?t.sources[source]:source).toUpperCase();
+    const message=document.createElement('span');message.className='entry-message';message.textContent=e.message;
+    row.append(time,label,message);return row;
+  });
+  if(!rows.length){const empty=document.createElement('p');empty.className='radio-empty';empty.textContent=t.radioEmpty;rows.push(empty)}
+  $('trail').replaceChildren(...rows);
+}
+function renderPopulation(s){
+  const t=I18N[lang],source=s.geography?.population_source;
+  const number=n=>Number(n).toLocaleString(lang==='es'?'es-ES':'en-US');
+  $('populationSource').hidden=!source;
+  $('populationSource').textContent=source?t.populationSummary.replace('{total}',number(source.official_total)).replace('{year}',source.reference_year).replace('{farm}',number(source.farm_occupancy?.count??Object.values(s.people||{}).filter(g=>g.kind==='farm').reduce((n,g)=>n+g.count,0))):'';
+  $('belief').setAttribute('role','img');
+  $('belief').setAttribute('aria-label',t.belief+'. '+Object.entries(s.people||{}).map(([name,g])=>`${g.name||name}: ${number(g.count)} ${t.peopleWord}, ${statusText(g.status)}; ${t.refugeArrivals}: ${number(g.status==='safe'?Math.max(0,g.count-(g.burnt||0)):0)}`).join('. '));
+}
+function render(s){
+if((state&&state.incident_id!==s.incident_id)||s.replay){fleetDirty=false;addingFire=false}
+state=s;window.state=s;updateErrors();$('workflow').href=s.workflow_url;$('clock').textContent=`T+${s.tick}`;
+const t=I18N[lang];
+const busy=!!s.busy&&!s.replay;
+if(busy&&!busySince)busySince=Date.now();if(!busy)busySince=0;
+const wait=busy&&busySince?` · ${Math.round((Date.now()-busySince)/1000)}s`:'';
+$('connection').textContent=(busy?t.busy+wait:s.replay?t.replay:s.running?t.live:t.paused);
+if(s.reset_pending)$('connection').textContent+=` · ${t.resetPending}`;
+if(!s.replay&&s.pending_fires)$('connection').textContent+=` · ${s.pending_fires} ${t.queuedFires}`;
+document.body.classList.toggle('is-busy',busy);
+document.body.classList.toggle('is-live',!!s.running&&!s.busy&&!s.replay);
+document.body.classList.toggle('is-replay',!!s.replay);
+document.body.classList.toggle('is-active',!!(s.ignited&&s.burning));
+$('threat').textContent=s.ignited&&s.burning?t.active:t.watch;
+renderPopulation(s);
+const people=Object.values(s.people||{});
+const unwarned=people.filter(g=>g.status==='unwarned').reduce((n,g)=>n+g.count,0);
+const evac=people.filter(g=>g.status==='evacuating'||g.status==='blocked').reduce((n,g)=>n+g.count,0);
+const safe=people.filter(g=>g.status==='safe').reduce((n,g)=>n+g.count,0);
+const burnt=people.reduce((n,g)=>n+(g.burnt||0),0);
+$('peopleUnwarned').textContent=unwarned.toLocaleString(lang==='es'?'es-ES':'en-US');
+$('peopleEvacuating').textContent=evac.toLocaleString(lang==='es'?'es-ES':'en-US');
+$('peopleSafe').textContent=safe.toLocaleString(lang==='es'?'es-ES':'en-US');
+$('peopleExposed').textContent=burnt.toLocaleString(lang==='es'?'es-ES':'en-US');
+$('peopleBoard').classList.toggle('has-unwarned',unwarned>0);
+$('peopleBoard').classList.toggle('has-exposed',burnt>0);
+$('runs').textContent=`${s.workflow_calls||0}${s.latency?' · '+s.latency+'s':''}`;
+$('incidentCode').textContent=s.geography?.id||(s.replay?t.archiveCode:'ES-2026-BRUNETE');
+const windSummary=`${t.wind} X ${Number(s.wind[0]).toFixed(2)} · Y ${Number(s.wind[1]).toFixed(2)}`;
+const incidentSummary=s.replay?t.replay:s.called?t.incidentActive:t.incidentReady;
+$('operatingSummary').textContent=`${incidentSummary} · ${windSummary}`;
+$('setupSummary').textContent=`${t.setup} · ${incidentSummary} · ${windSummary}`;
+if(s.called&&!setupCollapsed){$('setupPanel').open=false;setupCollapsed=true}
+if(!s.called&&setupCollapsed){$('setupPanel').open=true;setupCollapsed=false}
+$('play').textContent=s.running?t.pauseBtn:t.playBtn;if(!windDirty||s.replay){$('windX').value=s.wind[0];$('windY').value=s.wind[1];windDirty=false}updateWindPreview();for(const id of ['windX','windY','applyWind','calmWind','spreadFactor'])$(id).disabled=s.busy||s.replay;if(!spreadDirty||s.replay){$('spreadFactor').value=s.rules?.spread_factor??0.5;$('spreadFactorValue').textContent=`${$('spreadFactor').value}×`;}$('speed').value=s.speed;$('mission').textContent=s.mission;$('truthstats').textContent=`${s.burning} ${t.cellsBurning} · ${s.extinguished} ${t.droneWord} · ${s.crew_extinguished} ${t.crewWord}`;const vehicles=fleetVehicles(s);
+$('beliefstats').textContent=`${s.observation.length} ${t.firesShared} · ${observedCount(vehicles.extinguishers)} ${t.extinguishersShort} / ${observedCount(vehicles.trucks)} ${t.truckWord} / ${observedCount(vehicles.scouts)} ${t.scoutsShort} · ${t.satellite} ${s.satellite?`t+${s.tick-s.satellite.captured_at}`:t.notYet} · ${t.tealHint}`;$('timeline').max=s.frame_count-1;$('timeline').value=s.frame_index;$('replayPlay').disabled=s.frame_count<2||s.busy;$('back').disabled=$('forward').disabled=$('timeline').disabled=s.busy;document.querySelector('[data-action="live"]').disabled=s.busy;$('frame').textContent=s.replay?`${t.replay} ${s.frame_index+1}/${s.frame_count}`:t.live;$('people').replaceChildren(...Object.entries(s.people||{}).map(([name,g])=>{
+  const el=document.createElement('span');
+  el.className='person person-'+(g.status||'');
+  const zone=(s.geography?.observation_zones||[]).find(z=>z.id===name);
+  const label=g.short_name||g.name||zone?.short_name||zone?.name||name;
+  el.textContent=`${label} · ${g.count.toLocaleString(lang==='es'?'es-ES':'en-US')} · ${statusText(g.status)}${g.burnt?` · ${g.burnt.toLocaleString(lang==='es'?'es-ES':'en-US')} ${t.exposedLbl}`:''}`;
+  return el;
+}));renderRadio(s);$('evidence').textContent=s.run_evidence||'';document.querySelectorAll('.toolbar button,.toolbar select').forEach(b=>{if(b.id==='play'||b.id==='addFire')return;b.disabled=s.busy||s.replay});$('resetSim').disabled=!!s.reset_pending;$('resetSim').textContent=s.reset_pending?t.resetQueued:t.reset;renderFleet(s);renderFireControl(s);$('play').disabled=s.replay||s.busy&&!s.running;$('recordRun').disabled=s.busy||s.replay||s.recording;$('stopRecord').disabled=!s.recording;$('downloadRecord').disabled=!s.recorded_frames;$('playRecord').disabled=busy||s.replay||!s.recorded_frames||s.recording;$('openRecording').disabled=s.busy||s.replay;$('recordRun').textContent=s.recording?`${t.recordingLabel} · ${s.recorded_frames} ${t.framesLabel}`:t.recordRun;
+applyMapMode();
+try{pixelMap($('belief'),s,true);if(!$('truth').hidden)pixelMap($('truth'),s,false)}catch(e){console.error('Canvas render failed',e)}}
+async function poll(){
+  const epoch=viewEpoch;
+  try{
+    if(recordingPlayback||requestsInFlight)return;
+    const s=await responseJSON(await fetch('/api/state'),I18N[lang].serverUnavailable);
+    if(epoch!==viewEpoch||recordingPlayback||requestsInFlight)return;
+    pollingError='';render(s);
+  }catch(e){
+    if(epoch===viewEpoch&&!recordingPlayback&&!requestsInFlight){pollingError=I18N[lang].serverUnavailable;updateErrors();$('connection').textContent=pollingError}
+  }finally{setTimeout(poll,600)}
+}
+// Surface any load-time failure instead of leaving an inert console.
+window.addEventListener('error',e=>setClientError(I18N[lang].uiError+': '+(e.message||e.error)));
+applyLang();
+// The simulator must stay usable even if the map cannot start at all.
+applyMapMode();poll();
+
+function updateWindPreview(){const t=I18N[lang];const x=+$('windX').value,y=+$('windY').value;$('windXValue').textContent=x.toFixed(2);$('windYValue').textContent=y.toFixed(2);$('windStrength').textContent=`${t.windStrength} ${Math.hypot(x,y).toFixed(2)}${Math.hypot(x,y)>=2?t.windStrong:""}`;$('windPending').textContent=windDirty?t.windPreview:t.windApplied;const px=43+Math.sign(x)*Math.sqrt(Math.abs(x)/3)*30,py=43+Math.sign(y)*Math.sqrt(Math.abs(y)/3)*30;$('windArrow').setAttribute('d',`M43 43 L${px} ${py}`);$('windTip').setAttribute('cx',px);$('windTip').setAttribute('cy',py)}
 for(const id of ['windX','windY'])$(id).oninput=()=>{windDirty=true;updateWindPreview()};
 $('applyWind').onclick=()=>{const x=+$('windX').value,y=+$('windY').value;windDirty=false;act('wind',{x,y})};
 $('calmWind').onclick=()=>{$('windX').value=0;$('windY').value=0;windDirty=true;updateWindPreview()};
@@ -246,12 +528,48 @@ $('windVector').onpointermove=e=>{if(e.currentTarget.hasPointerCapture(e.pointer
 $('windVector').onpointerup=e=>{if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId)};
 $('recordRun').onclick=async()=>{stopReplay();const ok=await act('record_run',{x:+$('windX').value,y:+$('windY').value});if(ok){windDirty=false;updateWindPreview()}};
 $('stopRecord').onclick=()=>act('stop_recording');
-$('downloadRecord').onclick=async()=>{try{const r=await fetch('/api/recording');if(!r.ok)throw Error('Download failed');const blob=new Blob([JSON.stringify(await r.json())],{type:'application/json'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='los-panaderos-recording.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){$('error').hidden=false;$('error').textContent=e.message}};
+$('downloadRecord').onclick=async()=>{try{const r=await fetch('/api/recording');if(!r.ok)throw Error(I18N[lang].downloadFailed);const blob=new Blob([JSON.stringify(await r.json())],{type:'application/json'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='los-panaderos-recording.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){setClientError(e)}};
 
-function showRecorded(index){index=Math.max(0,Math.min(recordingPlayback.length-1,index));render({...state,...recordingPlayback[index],geography:recordingPlayback[index].geography??null,busy:false,running:false,replay:true,frame_index:index,frame_count:recordingPlayback.length,run_evidence:'Recorded simulation replay. No new HappyRobot calls.'})}
-$('playRecord').onclick=async()=>{stopReplay();await act('pause');const r=await fetch('/api/recording');const recording=await r.json();if(!recording.frames?.length)return;recordingPlayback=recording.frames;showRecorded(0);$('replayPlay').click()};
+function showRecorded(index){
+  if(!recordingPlayback?.length||!Number.isInteger(index))throw Error(I18N[lang].invalidFrame);
+  index=Math.max(0,Math.min(recordingPlayback.length-1,index));
+  const frame=recordingPlayback[index],vehicles=fleetVehicles(frame);
+  render({...state,...frame,drone:frame.drone??vehicles.extinguishers[0]??null,truck:frame.truck??vehicles.trucks[0]??null,scouts:vehicles.scouts,extinguishers:vehicles.extinguishers,trucks:vehicles.trucks,fleet_counts:frame.fleet_counts??null,geography:frame.geography??null,workflow_url:state?.workflow_url,pending_fires:0,busy:false,reset_pending:false,running:false,replay:true,frame_index:index,frame_count:recordingPlayback.length,run_evidence:'Recorded simulation replay. No new HappyRobot calls.'});
+}
+async function loadRecording(readData){
+  stopReplay();
+  const token=++loadEpoch;
+  try{
+    const data=await readData();
+    if(token!==loadEpoch)return false;
+    const frames=validateRecording(data);
+    if(!await act('pause',{},token)||token!==loadEpoch)return false;
+    const previousRecording=recordingPlayback,previousState=state;
+    viewEpoch++;recordingPlayback=frames;
+    try{showRecorded(0)}catch(e){recordingPlayback=previousRecording;if(previousState)render(previousState);throw e}
+    clientError='';updateErrors();
+    if(frames.length>1)await startReplay();
+    return true;
+  }catch(e){if(token===loadEpoch)setClientError(e);return false}
+}
+$('playRecord').onclick=()=>loadRecording(async()=>responseJSON(await fetch('/api/recording'),I18N[lang].recordingLoadFailed));
+$('openRecording').onchange=async e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  try{
+    await loadRecording(async()=>{
+      if(file.size>100000000)throw Error(I18N[lang].recordingTooLarge);
+      const raw=await file.text();
+      try{return JSON.parse(raw)}catch{throw Error(I18N[lang].invalidRecording)}
+    });
+  }finally{e.target.value=''}
+};
 
-$('openRecording').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>100000000)throw Error('Recording must be under 100 MB.');const data=JSON.parse(await file.text());if(data.format!=='los-panaderos-recording-v1'||!Array.isArray(data.frames)||!data.frames.length||data.frames.length>1500||data.frames.some(f=>f.width!==80||f.height!==56||!Array.isArray(f.cells)||f.cells.length!==56||f.cells.some(row=>!Array.isArray(row)||row.length!==80)||(!f.drone&&!Array.isArray(f.extinguishers))||!f.people||!Array.isArray(f.history)))throw Error('Invalid simulation recording.');stopReplay();await act('pause');recordingPlayback=data.frames;showRecorded(0);$('replayPlay').click()}catch(err){$('error').hidden=false;$('error').textContent=err.message}finally{e.target.value=''}};
-
+for(const role of ['trucks','scouts','extinguishers'])$('fleet-'+role).onchange=()=>{fleetDirty=true};
+$('applyFleet').onclick=async()=>{
+  const counts=Object.fromEntries(['trucks','scouts','extinguishers'].map(role=>[role,Number($('fleet-'+role).value)]));
+  if(await act('fleet',{counts})){fleetDirty=false;render(state)}
+};
+$('addFire').onclick=()=>{if(!state||$('addFire').disabled)return;addingFire=!addingFire;renderFireControl(state)};
 $('spreadFactor').oninput=()=>{spreadDirty=true;$('spreadFactorValue').textContent=`${$('spreadFactor').value}×`};
 $('spreadFactor').onchange=async()=>{await act('spread_factor',{value:+$('spreadFactor').value});spreadDirty=false};

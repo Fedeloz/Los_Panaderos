@@ -1,9 +1,166 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Los Panaderos · Firewatch</title><link rel="stylesheet" href="/style.css"></head><body>
-<header><div><span class="eyebrow">LOS PANADEROS / HACKSPAIN 2026</span><h1>Scout. Coordinate. Protect.</h1><p>Brunete · Four neighbourhoods and one farm. Scout the smoke. Protect the people.</p></div><a id="workflow" target="_blank" rel="noopener">Open HappyRobot ↗</a></header>
-<div class="control-deck"><section class="toolbar fleet-panel" aria-label="Fleet configuration"><strong>Response assets</strong><label>Trucks <select id="fleet-trucks"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label><label>Scouts <select id="fleet-scouts"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label><label>Squirtle drones <select id="fleet-extinguishers"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label><button id="applyFleet">Apply fleet</button><span id="fleetSummary"></span><small>Configure before ignition · Reset to change counts</small></section><div class="run-controls"><section class="toolbar control-group" aria-label="Run simulation"><strong class="control-label">Run simulation</strong><button id="recordRun" class="primary">● Run & record</button><button id="play">▶ Play</button><button data-action="step">+1 step</button><label>Speed <select id="speed"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option><option value="8">8×</option></select></label><button id="resetSim" data-action="reset" class="quiet" title="Start a fresh simulation at T+0">↺ Reset simulation</button></section><section class="toolbar control-group" aria-label="Incident & agents"><strong class="control-label">Incident & agents</strong><button id="addFire" aria-pressed="false">🔥 Add fire on map</button><button data-action="ignite" class="primary">1 · Ignite</button><button data-action="call" class="primary">2 · Farmer reports smoke</button><button data-action="decision">Ask agents</button></section><section class="toolbar control-group" aria-label="Recording"><strong class="control-label">Recording</strong><button id="stopRecord">■ Stop recording</button><button id="playRecord">Play recording</button><button id="downloadRecord">Download recording</button><label class="record-import">Open recording <input id="openRecording" type="file" accept="application/json,.json"></label></section></div></div>
-<section class="wind-panel"><div><span class="eyebrow">WIND VECTOR</span><p>Drag to set direction and strength.<br>East → · South ↓</p></div><input id="windX" type="hidden" value="1"><input id="windY" type="hidden" value="0"><div class="wind-controls"><svg id="windVector" width="160" height="160" viewBox="0 0 86 86" aria-label="Wind direction preview"><path d="M5 43H81 M43 5V81" stroke="#b6c4b0"/><circle cx="43" cy="43" r="36" fill="none" stroke="#d3dccb"/><path id="windArrow" stroke="#264c38" stroke-width="3" fill="none"/><circle id="windTip" r="4" fill="#264c38"/></svg><label class="spread-control"><span class="spread-label">Fire spread</span><output id="spreadFactorValue" for="spreadFactor">0.5×</output><input id="spreadFactor" type="range" min="0.25" max="4" step="0.25" value="0.5" aria-label="Fire spread factor" aria-orientation="vertical"></label></div><div><strong id="windStrength"></strong><p id="windPending">Applied wind</p></div><button id="applyWind">Apply wind</button><button id="calmWind">Calm</button></section>
-<div id="error" role="alert" hidden></div><section class="status"><span id="clock">T+0</span><span id="connection">Ready</span><span id="crew">Truck at station</span><span id="runs">0 HappyRobot runs</span></section>
-<p id="setupHint">Select the fleet before starting. Click the left map to place the initial fire. During a run, toggle Add fire and click to ignite another location; agents discover it through sensors. Drag the wind compass to set direction and strength, then Apply wind. Run & record starts the farmer report and HappyRobot response.</p><main class="maps"><article><div class="maptitle"><h2>What is happening</h2><span>GROUND TRUTH · PRESENTATION VIEW</span></div><canvas id="truth" width="800" height="560"></canvas><p id="truthstats"></p></article><article><div class="maptitle"><h2>What the agents know</h2><span>LOCAL SENSORS + DELAYED SATELLITE</span></div><canvas id="belief" width="800" height="560"></canvas><div class="map-legend" aria-label="Observation map legend"><span><i class="legend-town"></i>Town homes</span><span><i class="legend-farm"></i>Farm homes</span><span><i class="legend-fields"></i>Fields</span><span><i class="legend-woodland"></i>Woodland</span><span><i class="legend-refuge"></i>Refuge</span><small>Demo districts · Illustrated terrain</small></div><p id="populationSource" class="population-source" hidden></p><p id="beliefstats"></p></article></main>
-<section class="timeline"><button id="back">←</button><button id="replayPlay">▶ Replay</button><input id="timeline" type="range" min="0" max="0" value="0" aria-label="Recorded frame"><button id="forward">→</button><button data-action="live">Live</button><span id="frame">Live</span></section>
-<section class="lower"><article><span class="eyebrow">CURRENT MISSION</span><h2 id="mission">Awaiting a report</h2><div id="people"></div><p class="explain">Extinguisher: contain or warn people. Scouts: patrol, report fires and send districts to refuge; no suppression. Fire grows with terrain, intensity and wind. Fields ignite faster; woodland burns longer; roads and bare ground block surface spread. Spread factor scales attempt speed. Successful jets cool and wet fire; intense fronts need repeated hits. Drone: 1 jet at 40% success, range 8. Truck: 5 jets at 60% success each, range 10; travels 2 cells / step on roads, 1.6 off-road.</p></article><article><span class="eyebrow">THE DECISION TRAIL</span><div id="trail"></div></article></section>
-<footer>Illustrated educational scenario inspired by Brunete. <a href="https://brunete.org/nuestro-pueblo/datos-estadisticos/">Municipal population: Ayuntamiento de Brunete, 2025 census</a>. District counts are estimated allocations; farm occupancy and refuges are scenario assumptions. Map and distances are schematic. Illustration adapted from a <a href="https://pnoa.ign.es/pnoa-imagen/ortofotos-pnoa-maxima-actualidad">PNOA reference</a> (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0 scne.es</a>). Forecast, satellite and calls are simulated. Decisions run in HappyRobot. Clock pauses during deliberation; replay never calls AI.<details><summary>Inspect latest HappyRobot run</summary><pre id="evidence"></pre></details></footer><script src="/vendor/bootstrap-icons.js"></script><script src="/observation-map.js"></script><script src="/app.js"></script></body></html>
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Central de operaciones · Brunete</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="ops">
+<header class="mast">
+  <div class="brand">
+    <div class="badge">112</div>
+    <div>
+      <span class="eyebrow" id="eyebrow" data-i18n="eyebrow">CENTRAL DE OPERACIONES · CECOP</span>
+      <h1 id="headline">Brunete · Madrid</h1>
+      <p id="subhead" data-i18n="subhead">PROTECCIÓN CIVIL · EXTINCIÓN</p>
+    </div>
+  </div>
+  <div class="header-actions">
+    <div class="incident-meta"><span id="incidentCode">ES-2026-BRUNETE</span><span id="wx" class="wx" hidden></span></div>
+    <button type="button" id="langToggle" class="quiet" data-i18n-aria-label="changeLanguage">EN</button>
+  </div>
+</header>
+
+<section class="kpis">
+  <div class="kpi-threat"><span class="kpi-label" id="kThreatLbl" data-i18n="kThreat">Amenaza</span><strong id="threat">Vigilancia</strong></div>
+  <div class="people-board" id="peopleBoard">
+    <span class="kpi-label" id="kPeopleLbl" data-i18n="kPeople">Personas en riesgo</span>
+    <div id="peopleKpi" class="people-counts">
+      <div><strong id="peopleUnwarned">0</strong><span data-i18n="unwarnedLbl">sin aviso</span></div>
+      <div><strong id="peopleEvacuating">0</strong><span data-i18n="evacLbl">evacuando</span></div>
+      <div><strong id="peopleSafe">0</strong><span data-i18n="safeLbl">a salvo</span></div>
+      <div><strong id="peopleExposed">0</strong><span data-i18n="exposedLbl">expuestos</span></div>
+    </div>
+  </div>
+  <div><span class="kpi-label" id="kDroneLbl" data-i18n="kDrone">Drones</span><strong id="droneKpi">—</strong><small id="droneStatus" class="kpi-detail"></small></div>
+  <div><span class="kpi-label" id="kCrewLbl" data-i18n="kCrew">Camiones</span><strong id="crew">—</strong><small id="crewStatus" class="kpi-detail"></small></div>
+  <div><span class="kpi-label" id="kAgentLbl" data-i18n="kAgents">Agentes</span><strong id="runs">0</strong></div>
+  <div><span class="kpi-label" id="kClockLbl" data-i18n="kClock">Reloj</span><strong id="clock">T+0</strong></div>
+</section>
+
+<div class="duty">
+  <p id="connection" role="status" aria-live="polite" aria-atomic="true">Listo</p>
+  <span class="agent-chain" data-i18n="agentChain">HappyRobot · Central → Exploración / Extinción</span>
+</div>
+<section class="toolbar strip">
+  <button id="play" data-i18n="playBtn">Reproducir</button>
+  <button data-action="decision" id="btnAsk" data-i18n="ask">Preguntar a los agentes</button>
+  <button id="addFire" type="button" aria-pressed="false">Añadir fuego en el mapa</button>
+  <button id="resetSim" data-action="reset" class="quiet" data-i18n="reset">↺ Reiniciar</button>
+  <a class="setup-jump" href="#setupPanel"><span data-i18n="setup">Preparar incidente</span><span id="operatingSummary"></span></a>
+</section>
+<div id="error" role="alert" hidden></div>
+
+<section class="order-ticket" aria-labelledby="missionLbl">
+  <div class="order-label"><span class="eyebrow" id="missionLbl" data-i18n="mission">MISIÓN / ORDEN</span><span class="order-channel" data-i18n="orderChannel">HAPPYROBOT · CENTRAL</span></div>
+  <h2 id="mission">A la espera de aviso</h2>
+  <div id="people" class="unit-tags"></div>
+</section>
+
+<main class="maps">
+  <article class="map-card">
+    <div class="maptitle"><h2 id="truthTitle" data-i18n="truth">Situación real</h2><span id="truthTag">BRUNETE · TERRENO ILUSTRADO</span></div>
+    <div class="map-stage">
+      <div id="globe" hidden></div>
+      <canvas id="truth" width="800" height="560"></canvas>
+      <span class="map-paused" data-i18n="mapPaused">RELOJ EN PAUSA</span>
+      <span class="map-replay" data-i18n="replay">Reproducción</span>
+    </div>
+    <p id="mapNote" class="mapnote" hidden></p>
+    <p id="firePlacementHint" class="fire-placement-hint" hidden></p>
+    <ul class="legend">
+      <li><i style="background:#e8862f"></i><span data-i18n="legendSim">Frente simulado (rejilla educativa)</span></li>
+      <li id="legendFirms" hidden><i style="background:#d43b2f"></i><span data-i18n="legendFirms">FIRMS · focos reales 24 h (NASA)</span></li>
+      <li><i style="background:#e8c14a"></i><span data-i18n="legendDrone">Squirtle</span></li>
+      <li><i style="background:#7b8cff"></i><span data-i18n="legendScout">Explorador</span></li>
+      <li><i style="background:#c62828"></i><span data-i18n="legendTruck">Camión</span></li>
+      <li><i class="hollow"></i><span data-i18n="legendArea">Distritos ilustrados</span></li>
+    </ul>
+    <p id="truthstats"></p>
+  </article>
+  <article class="map-card">
+    <div class="maptitle"><h2 id="beliefTitle" data-i18n="belief">Lo que el sistema ve</h2><span id="beliefTag" data-i18n="beliefTag">SENSORES + SATÉLITE RETARDADO</span></div>
+    <div class="map-stage">
+      <canvas id="belief" width="800" height="560"></canvas>
+      <span class="map-paused" data-i18n="mapPaused">RELOJ EN PAUSA</span>
+      <span class="map-replay" data-i18n="replay">Reproducción</span>
+    </div>
+    <div class="map-legend" data-i18n-aria-label="observationLegend"><span><i class="legend-town"></i><span data-i18n="legendTown">Viviendas urbanas</span></span><span><i class="legend-farm"></i><span data-i18n="legendFarm">Viviendas de granja</span></span><span><i class="legend-fields"></i><span data-i18n="legendFields">Cultivos</span></span><span><i class="legend-woodland"></i><span data-i18n="legendWoodland">Bosque</span></span><span><i class="legend-refuge"></i><span data-i18n="legendRefuge">Refugio</span></span><small data-i18n="legendDistricts">Distritos ficticios · terreno ilustrado</small></div>
+    <p id="populationSource" class="population-source" hidden></p>
+    <p class="knowledge-note" data-i18n="knowledgeNote">Observaciones locales y satélite simulado retardado. No es el frente real.</p>
+    <p id="beliefstats"></p>
+  </article>
+</main>
+
+<section class="timeline">
+  <button id="back" data-i18n-aria-label="backFrame">←</button>
+  <button id="replayPlay" data-i18n="replayStart">▶ Repetir</button>
+  <input id="timeline" type="range" min="0" max="0" value="0" data-i18n-aria-label="recordedFrame">
+  <button id="forward" data-i18n-aria-label="forwardFrame">→</button>
+  <button data-action="live" data-i18n="liveBtn">En vivo</button>
+  <span id="frame">En vivo</span>
+</section>
+
+<section class="lower">
+  <details class="setup" id="setupPanel" open>
+    <summary id="setupSummary">Preparar incidente</summary>
+    <div class="setup-content">
+      <section class="toolbar fleet-panel" data-i18n-aria-label="fleetTitle">
+        <strong class="eyebrow" data-i18n="fleetTitle">Medios de respuesta</strong>
+        <label><span data-i18n="fleetTrucks">camiones</span><select id="fleet-trucks"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
+        <label><span data-i18n="fleetScouts">exploradores</span><select id="fleet-scouts"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
+        <label><span data-i18n="fleetExtinguishers">drones Squirtle</span><select id="fleet-extinguishers"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
+        <button id="applyFleet" data-i18n="applyFleet">Aplicar flota</button>
+        <span id="fleetSummary"></span>
+        <small data-i18n="fleetHelp">Configura antes de la ignición. Reinicia para cambiar los medios; los recuentos se conservan.</small>
+      </section>
+      <section class="toolbar">
+        <button data-action="ignite" class="primary" id="btnIgnite" data-i18n="ignite">1 · Ignición</button>
+        <button data-action="call" class="primary" id="btnCall" data-i18n="call">2 · Aviso de humo</button>
+        <button data-action="step" data-i18n="step">+1</button>
+        <label><span data-i18n="speed">Velocidad</span> <select id="speed"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option><option value="8">8×</option></select></label>
+      </section>
+      <section class="wind-panel">
+        <div><span class="eyebrow" id="windTitle" data-i18n="wind">VIENTO</span><p id="windHelp" data-i18n="windHelp">X este · Y sur · unidades demo</p></div>
+        <label>X <input id="windX" type="range" min="-3" max="3" step="0.05" value="1"><output id="windXValue">1.0</output></label>
+        <label>Y <input id="windY" type="range" min="-3" max="3" step="0.05" value="0"><output id="windYValue">0.0</output></label>
+        <svg id="windVector" viewBox="0 0 86 86" data-i18n-aria-label="wind"><path d="M5 43H81 M43 5V81" stroke="#53626a"/><circle cx="43" cy="43" r="36" fill="none" stroke="#53626a"/><path id="windArrow" stroke="#b5cfca" stroke-width="3" fill="none"/><circle id="windTip" r="4" fill="#b5cfca"/></svg>
+        <label class="spread-control"><span class="spread-label" data-i18n="spread">Propagación</span><input id="spreadFactor" type="range" min="0.25" max="4" step="0.25" value="0.5"><output id="spreadFactorValue">0.5×</output></label>
+        <div><strong id="windStrength"></strong><p id="windPending">Viento aplicado</p></div>
+        <button id="applyWind" data-i18n="applyWind">Aplicar</button>
+        <button id="calmWind" data-i18n="calmWind">Calma</button>
+      </section>
+      <p id="setupHint" data-i18n="hint">Clic en el terreno para el origen. Aplica viento y el aviso de humo para lanzar los agentes.</p>
+      <p class="explain" id="explain" data-i18n="explain">HappyRobot decide explorar, contener o avisar a cada distrito. Terreno ilustrado, fuego y satélite simulados. No es una predicción operativa.</p>
+      <details class="record-tools">
+        <summary data-i18n="recordTools">Archivo y reproducción</summary>
+        <section class="toolbar">
+          <button id="recordRun" data-i18n="recordRun">Iniciar grabación</button>
+          <button id="stopRecord" data-i18n="stopRec">Detener</button>
+          <button id="playRecord" data-i18n="playRec">Reproducir grabación</button>
+          <button id="downloadRecord" data-i18n="download">Descargar</button>
+          <label class="record-import"><span data-i18n="openRec">Abrir</span> <input id="openRecording" type="file" accept="application/json,.json"></label>
+        </section>
+      </details>
+    </div>
+  </details>
+  <article class="panel">
+    <div class="radio-heading"><span class="eyebrow" id="trailLbl" data-i18n="trail">COMUNICACIONES</span><small data-i18n="radioChannel">CANAL OPERATIVO</small></div>
+    <div id="trail" role="log"></div>
+  </article>
+</section>
+
+<footer>
+  <span id="footerNote" data-i18n="footerNote">HappyRobot decide. Ilustración inspirada en Brunete; rejilla educativa, no Rothermel/Catastro. El reloj se pausa durante la deliberación; la reproducción no llama a la IA.</span>
+  <details><summary id="inspectLbl" data-i18n="inspect">Registro técnico de HappyRobot</summary><pre id="evidence"></pre></details>
+  <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo</a>
+  <div class="attribution"><a href="https://brunete.org/nuestro-pueblo/datos-estadisticos/" data-i18n="censusLink">Ayuntamiento de Brunete · padrón 2025</a><span data-i18n="censusAssumptions">Distribución por distritos estimada; ocupación de granja y refugios supuestos.</span><span data-i18n="pnoaIntro">Ilustración adaptada de una referencia</span> <a href="https://pnoa.ign.es/pnoa-imagen/ortofotos-pnoa-maxima-actualidad">PNOA</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0 scne.es</a></div>
+</footer>
+</div>
+<script src="/vendor/bootstrap-icons.js"></script>
+<script src="/observation-map.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
