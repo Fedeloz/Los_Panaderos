@@ -37,3 +37,7 @@ Live strong-north-wind farmer-call check returned evacuate_farm plus truck attac
 ## Close scouting and context — development v15
 
 Live weak-east farmer-call check selected scout (62,43), exactly three cells west of report (65,43), plus truck attack_sector (65,43). The known grid kept the unobserved ignition cell unknown. Mission records include selected actions and observed outcomes; the local suite has 45 passing tests. Map input is a symbolic text grid, not a vision attachment.
+
+## Explicit district selection — development v17
+
+67 local tests passed. A live farmer-call run with smoke at (30,23) and wind (-3,0) returned evacuate_town with district_id town_north. The command was accepted; after drone arrival only North became evacuating, while Centre, South and Farm remained unwarned. Tests also reject missing, unknown and mismatched district IDs and verify district context. This is one sampled model run.
