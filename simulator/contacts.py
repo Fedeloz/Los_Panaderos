@@ -1,15 +1,19 @@
 """Demo contact directory shared with HappyRobot's Despacho Central.
 
-Names, roles and locations are fictional demo personas. Phone numbers and
-Telegram chat IDs are NEVER hard-coded: they come from .env so only team
-members' devices can ever be called or messaged. Missing values are reported
-as `missing` so the dispatch agent states "datos faltantes" instead of
-inventing a contact.
+Names, roles and locations are fictional demo personas. Phone numbers stay
+null unless DEMO_*_PHONE is set in .env (never invent them). District Telegram
+channels fall back to the demo destination hardcoded in Mensajes externos v2
+when DEMO_*_CHAT_ID is unset, so zone alerts can fire without per-district IDs.
 """
 import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Mensajes externos v2 (`Preparar destinatarios`): DEFAULT_GROUP_CHAT_ID.
+# Private chat used to simulate a group (a real Telegram group id is negative).
+# Env DEMO_*_CHAT_ID still wins. Do not put bot tokens here.
+DEFAULT_ZONE_CHAT_ID = '5916687836'
 
 ENV_KEYS = dict(
     farm_channel='DEMO_FARM_CHAT_ID',
@@ -44,6 +48,11 @@ def load_env(path=None):
 def _env(key):
     value = os.environ.get(ENV_KEYS[key], '').strip()
     return value or None
+
+
+def _zone_chat(key):
+    """Per-district channel from env, else the Mensajes externos demo destination."""
+    return _env(key) or DEFAULT_ZONE_CHAT_ID
 
 
 REFUGES = {
@@ -85,20 +94,21 @@ def directory(groups=None):
         refuge = REFUGES.get(tuple(group.get('refuge', ())), {})
         districts.append(dict(district_id=district_id, name=group.get('name', district_id), kind=group.get('kind'),
                               population=group.get('count'), status=group.get('status'),
-                              chat_id=_env(channel['env']), channel_name=channel['channel_name'],
+                              chat_id=_zone_chat(channel['env']), channel_name=channel['channel_name'],
                               evacuation_point=refuge.get('name'), evacuation_route=refuge.get('route'),
                               refuge_cell=group.get('refuge')))
     persons = people()
     for person in persons:
         refuge = REFUGES.get(tuple(groups.get(person['district_id'], {}).get('refuge', ())), {})
         person.update(evacuation_point=refuge.get('name'), evacuation_route=refuge.get('route'))
-    missing = [f"{d['district_id']}.chat_id" for d in districts if not d['chat_id']]
-    missing += [f"{p['contact_id']}.{field}" for p in persons for field in ('phone_number', 'chat_id') if not p[field]]
+    missing = [f"{p['contact_id']}.{field}" for p in persons for field in ('phone_number', 'chat_id') if not p[field]]
     return dict(
         people=persons, districts=districts,
         emergency=dict(agency='Centro de coordinación Los Panaderos', contact_phone=_env('contact_phone')),
-        policy=('Only call phone_number values listed in people and only alert chat_id values listed here. '
-                'Never invent, guess or reuse numbers/IDs. If a needed phone_number or chat_id is null, report it in '
-                'datos_faltantes and use the remaining channels. Zone alerts reach every resident of that district_id; '
-                'a phone call reaches one person only. All values are demo test devices belonging to the team.'),
+        policy=('Only call phone_number values listed in people — never invent phones. District Telegram channels '
+                'are the DEMO_*_CHAT_ID env values, or the shared demo destination used by Mensajes externos when '
+                'those env vars are empty. Zone alerts (alertar_zona) may always fire: pass the district chat_id, '
+                'or leave it empty and Mensajes externos delivers to its default demo channel. Personal Telegram '
+                '(informar_persona) still requires that person\'s chat_id. A zone alert reaches the demo channel; '
+                'a phone call reaches one person only.'),
         missing=missing)

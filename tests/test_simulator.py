@@ -602,11 +602,14 @@ class CommunicationTests(unittest.TestCase):
         self.assertEqual(names, {'Paco Herranz', 'Carmen Ortega'})
         farm = next(c for c in contacts['people'] if c['district_id'] == 'farm')
         self.assertIsNone(farm['phone_number']); self.assertIn('farm-manager.phone_number', contacts['missing'])
+        farm_district = next(d for d in contacts['districts'] if d['district_id'] == 'farm')
+        self.assertEqual(farm_district['chat_id'], '5916687836')  # Mensajes externos demo fallback
+        self.assertNotIn('farm.chat_id', contacts['missing'])
         carmen = next(c for c in contacts['people'] if c['district_id'] == 'town_north')
         self.assertEqual(carmen['phone_number'], '+34611'); self.assertEqual(carmen['evacuation_point'], 'Polideportivo municipal de Brunete')
         north = next(d for d in world['districts'] if d['district_id'] == 'town_north')
         self.assertEqual(north['chat_id'], '-100north'); self.assertEqual(north['population'], 2815)
-        self.assertIn('Never invent', contacts['policy'])
+        self.assertIn('never invent phones', contacts['policy'].lower())
 
     def test_zone_alert_warns_district_and_call_only_logs(self):
         s = Simulation(); s.ignite(); s.farmer_call()
