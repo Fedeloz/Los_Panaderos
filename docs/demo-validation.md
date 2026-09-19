@@ -25,3 +25,7 @@ All three tests began with a farmer report and empty local thermal detections. D
 - strong_north: evacuate_farm; run a91e95b9-c761-430c-9532-790f9bd406af.
 - strong_west: evacuate_town; run 421ca8e2-46ea-41fd-a993-7feae7a39cdc.
 - strong_away: scout; run 09b221a0-3d08-4379-9785-c48a6a0c70e3.
+
+## Downwind strategy — development v11
+
+Live HappyRobot checks passed: weak east wind with observed fire selected contain at safe downwind position (69,43); strong north wind selected evacuate_farm; strong west wind selected evacuate_town. The west case initially failed in v10; v11 adds observation-derived population/wind geometry and asks both agents to verify the threatened settlement. Local suite: 29 tests pass, including downwind candidate clearance and population alignment. These are sampled model runs, not a guarantee of every future decision.

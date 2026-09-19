@@ -69,6 +69,43 @@ class PhysicsTests(unittest.TestCase):
                 self.assertFalse(s.burning(s.cells[round(s.drone['y'])][round(s.drone['x'])]))
                 self.assertNotIn((round(s.drone['x']),round(s.drone['y'])),s.danger_zone(s.fire_points()))
 
+    def test_fire_exposure_counts_people_once_and_freezes_group(self):
+        for status in ['unwarned','evacuating','blocked','safe']:
+            s=Simulation();g=s.groups['farm'];g['status']=status
+            s.cells[10][65]['heat']=1
+            s.step()
+            self.assertEqual((g['burnt'],g['status']),(6,'burnt'))
+            frame=s.state()
+            s.step(3)
+            self.assertEqual((g['x'],g['y']),(65,10))
+            self.assertEqual(s.state()['burnt_people'],6)
+            self.assertEqual(frame['people']['farm']['burnt'],6)
+            self.assertEqual(sum('people burnt' in e['message'] for e in s.history),1)
+        fresh=Simulation()
+        self.assertEqual(fresh.state()['burnt_people'],0)
+
+    def test_population_alignment_uses_known_source_and_full_wind_vector(self):
+        s=Simulation();s.ignite();s.set_wind('west')
+        self.assertFalse(any(g['measurements'] for g in s.population_wind_alignment().values()))
+        s.farmer_call()
+        for wind,expected in [((-3,0),'town'),((0,-3),'farm'),((3,0),None),((0,0),None)]:
+            s.set_wind(x=wind[0],y=wind[1])
+            alignment=s.population_wind_alignment()
+            self.assertEqual([name for name,g in alignment.items() if g['downwind_sector']],
+                             [expected] if expected else [])
+
+    def test_containment_options_cover_downwind_front_safely(self):
+        for wind,pos in [((1,0),(69,43)),((-1,0),(61,43)),((0,-1),(65,39)),((0,1),(65,48)),((1,-1),(69,39))]:
+            s=Simulation();s.ignite();s.set_wind(x=wind[0],y=wind[1])
+            s.drone.update(x=pos[0],y=pos[1]);s.observe()
+            options=s.safe_drone_positions()
+            self.assertTrue(options)
+            self.assertGreater(options[0]['downwind_front_reachable'],0)
+            self.assertGreaterEqual(options[0]['downwind_offset'],0)
+            for p in options:self.assertNotIn((p['x'],p['y']),s.danger_zone(s.fire_points()))
+        s.set_wind('calm');s.observe()
+        self.assertTrue(all(p['downwind_offset']==0 for p in s.safe_drone_positions()))
+
     def test_burning_targets_rejected_even_when_observed(self):
         s=Simulation();s.ignite();s.drone.update(x=61.,y=43.)
         for action in ['scout','contain']:

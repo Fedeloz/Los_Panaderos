@@ -48,8 +48,8 @@ class Simulation:
         self.crew_target = None
         self.crew_extinguished = 0
         self.groups = {
-            'farm': dict(x=65., y=10., count=6, status='unwarned', refuge=[44, 4]),
-            'town': dict(x=12., y=44., count=32, status='unwarned', refuge=[5, 28])}
+            'farm': dict(x=65., y=10., count=6, burnt=0, status='unwarned', refuge=[44, 4]),
+            'town': dict(x=12., y=44., count=32, burnt=0, status='unwarned', refuge=[5, 28])}
         self.observe()
 
     def log(self, source, message, **extra):
@@ -73,6 +73,7 @@ class Simulation:
             for x,y in [self.report,(self.report[0],self.report[1]+1),(self.report[0]+1,self.report[1])]:
                 self.cells[y][x]['heat'] = 1
             self.log('simulation', 'Fire ignited at the selected location. Ground truth only.')
+            self.update_people_exposure()
 
     def farmer_call(self, message=''):
         if not self.ignited:
@@ -125,6 +126,7 @@ class Simulation:
             for x,y in sorted(ignitions):
                 if self.rng.random() < self.rules['ignition_probability_per_eligible_cell']:
                     self.cells[y][x]['heat'] = 1
+            self.update_people_exposure()
             d = self.drone
             d['last_drop'] = None
             self.move_safely(d,3)
@@ -162,6 +164,14 @@ class Simulation:
                 self.satellite_queue.append(dict(captured_at=self.tick,available_at=self.tick+12,blocks=blocks))
             while self.satellite_queue and self.satellite_queue[0]['available_at']<=self.tick:
                 self.satellite = self.satellite_queue.pop(0)
+
+    def update_people_exposure(self):
+        # Each population group occupies one cell in this simplified demo.
+        for name,g in self.groups.items():
+            if g.get('burnt',0) < g['count'] and self.burning(self.cells[round(g['y'])][round(g['x'])]):
+                g['burnt']=g['count']
+                g['status']='burnt'
+                self.log('people',f"{name}: fire reached the group; {g['burnt']} people burnt.")
 
     def fire_points(self):
         return [(x,y) for y,row in enumerate(self.cells) for x,c in enumerate(row) if self.burning(c)]
@@ -218,12 +228,24 @@ class Simulation:
     def safe_drone_positions(self):
         blocked=self.danger_zone([(c['x'],c['y']) for c in self.observation])
         candidates=[]
+        strength=math.hypot(*self.wind)
+        unit=tuple(v/strength for v in self.wind) if strength else (0,0)
+        projection=lambda p:p[0]*unit[0]+p[1]*unit[1]
+        front=max((projection((f['x'],f['y'])) for f in self.observation),default=0)
+        leading=[f for f in self.observation if not strength or projection((f['x'],f['y']))>=front-1]
         for c in self.memory.values():
             p=(c['x'],c['y'])
             if c['observed_at']==self.tick and not c['burning'] and p not in blocked:
                 fires=sum(math.hypot(f['x']-p[0],f['y']-p[1])<=6 for f in self.observation)
-                if fires:candidates.append(( -fires,math.hypot(p[0]-self.drone['x'],p[1]-self.drone['y']),p))
-        return [dict(x=p[0],y=p[1]) for _,__,p in sorted(candidates)[:12]]
+                if fires:
+                    coverage=sum(math.hypot(f['x']-p[0],f['y']-p[1])<=6 for f in leading)
+                    offset=projection(p)-front if strength else 0
+                    distance=math.hypot(p[0]-self.drone['x'],p[1]-self.drone['y'])
+                    # Supply safe tactical options; HappyRobot still chooses the mission and target.
+                    rank=(-coverage,-int(offset>=0) if strength else 0,-fires,distance,p)
+                    candidates.append((rank,dict(x=p[0],y=p[1],downwind_front_reachable=coverage,
+                                                 downwind_offset=round(offset,2))))
+        return [candidate for _,candidate in sorted(candidates,key=lambda item:item[0])[:12]]
 
     def update_truck(self):
         t=self.truck
@@ -271,6 +293,27 @@ class Simulation:
     def telemetry(self):
         return dict(self.drone,drone_id='drone-1',sensor_radius=9,standoff_cells=3,suppression_range=6,safe_containment_positions=self.safe_drone_positions(),capabilities=['scout','contain','evacuate_farm','evacuate_town'])
 
+    def population_wind_alignment(self):
+        sources=[(f['x'],f['y']) for f in self.observation]
+        basis='local observed fire'
+        if not sources and self.called:sources=[self.report];basis='uncertain farmer smoke report'
+        strength=math.hypot(*self.wind)
+        result={}
+        for name,g in self.groups.items():
+            measurements=[]
+            for x,y in sources:
+                dx,dy=g['x']-x,g['y']-y
+                distance=math.hypot(dx,dy)
+                dot=dx*self.wind[0]+dy*self.wind[1]
+                cosine=dot/(distance*strength) if distance and strength else 0
+                measurements.append(dict(source=[x,y],distance=round(distance,2),
+                    directional_cosine=round(cosine,3),downwind_sector=dot>0 and cosine>=0.7))
+            result[name]=dict(basis=basis,people_status=g['status'],
+                downwind_sector=any(m['downwind_sector'] for m in measurements),
+                nearby_smoke_or_fire=any(m['distance']<=8 for m in measurements),
+                measurements=measurements)
+        return result
+
     def payload(self, event_type='local_observation'):
         self.observe()
         known = dict(width=self.width,height=self.height,wind=dict(dx=self.wind[0],dy=self.wind[1],strength=round(math.hypot(*self.wind),2),units="relative simulation strength",convention="positive X east, positive Y south; vector points TO spread",spread_steps={name:self.spread_interval(dx,dy) for name,dx,dy in [("east",1,0),("west",-1,0),("north",0,-1),("south",0,1)]}),
@@ -278,6 +321,7 @@ class Simulation:
             farmer_report_location=dict(x=self.report[0],y=self.report[1]) if self.called else None,
             scenario_instructions="The ignition point is user-selected. Ignore fixed-coordinate examples. Assess life risk from farmer_report_location and forecast BEFORE scouting. Strong wind (magnitude >=2 in demo units) toward unwarned residents warrants precautionary evacuation without waiting for thermal confirmation. Otherwise scout from safe stand-off.",
             farm=dict(x=65,y=10),town=dict(x=12,y=44),station=dict(x=12,y=44),
+            population_wind_alignment=self.population_wind_alignment(),
             satellite=self.satellite,rules=self.rules,people=self.groups,fire_truck=self.truck_telemetry(),
             firefighters_eta=max(0,self.crew_due-self.tick) if self.crew_due else None,
             mission=self.mission,last_action_result=self.last_result,
@@ -324,5 +368,6 @@ class Simulation:
             ignition_point=self.report,report=self.report if self.called else None,ignited=self.ignited,called=self.called,mission=self.mission,
             observation=self.observation,observed_cells=list(self.memory.values()),satellite=self.satellite,
             history=self.history,burning=burning,burned=sum(c['fuel']==0 for row in self.cells for c in row),
+            burnt_people=sum(g.get('burnt',0) for g in self.groups.values()),
             extinguished=self.suppressed,contained=self.ignited and burning==0,people=self.groups,
             truck=self.truck_telemetry(),roads=sorted(self.roads),crew_due=self.crew_due,crew_target=self.crew_target,crew_extinguished=self.crew_extinguished,rules=self.rules))
