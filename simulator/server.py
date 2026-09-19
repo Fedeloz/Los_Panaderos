@@ -16,9 +16,10 @@ from .happyrobot import HappyRobot, EDITOR
 class Controller:
     def __init__(self):
         self.lock = threading.RLock()
-        self.sim = Simulation()
+        self.sim = Simulation(drone_count=2)
         self.robot = HappyRobot()
         self.busy = False
+        self.pending_fires = []
         self.reset_pending = False
         self.auto = False
         self.running = False
@@ -67,7 +68,7 @@ class Controller:
     def state(self):
         with self.lock:
             frame = self.sim.state() if self.cursor is None else json.loads(zlib.decompress(self.frames[self.cursor]))
-            return dict(frame, reset_pending=self.reset_pending, busy=self.busy, auto=self.auto,running=self.running,speed=self.speed,
+            return dict(frame, pending_fires=len(self.pending_fires), reset_pending=self.reset_pending, busy=self.busy, auto=self.auto,running=self.running,speed=self.speed,
                         frame_index=len(self.frames)-1 if self.cursor is None else self.cursor,
                         recording=self.recording,recorded_frames=len(self.recorded_frames),
                         frame_count=len(self.frames),replay=self.cursor is not None,live_tick=self.sim.tick,
@@ -124,8 +125,12 @@ class Controller:
                 self.busy = False
                 if self.reset_pending:
                     self.action('reset',{})
-                elif retry:
-                    self.request_decision('command_rejected')
+                else:
+                    for x,y in self.pending_fires:
+                        self.sim.add_fire(x,y)
+                    if self.pending_fires:self.record()
+                    self.pending_fires.clear()
+                    if retry:self.request_decision('command_rejected')
 
     def action(self, action, data):
         with self.lock:
@@ -152,13 +157,19 @@ class Controller:
                 self.reset_pending=True
                 self.running=self.auto=False
                 return
+            if self.busy and action == 'add_fire' and not self.reset_pending:
+                x,y=data.get('x'),data.get('y')
+                self.sim.validate_ignition(x,y)
+                if (x,y) not in self.pending_fires:self.pending_fires.append((x,y))
+                return
             if self.busy:
                 raise ValueError('HappyRobot is deciding. You can pause or inspect the timeline.')
             if action == 'reset':
                 self.reset_pending=False
+                self.pending_fires.clear()
                 self.repair_attempts=0
                 self.cursor = None
-                self.sim = Simulation()
+                self.sim = Simulation(fleet_counts=self.sim.fleet_counts())
                 self.recording=False
                 self.error = None
                 self.auto = self.running = False
@@ -167,6 +178,11 @@ class Controller:
                 self.latency = None
                 self.frames = [self.snapshot()]
                 self.next_decision = 0
+            elif action == 'fleet':
+                self.sim.configure_fleet(data.get('count'),**data.get('counts',{}))
+                self.sim.observe()
+            elif action == 'add_fire':
+                self.sim.add_fire(data.get('x'),data.get('y'))
             elif action == 'place_fire':
                 self.sim.place_fire(data.get('x'),data.get('y'))
             elif action == 'record_run':
@@ -234,7 +250,7 @@ def serve(port=8765):
                 self.reply(200,dict(format='los-panaderos-recording-v1',frames=frames))
             elif path == '/api/state':
                 self.reply(200, controller.state())
-            elif path in {'/', '/app.js', '/observation-map.js', '/vendor/bootstrap-icons.js', '/style.css', '/maps/brunete.jpg', '/maps/brunete-illustrated.png', '/cursors/flamethrower-hover.svg', '/cursors/flamethrower-active.svg'}:
+            elif path in {'/', '/app.js', '/observation-map.js', '/vendor/bootstrap-icons.js', '/style.css', '/flamethrower-cursor.svg', '/maps/brunete.jpg', '/maps/brunete-illustrated.png', '/cursors/flamethrower-hover.svg', '/cursors/flamethrower-active.svg'}:
                 name = 'index.html' if path == '/' else path[1:]
                 types = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.jpg':'image/jpeg', '.png':'image/png', '.svg':'image/svg+xml'}
                 file = static/name

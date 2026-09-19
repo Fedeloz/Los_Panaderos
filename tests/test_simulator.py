@@ -324,7 +324,7 @@ class PhysicsTests(unittest.TestCase):
         s.cells[20][25]['heat']=1;s.cells[20][65]['heat']=1
         s.observe()
         self.assertEqual({(c['x'],c['y']) for c in s.observation},{(25,20),(65,20)})
-        self.assertEqual(s.memory['65,20']['sources'],['truck'])
+        self.assertEqual(s.memory['65,20']['sources'],['engine-1'])
         s.drone.update(x=10.,y=40.);s.tick+=1
         s.cells[20][65]['heat']=0;s.observe()
         self.assertFalse(s.memory['65,20']['burning'])
@@ -589,6 +589,27 @@ class PhysicsTests(unittest.TestCase):
 
 
 class ControllerTests(unittest.TestCase):
+    def test_fire_queues_while_deciding_and_reset_clears_it(self):
+        from simulator.server import Controller
+        c=Controller();c.stop.set();c.sim.ignite();c.sim.farmer_call()
+        try:
+            x,y=next((x,y) for y,row in enumerate(c.sim.cells) for x,cell in enumerate(row)
+                     if 1<=x<c.sim.width-1 and 1<=y<c.sim.height-1 and cell['fuel']>0 and cell['heat']==0)
+            c.busy=True
+            c.action('add_fire',dict(x=x,y=y));c.action('add_fire',dict(x=x,y=y))
+            self.assertEqual(c.state()['pending_fires'],1)
+            self.assertEqual(c.sim.cells[y][x]['heat'],0)
+            with patch.object(c.robot,'decide',return_value=(command('hold',*c.sim.base),'test')), patch.object(c.sim,'apply'):
+                c._decide(c.sim.payload('local_observation'),c.sim.tick)
+            self.assertGreater(c.sim.cells[y][x]['heat'],0)
+            self.assertFalse(c.pending_fires)
+            c.busy=True;c.action('add_fire',dict(x=x,y=y));c.action('reset',{})
+            with patch.object(c.robot,'decide',return_value=({},'test')):
+                c._decide({},c.sim.tick)
+            self.assertFalse(c.pending_fires)
+            self.assertFalse(c.sim.ignited)
+        finally:c.stop.set();c.robot.close()
+
     def test_reset_queues_during_decision_and_discards_reply_or_error(self):
         from simulator.server import Controller
         for fails in (False,True):
