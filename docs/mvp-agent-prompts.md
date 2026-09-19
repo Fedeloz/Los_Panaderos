@@ -156,3 +156,58 @@ STOP: after the first successful report_scout_plan, end the conversation immedia
 Central receives a rapid paired-response policy in `world_state.fleet_policy` on every decision: dispatch an available scout and Squirtle together after a credible warning, using complementary safe approaches. Squirtle investigates unconfirmed smoke, then contains confirmed fire from a validated position on the next decision. Urgent evacuation and higher-priority commitments override pairing. Both drone roles now observe radius 12; telemetry overrides older static range descriptions. Squirtle retains command ID `drone-1`.
 
 Scout confirmation of the original smoke focus now triggers `scout_fire_confirmation`; blocked drone routes trigger `route_blocked` once per blocked target. Runtime fleet context directs Central to use shared sensor evidence immediately, abandon the blocked smoke waypoint, and select safe containment protecting threatened downwind districts, or a different safe observation approach. Squirtle need not personally discover the fire before acting.
+
+## Pending workflow changes for the split between informing and evacuating
+
+The simulator now distinguishes a zone alert that ORDERS an evacuation from one that only
+INFORMS. Two edits are needed in HappyRobot for the split to be explicit end to end.
+
+### 1. `alertar_zona` (Enviar alerta de zona) — new `action` parameter
+
+Add a parameter `action` with exactly two accepted values:
+
+- `evacuate` — the district is told to leave. The simulator sets the district to `evacuating`
+  and its population starts moving to the refuge.
+- `inform` — a broadcast that reports the situation. Nobody moves; the district stays
+  available as an evacuation target for a later decision.
+
+Prompt line for Central: *"Toda alerta de zona debe llevar action=evacuate o action=inform.
+Usa evacuate solo cuando quieras que esa poblacion se ponga en marcha hacia su refugio. Un
+mensaje de tranquilidad o de seguimiento es siempre action=inform."*
+
+Until the parameter exists, `Simulation.alert_action` infers the intent from `criticality`
+(`critica`/`critical`/`alta`/`high`/`emergencia`/`emergency` → evacuate, anything else →
+inform) and records `action_source: "inferred_from_criticality"` plus a system log line.
+**An evacuation order sent with a low or empty criticality and no `action` will only inform.**
+That is why this parameter matters: do not rely on the fallback for a real evacuation.
+
+The simulator reports back what each alert actually did in `communications_sent[].effect`:
+`district_warned` (people moving), `district_informed` (message delivered, nobody moved),
+`no_change` (delivery failed or the district was already warned) and `no_recipient` (the
+`district_id` matched no district — nobody was warned at all).
+
+### 2. Inbound call agent — identify before looking anything up
+
+The demo handset is shared by several personas, so the caller ID identifies nobody. `/lookup`
+no longer guesses: with only a phone it returns `identity_status: "ambiguous"` and a guidance
+line that says to ask.
+
+Ask the caller for their name and the town or neighbourhood they are calling from, then call
+`/lookup?phone=..&name=..&district_id=..`. Read `identity_status`:
+
+- `identified` — the caller is one of the listed contacts; use their name and their file.
+- `unknown_caller` — an ordinary resident who is not in the directory. Answer for their
+  district and **never** address them with a name from the contact list.
+- `ambiguous` / `no_match` — keep asking; do not assume.
+
+The guidance string already carries this: it is prefixed with
+`VECINO SIN IDENTIFICAR (no le llame por ningun nombre de la lista de contactos).` whenever
+the district is known but the person is not.
+
+### 3. Farm muster point
+
+The farm refuge moved to the Cruce de la Dehesa at cell `(60,26)`: a road cell with no fuel,
+so fire cannot reach it, on the same track the engine travels from the station. The district
+record carries `evacuation_point_is_safe_because` and `rescue_plan`, and `/lookup` folds both
+into `district.advice`, so the agent can tell the farm manager why the spot is safe and that
+the engine will pick the group up on its way through.
