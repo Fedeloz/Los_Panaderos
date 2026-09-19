@@ -1,6 +1,7 @@
 import copy
 import json
 import math
+import os
 import unittest
 import threading
 import time
@@ -744,6 +745,82 @@ class ParserTests(unittest.TestCase):
 
     def test_no_fabricated_fallback(self):
         self.assertEqual(HappyRobot.decisions({'content': [{'text': 'No result.'}]}), [])
+
+    def test_mission_output_shape_is_recognized(self):
+        # 'Resultado de la mision' returns orders, not a flat command.
+        mission = dict(primary_command='contain', primary_district_id='', drone_reason='Because',
+                       mission='Contain the front', extinguisher_orders=[], scout_orders=[], truck_orders=[])
+        self.assertEqual(HappyRobot.decisions({'content': [{'text': json.dumps(mission)}]}), [mission])
+
+    def test_mission_shape_survives_a_completed_run(self):
+        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        output = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+        mission = dict(primary_command='contain', primary_district_id='', drone_reason='Because',
+                       mission='Contain the front',
+                       extinguisher_orders=[dict(drone_id='drone-1', command='contain', target_x='12', target_y='10', reason='r')],
+                       scout_orders=[], truck_orders=[])
+        answers = [
+            {'content': [{'text': f'Run ID: {run}\nStatus: completed'}]},
+            {'content': [{'text': f'## Edge\nOutput ID: {output}\nStatus: succeeded\nTimestamp: 2026-09-19T12:00:00Z'}]},
+            {'content': [{'text': 'Data: '+json.dumps({'response': mission})}]}]
+        h = HappyRobot()
+        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=answers):
+            decision, _ = h.decide({'event_type': 'farmer_call'})
+        # Coordinates nested inside orders are normalized too.
+        self.assertEqual(decision['extinguisher_orders'][0]['target_x'], 12)
+        self.assertEqual(decision['extinguisher_orders'][0]['target_y'], 10)
+        self.assertEqual(HappyRobot.mission_text(decision), ('Contain the front', 'Because'))
+
+    def test_mission_order_json_string_is_parsed(self):
+        decision = dict(primary_command='contain', extinguisher_orders='[{"drone_id":"drone-1","target_x":"7"}]',
+                        scout_orders=None, truck_orders=None, mission='m', drone_reason='r')
+        out = HappyRobot.normalize(decision)
+        self.assertEqual(out['extinguisher_orders'], [{'drone_id': 'drone-1', 'target_x': 7}])
+
+    def test_missing_text_is_rejected_not_defaulted(self):
+        decision = dict(primary_command='contain', extinguisher_orders=[], scout_orders=[], truck_orders=[])
+        # A mission with no mission/reason text must fail loudly, never default.
+        with self.assertRaises(RuntimeError):
+            HappyRobot().require_text(decision)
+
+
+class LiveDriftTests(unittest.TestCase):
+    """Guards the pinned EDGE_NODE against workflow restructuring.
+
+    The workflow changes often. These tests check identifier shape offline and
+    fail loudly if the pin is malformed, so a rename is caught before a
+    rehearsal rather than during one.
+    """
+
+    def test_pinned_identifiers_are_well_formed(self):
+        import simulator.happyrobot as hr
+        for name in ('WORKFLOW', 'EDGE_NODE'):
+            value = getattr(hr, name)
+            self.assertRegex(value, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+                             f'{name} must be a UUID')
+        self.assertTrue(hr.EDITOR.startswith('https://platform.eu.happyrobot.ai/'), 'EDITOR must be the EU platform')
+
+    def test_editor_url_version_matches_the_recorded_version_slug(self):
+        # A stale EDITOR link misleads during a demo; keep it consistent with
+        # whatever version the simulator is actually pinned to.
+        import simulator.happyrobot as hr
+        self.assertRegex(hr.EDITOR, r'/editor/[a-z0-9]+$')
+
+    @unittest.skipUnless(os.environ.get('HAPPYROBOT_LIVE_CHECK') == '1',
+                         'set HAPPYROBOT_LIVE_CHECK=1 to verify the pin against the live workflow')
+    def test_pinned_edge_node_exists_on_the_live_version(self):
+        """Confirm EDGE_NODE still exists live. This is the check that would
+        have caught the node being deleted during a restructure."""
+        import simulator.happyrobot as hr
+        h = HappyRobot()
+        try:
+            h.connect()
+            listing = h.tool('get_workflow_details', dict(workflow_id=hr.WORKFLOW, include_nodes=True))
+            text = h.text(listing)
+            self.assertIn(hr.EDGE_NODE, text,
+                          'EDGE_NODE no longer exists on the live workflow. Re-pin it and update EDITOR.')
+        finally:
+            h.close()
 
 
 if __name__ == '__main__':

@@ -13,8 +13,12 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = '01a0b8ea-d9af-71f3-9fb7-8a469f9ac25b'
-EDGE_NODE = '01a0b96a-d5b4-771c-809c-850010ddbb67'
-EDITOR = 'https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/njn4x0maqj9y'
+# Persistent ID of 'Resultado de la mision'. Persistent IDs survive version
+# bumps, so a republish alone never breaks this pin -- but deleting the node
+# does. Run the opt-in LiveDriftTests (HAPPYROBOT_LIVE_CHECK=1) after any
+# workflow restructuring to confirm this still exists on the live version.
+EDGE_NODE = '01a0bad1-9191-7f3d-8200-f4e2e34ba5a1'
+EDITOR = 'https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/5nh0mbljfer2'
 
 
 class HappyRobot:
@@ -113,12 +117,29 @@ class HappyRobot:
     def text(result):
         return '\n'.join(c.get('text', '') for c in result.get('content', []))
 
+    # Keys that mark a mission output from 'Resultado de la mision' (v24+).
+    ORDER_KEYS = {'primary_command', 'extinguisher_orders', 'scout_orders', 'truck_orders'}
+    # Keys that mark a flat single-drone decision from the earlier shape.
+    FLAT_KEYS = {'command', 'target_x', 'target_y', 'reason', 'mission'}
+    # Coordinate fields that the platform may encode as strings.
+    INT_FIELDS = ('target_x', 'target_y', 'truck_target_x', 'truck_target_y')
+
+    @staticmethod
+    def _coerce_ints(mapping):
+        """Accept canonical integers only, without rounding or coercing garbage."""
+        for field in HappyRobot.INT_FIELDS:
+            value = mapping.get(field)
+            if isinstance(value, str) and re.fullmatch(r'-?\d{1,4}', value):
+                mapping[field] = int(value)
+
     @staticmethod
     def decisions(value):
-        """Extract structured edge output from MCP JSON/text wrappers, never guess."""
+        """Extract structured mission output from MCP JSON/text wrappers, never guess."""
         found = []
         if isinstance(value, dict):
-            if {'command', 'target_x', 'target_y', 'reason', 'mission'} <= value.keys():
+            if HappyRobot.FLAT_KEYS <= value.keys():
+                found.append(value)
+            elif HappyRobot.ORDER_KEYS <= value.keys():
                 found.append(value)
             else:
                 for v in value.values():
@@ -141,6 +162,42 @@ class HappyRobot:
                 except json.JSONDecodeError:
                     pos = start+1
         return found
+
+    @classmethod
+    def normalize(cls, decision):
+        """Coerce coordinates anywhere the mission output carries them.
+
+        Coordinates arrive as strings when the platform's parameter builder
+        stringifies numbers, both in the flat shape and inside each order of
+        the mission shape.
+        """
+        decision = dict(decision)
+        cls._coerce_ints(decision)
+        for key in ('extinguisher_orders', 'scout_orders', 'truck_orders'):
+            orders = decision.get(key)
+            if isinstance(orders, str):
+                try:
+                    orders = json.loads(orders)
+                except (ValueError, TypeError):
+                    continue
+                decision[key] = orders
+            if isinstance(orders, list):
+                for order in orders:
+                    if isinstance(order, dict):
+                        cls._coerce_ints(order)
+        return decision
+
+    @staticmethod
+    def mission_text(decision):
+        """Return the mission and reason text for either output shape."""
+        mission = decision.get('mission')
+        reason = decision.get('drone_reason') or decision.get('reason')
+        return mission, reason
+
+    def require_text(self, decision):
+        mission, reason = self.mission_text(decision)
+        if not isinstance(mission, str) or not isinstance(reason, str):
+            raise RuntimeError('HappyRobot returned an invalid mission or explanation. Missing mission/reason text.')
 
     def decide(self, payload):
         result = self.tool('trigger_run', dict(workflow_id=WORKFLOW, environment='development',
@@ -167,15 +224,8 @@ class HappyRobot:
         unique = {json.dumps(c, sort_keys=True): c for c in choices}
         if len(unique) != 1:
             raise RuntimeError('HappyRobot returned conflicting commands; no action applied.')
-        decision = dict(next(iter(unique.values())))
-        # HappyRobot Extract's parameter builder can encode numbers as strings.
-        # Accept canonical integers only, without rounding or coercing garbage.
-        for field in ('target_x', 'target_y', 'truck_target_x', 'truck_target_y'):
-            value = decision.get(field)
-            if isinstance(value, str) and re.fullmatch(r'-?\d{1,4}', value):
-                decision[field] = int(value)
-        if not isinstance(decision['reason'], str) or not isinstance(decision['mission'], str):
-            raise RuntimeError('HappyRobot returned an invalid mission or explanation.')
+        decision = self.normalize(next(iter(unique.values())))
+        self.require_text(decision)
         return decision, text[:16000]
 
     @staticmethod
