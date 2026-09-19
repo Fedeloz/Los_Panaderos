@@ -1,6 +1,7 @@
 import copy
 import json
 import math
+import os
 import unittest
 import threading
 import time
@@ -636,6 +637,45 @@ class CommunicationTests(unittest.TestCase):
 
 
 class ControllerTests(unittest.TestCase):
+    def test_state_bytes_cached_until_something_changes(self):
+        from simulator.server import Controller
+        c=Controller();c.stop.set()
+        try:
+            etag,body=c.state_bytes()
+            self.assertEqual(c.state_bytes(),(etag,body))
+            self.assertIs(c.state_bytes()[1],body)  # same buffer: no re-serialization while idle
+            c.busy=True
+            etag2,body2=c.state_bytes()
+            self.assertNotEqual(etag,etag2);self.assertTrue(json.loads(body2)['busy'])
+            c.busy=False;c.action('ignite',{})
+            self.assertNotEqual(c.state_bytes()[0],etag2)
+        finally:c.stop.set();c.robot.close()
+
+    def test_optimistic_clock_keeps_ticking_and_applies_to_live_tick(self):
+        from simulator.server import Controller
+        c=Controller();c.sim.ignite();c.sim.farmer_call()
+        entered=threading.Event();release=threading.Event()
+        def slow_decision(payload):
+            entered.set()
+            if not release.wait(3):raise RuntimeError('release timed out')
+            return dict(command('hold',12,44),scout_orders=[dict(drone_id='scout-1',command='hold',waypoints=[],reason='wait')]),'valid output'
+        try:
+            c.action('optimistic',{'enabled':True})
+            with patch.object(c.robot,'decide',side_effect=slow_decision):
+                c.speed=8;c.running=True
+                with c.lock:c.request_decision()
+                self.assertTrue(entered.wait(2))
+                start_tick=c.sim.tick
+                time.sleep(.8)
+                self.assertGreater(c.sim.tick,start_tick)  # world kept moving during deliberation
+                release.set()
+                deadline=time.monotonic()+2
+                while c.state()['busy'] and time.monotonic()<deadline:time.sleep(.01)
+                self.assertFalse(c.busy);self.assertIsNone(c.error)
+                self.assertTrue(any('Optimistic clock' in e['message'] for e in c.sim.history))
+                self.assertEqual(c.sim.last_result['command'],'hold')
+        finally:release.set();c.stop.set();c.robot.close()
+
     def test_dispatch_without_drone_mission_keeps_vehicle_orders(self):
         from simulator.server import Controller
         c=Controller();c.stop.set();c.sim.ignite();c.sim.farmer_call()
@@ -852,6 +892,60 @@ class ParserTests(unittest.TestCase):
         with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=answers):
             decision, evidence = h.decide({'event_type': 'farmer_call'})
         self.assertIsNone(decision); self.assertEqual(h.last_dispatch['decision'], 'verificar')
+
+    def test_output_fetches_run_concurrently_over_one_transport(self):
+        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        ids = {k: f'{k*8}-{k*4}-{k*4}-{k*4}-{k*12}' for k in 'bcd'}
+        call_node = [n for n, kind in hr.COMM_NODES.items() if kind == 'call'][0]
+        listing = '\n'.join([
+            f'## Decision de Despacho\n- Output ID: {ids["b"]}\n- Node Persistent ID: {hr.DISPATCH_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:04Z',
+            f'## Llamar a esta persona\n- Output ID: {ids["c"]}\n- Node Persistent ID: {call_node}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:01Z',
+            f'## Ejecutar mision de dron\n- Output ID: {ids["d"]}\n- Node Persistent ID: {hr.EDGE_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:03Z'])
+        payloads = {ids['b']: {'response': dict(decision='avisar', justificacion='j')},
+                    ids['c']: {'data': dict(contact_name='Carmen Ortega', information='leave')},
+                    ids['d']: {'response': dict(mission='m', primary_command='hold', drone_reason='r', extinguisher_orders=[], scout_orders=[], truck_orders=[])}}
+        in_flight, peak, gate = [0], [0], threading.Lock()
+        def tool(name, args, timeout=60):
+            if name == 'trigger_run':
+                # wait=True already embeds the node listing: no separate listing call expected.
+                return {'content': [{'text': f'Run ID: {run}\nStatus: completed\n\n'+listing}]}
+            with gate:in_flight[0]+=1;peak[0]=max(peak[0],in_flight[0])
+            time.sleep(.15)
+            with gate:in_flight[0]-=1
+            return {'content': [{'text': json.dumps(payloads[args['output_id']])}]}
+        h = HappyRobot()
+        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=tool) as call:
+            t = time.monotonic(); decision, evidence = h.decide({'event_type': 'farmer_call'}); elapsed = time.monotonic()-t
+        self.assertEqual(call.call_count, 4)  # trigger + 3 outputs, no listing round-trip
+        self.assertGreaterEqual(peak[0], 2)
+        self.assertLess(elapsed, .4)  # 3 × 150 ms sequential would be ≥ 450 ms
+        self.assertEqual(decision['command'], 'hold'); self.assertEqual(h.last_dispatch['decision'], 'avisar')
+        self.assertEqual(h.last_timings['fetched'], 3); self.assertIn('Timing:', evidence)
+
+    def test_transport_matches_interleaved_responses_by_id(self):
+        import io
+        h = HappyRobot()
+        r, w = os.pipe()
+        stdout = io.TextIOWrapper(io.FileIO(r, 'r'), encoding='utf-8')
+        writer = io.TextIOWrapper(io.FileIO(w, 'w'), encoding='utf-8', write_through=True)
+        class P: pass
+        h.process = P(); h.process.stdin = io.StringIO(); h.process.stdout = stdout
+        threading.Thread(target=h._read, args=(h.process, h.pending, h.closed), daemon=True).start()
+        results = {}
+        def ask(i):results[i] = h._request('tools/call', dict(n=i), timeout=2)
+        threads = [threading.Thread(target=ask, args=(i,)) for i in range(3)]
+        for th in threads: th.start()
+        time.sleep(.1)
+        # Server answers out of order, with a keepalive ping interleaved.
+        for rid in (3, 1):
+            writer.write(json.dumps(dict(jsonrpc='2.0', id=rid, result=dict(got=rid)))+'\n')
+        writer.write(json.dumps(dict(jsonrpc='2.0', id='srv-1', method='ping'))+'\n')
+        writer.write(json.dumps(dict(jsonrpc='2.0', id=2, result=dict(got=2)))+'\n')
+        for th in threads: th.join(2)
+        self.assertEqual(sorted(v['got'] for v in results.values()), [1, 2, 3])
+        self.assertIn('"id": "srv-1"', h.process.stdin.getvalue())  # ping answered
+        writer.close(); h.closed.wait(2)
+        with self.assertRaises(RuntimeError):h._request('tools/call', {}, timeout=.2)
 
     def test_normalize_requires_mission_shape(self):
         self.assertIsNone(HappyRobot.normalize(dict(mission='x', primary_command='hold')))

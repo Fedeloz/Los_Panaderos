@@ -10,7 +10,6 @@ Targets (HAPPYROBOT_TARGET):
 import json
 import os
 from pathlib import Path
-import queue
 import re
 import subprocess
 import threading
@@ -48,15 +47,22 @@ ORDER_KEYS = {'extinguisher_orders', 'scout_orders', 'truck_orders'}
 
 
 class HappyRobot:
+    # Concurrent monitor_runs fetches per decision (one stdio transport, several in-flight ids).
+    FETCH_WORKERS = 6
+
     def __init__(self):
         self.process = None
-        self.messages = queue.Queue()
-        self.lock = threading.Lock()
+        self.lock = threading.Lock()        # connect/close
+        self.send_lock = threading.Lock()   # stdin writes are atomic per JSON line
+        self.pending_lock = threading.Lock()
+        self.pending = {}                   # request id -> dict(event, message)
+        self.closed = threading.Event()
         self.sequence = 0
         self.connected = False
         self.tools = {}
         self.last_dispatch = None
         self.last_communications = []
+        self.last_timings = {}
 
     def close(self):
         if self.process:
@@ -68,39 +74,58 @@ class HappyRobot:
             self.process = None
         self.connected = False
 
-    def _read(self, process, messages):
+    def _read(self, process, pending, closed):
+        """Reader thread: route each JSON-RPC response to its waiting request so several
+        requests can be in flight at once on the single stdio transport."""
         for line in process.stdout:
             try:
-                messages.put(json.loads(line))
+                msg = json.loads(line)
             except json.JSONDecodeError:
-                pass
-        messages.put({'transport_closed': True})
-
-    def _send(self, value):
-        self.process.stdin.write(json.dumps(value)+'\n')
-        self.process.stdin.flush()
-
-    def _request(self, method, params, timeout=60):
-        self.sequence += 1
-        request_id = self.sequence
-        self._send(dict(jsonrpc='2.0', id=request_id, method=method, params=params))
-        deadline = time.monotonic()+timeout
-        while time.monotonic() < deadline:
-            try:
-                msg = self.messages.get(timeout=max(.01, deadline-time.monotonic()))
-            except queue.Empty:
-                break
-            if msg.get('transport_closed'):
-                self.connected = False
-                raise RuntimeError('HappyRobot connection closed. Reconnect using your MCP OAuth configuration.')
-            if msg.get('id') == request_id:
-                if 'error' in msg:
-                    raise RuntimeError('HappyRobot MCP rejected the request.')
-                return msg['result']
+                continue
             # Answer standard keepalive requests without exposing transport data.
             if msg.get('method') == 'ping' and 'id' in msg:
-                self._send(dict(jsonrpc='2.0', id=msg['id'], result={}))
-        raise RuntimeError('HappyRobot timed out; the simulator has paused. Retry explicitly.')
+                try:
+                    self._send(dict(jsonrpc='2.0', id=msg['id'], result={}))
+                except OSError:
+                    pass
+                continue
+            if 'id' in msg:
+                with self.pending_lock:
+                    slot = pending.get(msg['id'])
+                if slot is not None:
+                    slot['message'] = msg
+                    slot['event'].set()
+        closed.set()
+        with self.pending_lock:
+            for slot in pending.values():
+                slot['event'].set()
+
+    def _send(self, value):
+        with self.send_lock:
+            self.process.stdin.write(json.dumps(value)+'\n')
+            self.process.stdin.flush()
+
+    def _request(self, method, params, timeout=60):
+        with self.pending_lock:
+            self.sequence += 1
+            request_id = self.sequence
+            slot = dict(event=threading.Event(), message=None)
+            self.pending[request_id] = slot
+        try:
+            self._send(dict(jsonrpc='2.0', id=request_id, method=method, params=params))
+            finished = slot['event'].wait(timeout)
+        finally:
+            with self.pending_lock:
+                self.pending.pop(request_id, None)
+        if self.closed.is_set() and slot['message'] is None:
+            self.connected = False
+            raise RuntimeError('HappyRobot connection closed. Reconnect using your MCP OAuth configuration.')
+        if not finished or slot['message'] is None:
+            raise RuntimeError('HappyRobot timed out; the simulator has paused. Retry explicitly.')
+        msg = slot['message']
+        if 'error' in msg:
+            raise RuntimeError('HappyRobot MCP rejected the request.')
+        return msg['result']
 
     def connect(self):
         with self.lock:
@@ -115,11 +140,12 @@ class HappyRobot:
             config = servers.get(name)
             if not config or not config.get('command'):
                 raise RuntimeError('Configure a HappyRobot stdio MCP proxy and complete OAuth first.')
-            self.messages = queue.Queue()
+            self.pending = {}
+            self.closed = threading.Event()
             self.process = subprocess.Popen([config['command'], *config.get('args', [])],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 text=True, bufsize=1, cwd=ROOT, env={**os.environ, **config.get('env', {})})
-            threading.Thread(target=self._read, args=(self.process, self.messages), daemon=True).start()
+            threading.Thread(target=self._read, args=(self.process, self.pending, self.closed), daemon=True).start()
             try:
                 self._request('initialize', dict(protocolVersion='2024-11-05', capabilities={},
                     clientInfo=dict(name='los-panaderos-simulator', version='0.2')), timeout=45)
@@ -133,8 +159,7 @@ class HappyRobot:
 
     def tool(self, name, arguments, timeout=60):
         self.connect()
-        with self.lock:
-            result = self._request('tools/call', dict(name=name, arguments=arguments), timeout)
+        result = self._request('tools/call', dict(name=name, arguments=arguments), timeout)
         if result.get('isError'):
             # These workflow errors contain no credentials; keep a bounded message.
             message = '\n'.join(c.get('text', '') for c in result.get('content', []))
@@ -273,8 +298,11 @@ class HappyRobot:
 
     def decide(self, payload):
         self.last_dispatch, self.last_communications = None, []
+        timings = {}
+        started = time.monotonic()
         result = self.tool('trigger_run', dict(workflow_id=WORKFLOW, environment='development',
                           payload=json.dumps(payload), wait=True), timeout=330)
+        timings['run'] = round(time.monotonic()-started, 1)
         text = self.text(result)
         run_match = re.search(r'Run ID:\s*([0-9a-f-]{36})', text)
         if not run_match or not re.search(r'Status:\s*completed\b', text):
@@ -283,27 +311,35 @@ class HappyRobot:
         # trigger_run returns a status summary. Fetch the run's node outputs, then only the
         # payloads we act on: the delegated drone mission, the dispatch summary and every
         # call/Telegram action that actually ran. Never parse the echoed input.
-        listing = self.text(self.tool('monitor_runs', dict(action='outputs', run_id=run_id)))
+        step = time.monotonic()
+        if 'Node Persistent ID' in text and 'Output ID' in text:
+            listing = text  # wait=True already returned the node listing; skip a round-trip.
+        else:
+            listing = self.text(self.tool('monitor_runs', dict(action='outputs', run_id=run_id)))
         outputs = self.outputs_by_node(listing)
         evidence = dict(run=result, outputs={})
         contacts = contact_directory()
+        drone_outputs = outputs.get(EDGE_NODE, [])
+        wanted = list(outputs.get(DISPATCH_NODE, []) if DISPATCH_NODE else [])
+        wanted += [oid for node in COMM_NODES for oid in outputs.get(node, [])]
+        drone_output_id = self.latest_output(listing, EDGE_NODE) if drone_outputs else None
+        if drone_output_id:
+            wanted.append(drone_output_id)
+        # All payload fetches are independent reads: issue them concurrently over the transport.
+        fetched = self.fetch_outputs(run_id, wanted)
+        evidence['outputs'].update(fetched)
+        timings['fetch'] = round(time.monotonic()-step, 1)
+        timings['fetched'] = len(wanted)
         for oid in outputs.get(DISPATCH_NODE, []) if DISPATCH_NODE else []:
-            out = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=oid))
-            evidence['outputs'][oid] = out
-            self.last_dispatch = self.dispatch_summary(out) or self.last_dispatch
+            self.last_dispatch = self.dispatch_summary(fetched[oid]) or self.last_dispatch
         for node, kind in COMM_NODES.items():
             for oid in outputs.get(node, []):
-                out = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=oid))
-                evidence['outputs'][oid] = out
-                record = self.communication(kind, out, contacts, run_id)
+                record = self.communication(kind, fetched[oid], contacts, run_id)
                 if record:
                     self.last_communications.append(record)
-        drone_outputs = outputs.get(EDGE_NODE, [])
         decision = None
-        if drone_outputs:
-            output_id = self.latest_output(listing, EDGE_NODE)
-            output = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=output_id))
-            evidence['outputs'][output_id] = output
+        if drone_output_id:
+            output = fetched[drone_output_id]
             text += '\n\n'+self.text(output)
             choices = self.decisions(output)
             if not choices:
@@ -326,11 +362,27 @@ class HappyRobot:
             text += '\n\nDispatch: '+json.dumps(self.last_dispatch, ensure_ascii=False)
         if self.last_communications:
             text += '\n\nCommunications: '+json.dumps(self.last_communications, ensure_ascii=False)
+        timings['total'] = round(time.monotonic()-started, 1)
+        self.last_timings = timings
+        text = f"Timing: run {timings['run']}s · outputs {timings['fetch']}s ({timings['fetched']} fetched in parallel) · total {timings['total']}s\n\n"+text
         # Keep the run evidence locally for the dashboard and reproducible checks.
         runtime = ROOT/'.runtime'
         runtime.mkdir(exist_ok=True)
+        evidence['timings'] = timings
         (runtime/'last-run.json').write_text(json.dumps(evidence, indent=2, ensure_ascii=False), encoding='utf-8')
         return decision, text[:16000]
+
+    def fetch_outputs(self, run_id, output_ids):
+        """Fetch several run outputs concurrently. Order-independent; failures propagate."""
+        output_ids = list(dict.fromkeys(output_ids))
+        if not output_ids:
+            return {}
+        if len(output_ids) == 1:
+            return {output_ids[0]: self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=output_ids[0]))}
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(self.FETCH_WORKERS, len(output_ids))) as pool:
+            results = list(pool.map(lambda oid: self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=oid)), output_ids))
+        return dict(zip(output_ids, results))
 
     @staticmethod
     def outputs_by_node(listing):
