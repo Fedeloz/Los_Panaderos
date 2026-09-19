@@ -5,3 +5,8 @@ __pycache__/
 .env
 .runtime/
 *.pyc
+data/raw/
+data/derived/
+node_modules/
+console/dist/
+scenarios/*/time_of_arrival.tif
