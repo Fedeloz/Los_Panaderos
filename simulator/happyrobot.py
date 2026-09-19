@@ -27,6 +27,8 @@ class HappyRobot:
         self.messages = queue.Queue()
         self.lock = threading.Lock()
         self.sequence = 0
+        self.last_run_id = None
+        self.last_listing = ''
         self.connected = False
         self.tools = {}
 
@@ -210,7 +212,10 @@ class HappyRobot:
         # trigger_run returns a status summary. Fetch only the delegated policy's
         # output, then its full payload; never parse the farmer's echoed input.
         listing = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, node_id=EDGE_NODE))
-        output_id = self.latest_output(self.text(listing))
+        # Exposed for the post-mortem harvester so it can reuse this run's identity.
+        self.last_run_id = run_id
+        self.last_listing = self.text(listing)
+        output_id = self.latest_output(self.last_listing)
         output = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=output_id))
         evidence = dict(run=result, edge=output)
         text += '\n\n'+self.text(output)
