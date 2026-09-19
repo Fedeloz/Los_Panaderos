@@ -105,13 +105,17 @@ class Simulation:
     def vehicles(self):
         return self.extinguishers+self.scouts+self.trucks
 
-    def add_fire(self,x,y):
+    def validate_ignition(self,x,y):
         if not self.ignited:raise ValueError('Start the scenario first.')
         if self.phase!='active':raise ValueError('Reset to start a new incident.')
         if type(x) is not int or type(y) is not int or not (1<=x<self.width-1 and 1<=y<self.height-1):
             raise ValueError('Select an interior map cell.')
         c=self.cells[y][x]
         if c['fuel']<=0 or c.get('wet',0)>0:raise ValueError('Choose dry vegetation or buildings.')
+
+    def add_fire(self,x,y):
+        self.validate_ignition(x,y)
+        c=self.cells[y][x]
         c.update(heat=.25,age=0)
         self.log('simulation',f'Additional ignition at ({x}, {y}); hidden until observed.')
         self.update_people_exposure()
