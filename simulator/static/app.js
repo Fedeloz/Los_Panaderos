@@ -245,7 +245,8 @@ legendTown:'Viviendas urbanas',legendFarm:'Viviendas de granja',legendFields:'Cu
 archiveHeadline:'Reproducción · escenario histórico',archiveTag:'ARCHIVO · TERRENO DE LA GRABACIÓN',archiveNote:'Escenario histórico de la grabación; no representa el incidente actual de Brunete.',archiveCode:'ARCHIVO',
 censusLink:'Ayuntamiento de Brunete · padrón 2025',censusAssumptions:'Distribución por distritos estimada; ocupación de granja y refugios supuestos.',pnoaIntro:'Ilustración adaptada de una referencia',
 fleetTitle:'Medios de respuesta',fleetTrucks:'camiones',fleetScouts:'exploradores',fleetExtinguishers:'drones Squirtle',scoutsShort:'exploración',extinguishersShort:'Squirtle',applyFleet:'Aplicar flota',fleetHelp:'Configura antes de la ignición. Reinicia para cambiar los medios; los recuentos se conservan.',noVehicles:'Sin vehículos',addFire:'Añadir fuego en el mapa',addFireArmed:'Añadir fuego · ACTIVADO',addFireHint:'Modo ignición activado: clic en el mapa. Durante la deliberación, el fuego queda en cola.',queuedFires:'igniciones en cola',
-sources:{central:'Central',edge:'Agente dron',drone:'Dron','drone → truck':'Dron → Dotación','scout agent':'Agente explorador','scout → central':'Explorador → Central','drone-1':'Squirtle',system:'Sistema',simulation:'Simulación',dispatch:'Despacho',autopilot:'Navegación',weather:'Meteorología',farmer:'Avisante',people:'Población'}},
+postmortem:'Post-mortem · oráculo y reflexión',postmortemNote:'El oráculo evalúa con retrospectiva (conoce el fuego oculto). Nunca decide; solo mide. Promover un parche es humano.',pmActual:'Real',pmBest:'Mejor',pmRegret:'Regret',pmGap:'Brecha',pmLoop:'Bucle',pmLessons:'Lecciones activas (se envían al agente)',pmNone:'Sin decisiones analizadas todavía.',pmPending:'analizando…',pmPatches:'Parches propuestos (no promovidos)',
+sources:{central:'Central',edge:'Agente dron',drone:'Dron','drone → truck':'Dron → Dotación','scout agent':'Agente explorador','scout → central':'Explorador → Central','drone-1':'Squirtle',system:'Sistema',simulation:'Simulación',dispatch:'Despacho',autopilot:'Navegación',weather:'Meteorología',farmer:'Avisante',people:'Población','post-mortem':'Post-mortem'}},
 en:{eyebrow:'OPERATIONS CENTER · CECOP',subhead:'CIVIL PROTECTION · WILDLAND RESPONSE',setup:'Set up incident',hint:'Configure the fleet before starting. Click the map for the origin, ignite, apply wind and send the smoke report. During the incident, enable Add fire for new ignitions; they queue while agents deliberate.',truth:'Actual situation',truthTag:'BRUNETE · ILLUSTRATED TERRAIN',truthCesiumTag:'BRUNETE · ILLUSTRATED TERRAIN',truthIllustratedTag:'BRUNETE · ILLUSTRATED TERRAIN',belief:'What the system sees',beliefTag:'SENSORS + DELAYED SATELLITE',mission:'MISSION / ORDER',trail:'COMMUNICATIONS',inspect:'HappyRobot technical record',explain:'HappyRobot chooses scouting, containment or district warnings. Illustrated terrain, simulated fire and satellite. Not an operational forecast.',footerNote:'HappyRobot decides. Illustration inspired by Brunete; educational grid, not Rothermel/Catastro. Clock pauses during deliberation; replay never calls AI.',workflow:'Workflow',watch:'Watch',active:'Active',busy:'AGENTS DELIBERATING · CLOCK PAUSED',live:'Live',paused:'Paused',replay:'Replay',mapFallback:'Non-georeferenced illustration · approximate scale',firmsDown:'FIRMS unavailable',
 kClock:'Clock',kThreat:'Threat',kPeople:'PEOPLE AT RISK',kDrone:'Drones',kCrew:'Trucks',kAgents:'Agents',
 recordRun:'Start recording',stopRec:'Stop',playRec:'Play recording',download:'Download',openRec:'Open',ignite:'1 · Ignite',call:'2 · Smoke report',step:'+1',speed:'Speed',wind:'WIND',windHelp:'X east · Y south · demo units',applyWind:'Apply',calmWind:'Calm',ask:'Ask agents',reset:'↺ Reset',liveBtn:'Live',spread:'Fire spread',
@@ -270,7 +271,8 @@ legendTown:'Town homes',legendFarm:'Farm homes',legendFields:'Fields',legendWood
 archiveHeadline:'Replay · historical scenario',archiveTag:'ARCHIVE · RECORDED TERRAIN',archiveNote:'Historical recording scenario; not the current Brunete incident.',archiveCode:'ARCHIVE',
 censusLink:'Brunete Town Council · 2025 census',censusAssumptions:'Estimated district allocations; assumed farm occupancy and refuges.',pnoaIntro:'Illustration adapted from a reference',
 fleetTitle:'Response assets',fleetTrucks:'trucks',fleetScouts:'scouts',fleetExtinguishers:'Squirtle drones',scoutsShort:'scout',extinguishersShort:'Squirtle',applyFleet:'Apply fleet',fleetHelp:'Configure before ignition. Reset to change assets; counts are preserved.',noVehicles:'No vehicles',addFire:'Add fire on map',addFireArmed:'Add fire · ON',addFireHint:'Ignition mode on: click the map. Fires are queued during deliberation.',queuedFires:'queued ignitions',
-sources:{central:'Central',edge:'Drone agent',drone:'Drone','drone → truck':'Drone → Engine','scout agent':'Scout agent','scout → central':'Scout → Central','drone-1':'Squirtle',system:'System',simulation:'Simulation',dispatch:'Dispatch',autopilot:'Navigation',weather:'Weather',farmer:'Caller',people:'People'}}
+postmortem:'Post-mortem · oracle and reflection',postmortemNote:'The oracle grades with hindsight (it knows hidden fire). It never decides; it only measures. Promoting a patch is human.',pmActual:'Actual',pmBest:'Best',pmRegret:'Regret',pmGap:'Gap',pmLoop:'Loop',pmLessons:'Active lessons (sent to the agent)',pmNone:'No analysed decisions yet.',pmPending:'analysing…',pmPatches:'Proposed patches (not promoted)',
+sources:{central:'Central',edge:'Drone agent',drone:'Drone','drone → truck':'Drone → Engine','scout agent':'Scout agent','scout → central':'Scout → Central','drone-1':'Squirtle',system:'System',simulation:'Simulation',dispatch:'Dispatch',autopilot:'Navigation',weather:'Weather',farmer:'Caller',people:'People','post-mortem':'Post-mortem'}}
 };
 const STATUS_I18N={
 es:{at_station:'en base',mobilizing:'movilizando',en_route:'en ruta',suppressing:'suprimiendo',returning:'regresando',retreating:'replegando',blocked:'bloqueado',trapped:'atrapado',holding:'en espera',awaiting_assignment:'esperando misión',hold:'mantener',scout:'explorar',contain:'contener',warn:'avisar',patrol:'patrullando',continue:'continuar',on_scene:'en zona',evacuate_town:'avisar distrito',evacuate_farm:'avisar granja',unwarned:'sin aviso',evacuating:'evacuando',safe:'a salvo',burnt:'expuestos'},
@@ -499,6 +501,30 @@ $('beliefstats').textContent=`${s.observation.length} ${t.firesShared} · ${obse
 }));renderRadio(s);$('evidence').textContent=s.run_evidence||'';document.querySelectorAll('.toolbar button,.toolbar select').forEach(b=>{if(b.id==='play'||b.id==='addFire')return;b.disabled=s.busy||s.replay});$('resetSim').disabled=!!s.reset_pending;$('resetSim').textContent=s.reset_pending?t.resetQueued:t.reset;renderFleet(s);renderFireControl(s);$('play').disabled=s.replay||s.busy&&!s.running;$('recordRun').disabled=s.busy||s.replay||s.recording;$('stopRecord').disabled=!s.recording;$('downloadRecord').disabled=!s.recorded_frames;$('playRecord').disabled=busy||s.replay||!s.recorded_frames||s.recording;$('openRecording').disabled=s.busy||s.replay;$('recordRun').textContent=s.recording?`${t.recordingLabel} · ${s.recorded_frames} ${t.framesLabel}`:t.recordRun;
 applyMapMode();
 try{pixelMap($('belief'),s,true);if(!$('truth').hidden)pixelMap($('truth'),s,false)}catch(e){console.error('Canvas render failed',e)}}
+// Post-mortem panel: black box decisions graded by the hindsight oracle, with reflections.
+let pollCount=0;
+function escapeHTML(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function summarizeOrders(d){
+  if(!d||typeof d!=='object')return '—';
+  const parts=[...(d.extinguisher_orders||[]),...(d.scout_orders||[]),...(d.truck_orders||[])].map(o=>{
+    const id=o.drone_id||o.truck_id||'';const target=o.district_id?` ${o.district_id}`:(o.target_x!==undefined&&o.command!=='hold'&&o.command!=='continue'?` (${o.target_x},${o.target_y})`:'');
+    return `${id}: ${o.command||'?'}${target}`});
+  return parts.length?parts.join(' · '):(d.primary_command||'—');
+}
+async function renderPostmortem(){
+  const t=I18N[lang];let p;
+  try{p=await responseJSON(await fetch('/api/postmortem'),t.serverUnavailable)}catch(e){return}
+  if(!$('postmortem'))return;
+  $('lessons').innerHTML=p.lessons&&p.lessons.length?`<strong>${t.pmLessons}</strong><ul>${p.lessons.map(l=>`<li>${escapeHTML(l)}</li>`).join('')}</ul>`:'';
+  const body=$('postmortem').querySelector('tbody');
+  body.innerHTML=p.decisions.length?p.decisions.map(d=>{
+    const r=d.result||{},s=d.signals||{},gap=r.gap_type||'pending';
+    const regret=r.regret===undefined||r.regret===null?(r.gap_type?'—':t.pmPending):r.regret;
+    const reflection=d.reflection?`<tr class="reflection"><td colspan="7">${escapeHTML(d.reflection)}${d.diagnosis&&d.diagnosis.proposed_rule?`<br><em>→ ${escapeHTML(d.diagnosis.proposed_rule)}</em>`:''}</td></tr>`:'';
+    return `<tr class="gap-${gap}"><td>${d.tick}</td><td>${escapeHTML(summarizeOrders(d.decision))}${d.status!=='applied'?` <b>[${escapeHTML(d.status)}]</b>`:''}</td><td>${escapeHTML(summarizeOrders(r.best_decision))}</td><td>${regret}</td><td>${escapeHTML(gap)}</td><td>${d.latency_s??''}</td><td>${s.loop_detected?'⚠ '+escapeHTML(JSON.stringify(s.repeated_tool_calls||{})):''}</td></tr>`+reflection;
+  }).join(''):`<tr><td colspan="7">${t.pmNone}</td></tr>`;
+  $('patches').innerHTML=p.patches&&p.patches.length?`<strong>${t.pmPatches}</strong><ul>${p.patches.map(x=>`<li><code>${escapeHTML(x.version_id)}</code> · ${escapeHTML(x.report_path)}</li>`).join('')}</ul>`:'';
+}
 async function poll(){
   const epoch=viewEpoch;
   try{
@@ -506,12 +532,15 @@ async function poll(){
     const s=await responseJSON(await fetch('/api/state'),I18N[lang].serverUnavailable);
     if(epoch!==viewEpoch||recordingPlayback||requestsInFlight)return;
     pollingError='';render(s);
+    if(pollCount++%5===0&&$('postmortemPanel')&&$('postmortemPanel').open)renderPostmortem();
   }catch(e){
     if(epoch===viewEpoch&&!recordingPlayback&&!requestsInFlight){pollingError=I18N[lang].serverUnavailable;updateErrors();$('connection').textContent=pollingError}
   }finally{setTimeout(poll,600)}
 }
 // Surface any load-time failure instead of leaving an inert console.
 window.addEventListener('error',e=>setClientError(I18N[lang].uiError+': '+(e.message||e.error)));
+const postmortemPanel=$('postmortemPanel');
+if(postmortemPanel&&postmortemPanel.addEventListener)postmortemPanel.addEventListener('toggle',()=>{if(postmortemPanel.open)renderPostmortem()});
 applyLang();
 // The simulator must stay usable even if the map cannot start at all.
 applyMapMode();poll();

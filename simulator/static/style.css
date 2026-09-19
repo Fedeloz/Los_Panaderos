@@ -64,3 +64,9 @@ footer{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;font-size:1
 .fire-placement-hint{font-size:10px;padding:5px 10px;color:var(--warn);background:#302820}
 .is-adding-fire .map-card:first-child{border-color:#b7864e}
 #truth.fire-placement{cursor:url("/flamethrower-cursor.svg") 5 5,crosshair}
+/* Post-mortem panel: oracle grades and reflections */
+.postmortem-note{font-size:11px;color:var(--muted);margin:6px 0}
+#lessons,#patches{font-size:12px;margin:6px 0}#lessons ul,#patches ul{margin:4px 0 0 16px;padding:0}#lessons li{color:#cfe8c8}
+#postmortem{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}#postmortem th,#postmortem td{padding:3px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+#postmortem tr.gap-execution td{color:#ff8a80}#postmortem tr.gap-judgement td{color:#ffd180}#postmortem tr.gap-information td{color:#80d8ff}#postmortem tr.gap-none td{color:#a5d6a7}#postmortem tr.gap-pending td{color:var(--muted)}
+#postmortem tr.reflection td{font-style:italic;color:#cfd8c8;white-space:pre-wrap}

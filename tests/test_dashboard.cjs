@@ -305,6 +305,25 @@ test('state-dependent controls are safe before the first state arrives', async (
   for (const id of ['play', 'back', 'forward', 'replayPlay']) assert.doesNotThrow(() => h.elements.get(id).onclick());
 });
 
+test('post-mortem panel renders oracle grades, gaps, reflections and lessons', async () => {
+  const h = await harness();
+  assert.match(html, /id="postmortemPanel"/); assert.match(html, /id="postmortem"/);
+  const tbody = new Element('tbody');
+  h.elements.get('postmortem').querySelector = selector => selector === 'tbody' ? tbody : null;
+  const postmortem = {incident_id: 'i', lessons: ['Treat an empty tool result as success.'], patches: [{version_id: 'v2', report_path: '.runtime/patches/x.md'}],
+    decisions: [{id: 1, tick: 5, status: 'applied', latency_s: 285.4, decision: {scout_orders: [{drone_id: 'scout-1', command: 'patrol'}], extinguisher_orders: [], truck_orders: [{truck_id: 'engine-1', command: 'continue'}]},
+      result: {regret: 100, gap_type: 'execution', best_decision: {scout_orders: [{drone_id: 'scout-1', command: 'evacuate_farm', district_id: 'farm'}], extinguisher_orders: [], truck_orders: []}},
+      signals: {loop_detected: true, repeated_tool_calls: {'Scout Agent': 11}}, reflection: 'El agente <b>repitió</b> la llamada.', diagnosis: {proposed_rule: 'Rule'}},
+      {id: 2, tick: 21, status: 'applied', latency_s: 40, decision: {}, result: null, signals: null, reflection: null, diagnosis: null}]};
+  h.handler = request => request.url === '/api/postmortem' ? response(postmortem) : response(h.server);
+  await h.run('renderPostmortem()');
+  assert.match(tbody.innerHTML, /gap-execution/); assert.match(tbody.innerHTML, /scout-1: evacuate_farm farm/);
+  assert.match(tbody.innerHTML, /&lt;b&gt;repitió&lt;\/b&gt;/); assert.match(tbody.innerHTML, /⚠/);
+  assert.match(tbody.innerHTML, /gap-pending/); assert.match(tbody.innerHTML, /analizando/);
+  assert.match(h.elements.get('lessons').innerHTML, /empty tool result/);
+  assert.match(h.elements.get('patches').innerHTML, /v2/);
+});
+
 test('unknown status and radio-source names do not read inherited dictionary properties', async () => {
   const h = await harness();
   assert.equal(h.run("statusText('constructor')"), 'constructor');
