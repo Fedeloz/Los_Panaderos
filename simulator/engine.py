@@ -40,6 +40,7 @@ class Simulation:
         self.ignited = self.called = False
         self.call_text = ''
         self.history = []
+        self.mission_records = []
         self.seen_commands = set()
         self.suppressed = 0
         self.last_result = None
@@ -429,6 +430,54 @@ class Simulation:
                 measurements=measurements)
         return result
 
+    def smoke_scout_positions(self):
+        if not self.called:return []
+        blocked=self.danger_zone([(c['x'],c['y']) for c in self.memory.values() if c['burning']])
+        rx,ry=self.report
+        candidates=[]
+        for y in range(max(0,ry-4),min(self.height,ry+5)):
+            for x in range(max(0,rx-4),min(self.width,rx+5)):
+                distance=math.hypot(x-rx,y-ry)
+                if 3<=distance<=4 and (x,y) not in blocked:
+                    downwind=(x-rx)*self.wind[0]+(y-ry)*self.wind[1]
+                    candidates.append(((downwind>0,distance,math.dist((x,y),(self.drone['x'],self.drone['y']))),
+                                       dict(x=x,y=y,distance_from_report=round(distance,2))))
+        return [p for _,p in sorted(candidates,key=lambda item:item[0])[:12]]
+
+    def known_map(self):
+        # This map never includes cells outside sensor observations. Static landmarks are separate.
+        cells={key:dict(value,source='drone') for key,value in self.memory.items()}
+        t=self.truck;r=self.truck_sensor_radius
+        for y in range(max(0,int(t['y'])-r),min(self.height,int(t['y'])+r+1)):
+            for x in range(max(0,int(t['x'])-r),min(self.width,int(t['x'])+r+1)):
+                if math.hypot(x-t['x'],y-t['y'])<=r:
+                    cells[f'{x},{y}']=dict(x=x,y=y,burning=self.burning(self.cells[y][x]),
+                                           observed_at=self.tick,source='truck')
+        rows=[['?']*self.width for _ in range(self.height)]
+        for c in cells.values():
+            fresh=c['observed_at']==self.tick
+            rows[c['y']][c['x']]=('F' if fresh else 'f') if c['burning'] else ('.' if fresh else ',')
+        return dict(format='text-grid',width=self.width,height=self.height,origin='top-left; x column, y row',
+                    legend={'?':'unobserved','.':'observed clear now',',':'previously clear; stale',
+                            'F':'observed fire now','f':'previously burning; stale'},
+                    rows=[''.join(row) for row in rows],captured_at=self.tick,
+                    stale_observation_ticks=sorted({c['observed_at'] for c in cells.values() if c['observed_at']!=self.tick}),
+                    landmarks=dict(farm=list(self.farm),town=list(self.town),station=list(self.base)),
+                    smoke_report=list(self.report) if self.called else None,
+                    drone_position=[self.drone['x'],self.drone['y']],truck_position=[t['x'],t['y']],
+                    satellite=self.satellite)
+
+    def mission_context(self):
+        records=copy.deepcopy(self.mission_records[-12:])
+        if records:
+            latest=records[-1]
+            latest['outcome_so_far']=dict(observed_at=self.tick,elapsed_steps=self.tick-latest['issued_at'],
+                drone_status=self.drone['status'],drone_position=[self.drone['x'],self.drone['y']],
+                drone_cells_extinguished=self.suppressed-latest['baseline']['drone_extinguished'],
+                truck_cells_extinguished=self.crew_extinguished-latest['baseline']['truck_extinguished'],
+                people={k:g['status'] for k,g in self.groups.items()},last_action_result=self.last_result)
+        return records
+
     def payload(self, event_type='local_observation'):
         self.observe()
         known = dict(width=self.width,height=self.height,wind=dict(dx=self.wind[0],dy=self.wind[1],strength=round(math.hypot(*self.wind),2),units="relative simulation strength",convention="positive X east, positive Y south; vector points TO spread",spread_steps={name:self.spread_interval(dx,dy) for name,dx,dy in [("east",1,0),("west",-1,0),("north",0,-1),("south",0,1)]}),
@@ -440,6 +489,7 @@ class Simulation:
             satellite=self.satellite,rules=self.rules,people=self.groups,fire_truck=self.truck_telemetry(),
             firefighters_eta=max(0,self.crew_due-self.tick) if self.crew_due else None,
             mission=self.mission,last_action_result=self.last_result,
+            mission_context=self.mission_context(),known_map=self.known_map(),smoke_scout_positions=self.smoke_scout_positions(),
             memory=[e for e in self.history if e['source']!='simulation'][-8:])
         return dict(event_id=str(uuid.uuid4()),event_type=event_type,incident_id=self.incident_id,sim_time=str(self.tick),
             world_state=json.dumps(known),drone_telemetry=json.dumps(self.telemetry()),
@@ -485,6 +535,12 @@ class Simulation:
             self.truck['drone_order']=dict(command=truck_command,sector=self.crew_target[:],
                 reason=reason[:1000],issued_at=self.tick,issued_by='drone')
             self.log('drone → truck',f'Attack sector ({int(tx)}, {int(ty)}): {reason[:500]}')
+        if self.mission_records:
+            self.mission_records[-1]=self.mission_context()[-1]
+        self.mission_records.append(dict(issued_at=self.tick,decision=copy.deepcopy(decision),
+            wind=list(self.wind),baseline=dict(drone_extinguished=self.suppressed,
+                                               truck_extinguished=self.crew_extinguished)))
+        self.mission_records=self.mission_records[-128:]
         self.seen_commands.add(command_id)
         self.mission = str(decision.get('mission',''))[:500]
         self.drone.update(mode=command,target=None if command=='hold' else [x,y],status='holding' if command=='hold' else 'en_route',sector=[x,y])
@@ -499,7 +555,7 @@ class Simulation:
             cells=self.cells,drone=self.telemetry(),wind=self.wind,base=self.base,town=self.town,farm=self.farm,
             ignition_point=self.report,report=self.report if self.called else None,ignited=self.ignited,called=self.called,mission=self.mission,
             observation=self.observation,observed_cells=list(self.memory.values()),satellite=self.satellite,
-            history=self.history,burning=burning,burned=sum(c['fuel']==0 for row in self.cells for c in row),
+            history=self.history,mission_context=self.mission_context(),burning=burning,burned=sum(c['fuel']==0 for row in self.cells for c in row),
             burnt_people=sum(g.get('burnt',0) for g in self.groups.values()),
             extinguished=self.suppressed,contained=self.ignited and burning==0,people=self.groups,
             truck=self.truck_telemetry(),roads=sorted(self.roads),crew_due=self.crew_due,crew_target=self.crew_target,crew_extinguished=self.crew_extinguished,rules=self.rules))

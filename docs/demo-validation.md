@@ -33,3 +33,7 @@ Live HappyRobot checks passed: weak east wind with observed fire selected contai
 ## Drone-to-truck coordination — development v14
 
 Live strong-north-wind farmer-call check returned evacuate_farm plus truck attack_sector (65,43). The truck_reason explicitly cited its six-cell suppression capacity and mobilization delay. Both commands passed simulator validation together. Local suite: 42 tests pass, including persistent truck orders and invalid-order rejection.
+
+## Close scouting and context — development v15
+
+Live weak-east farmer-call check selected scout (62,43), exactly three cells west of report (65,43), plus truck attack_sector (65,43). The known grid kept the unobserved ignition cell unknown. Mission records include selected actions and observed outcomes; the local suite has 45 passing tests. Map input is a symbolic text grid, not a vision attachment.

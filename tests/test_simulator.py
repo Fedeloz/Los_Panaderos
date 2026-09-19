@@ -181,6 +181,45 @@ class PhysicsTests(unittest.TestCase):
         self.assertIsNone(s.truck['drone_order'])
         self.assertNotIn('invalid',s.seen_commands)
 
+    def test_known_map_hides_unobserved_truth_and_marks_stale_cells(self):
+        s=Simulation();s.ignite()
+        w=json.loads(s.payload()['world_state'])
+        self.assertEqual(w['known_map']['rows'][43][65],'?')
+        self.assertIsNone(w['known_map']['smoke_report'])
+        s.drone.update(x=61.,y=43.);s.observe()
+        self.assertEqual(s.known_map()['rows'][43][65],'F')
+        s.tick+=1;s.drone.update(x=12.,y=44.);s.observe()
+        self.assertEqual(s.known_map()['rows'][43][65],'f')
+        s.cells[43][65]['heat']=0
+        self.assertEqual(s.known_map()['rows'][43][65],'f')
+        s.drone.update(x=61.,y=43.);s.observe()
+        self.assertEqual(s.known_map()['rows'][43][65],'.')
+
+    def test_smoke_scout_positions_are_near_report_and_avoid_known_fire(self):
+        s=Simulation();s.ignite()
+        self.assertEqual(s.smoke_scout_positions(),[])
+        s.farmer_call()
+        for p in s.smoke_scout_positions():
+            self.assertGreaterEqual(math.dist((p['x'],p['y']),s.report),3)
+            self.assertLessEqual(math.dist((p['x'],p['y']),s.report),4)
+        s.drone.update(x=61.,y=43.);s.observe()
+        blocked=s.danger_zone(s.fire_points())
+        self.assertTrue(all((p['x'],p['y']) not in blocked for p in s.smoke_scout_positions()))
+
+    def test_mission_context_preserves_observed_outcomes(self):
+        s=Simulation()
+        s.apply(command('scout',30,30),'first',s.incident_id,0)
+        s.step(2)
+        first=s.mission_context()[0]
+        self.assertEqual(first['outcome_so_far']['elapsed_steps'],2)
+        s.apply(command('hold',30,30),'second',s.incident_id,s.tick)
+        s.step()
+        context=s.mission_context()
+        self.assertEqual(context[0]['outcome_so_far'],first['outcome_so_far'])
+        self.assertEqual(context[1]['outcome_so_far']['elapsed_steps'],1)
+        self.assertEqual(len(s.state()['mission_context']),2)
+        self.assertEqual(Simulation().mission_context(),[])
+
     def test_vehicle_observation_radii(self):
         s=Simulation();s.drone.update(x=20.,y=20.)
         s.truck.update(x=50.,y=20.)
