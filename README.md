@@ -61,6 +61,25 @@ The backend uses the authenticated stdio MCP proxy in `.cursor/mcp.json`, server
 
 Completed run outputs are fetched explicitly, parsed and checked for coordinate bounds, visibility, incident identity, tick freshness and duplicate commands. A rejected model command is returned as feedback for one corrective decision; a second rejection pauses the demo. The simulator never silently substitutes a different AI target. Latest run evidence is in `.runtime/last-run.json` and the page's inspection panel. [Agent prompts](docs/mvp-agent-prompts.md).
 
+## Self-healing loop: black box, oracle, reflection
+
+[Post-mortem Los Panaderos workflow](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/tigrukwx7c5y/editor/tvpspqgw92vp)
+
+```text
+decision applied ──► BlackBox (SQLite, .runtime/blackbox.sqlite)
+                      │  frozen pre-decision world, payload, decision, outcome after 16 ticks
+                      ├─► Telemetry harvester   reasoning / tool calls / timings per agent
+                      ├─► Hindsight oracle      counterfactual rollouts with the hidden fire → regret, gap type
+                      ├─► Reflection agent      HappyRobot post-mortem → root cause, evidence, proposed rule
+                      └─► Healing tiers         1 lesson in next payload · 2 northstar on recurrence · 3 staged patch
+```
+
+Every applied, rejected or failed decision is frozen before the simulator mutates and analysed in a background thread; the clock never waits for it. The oracle re-simulates the same world with hindsight (it knows fire the sensors had not seen) for the actual command and a small set of candidates, and reports regret plus a gap type: `information` (best command needed hidden facts), `judgement` (facts were visible), `execution` (rejected command, tool loop, timeout) or `none`. It never chooses a command for the live incident; it only measures.
+
+The reflection is a separate HappyRobot workflow that reads the telemetry, the oracle verdict and the prompt section, and returns a structured diagnosis. Healing is gated: tier 1 stores the proposed rule as a lesson and sends the five most recent active lessons in `world_state.lessons_learned` of the next payload, and annotates the run in HappyRobot; tier 2 creates a Northstar when the same root cause recurs; tier 3 forks a development version, applies the proposed prompt patch and writes a report in `.runtime/patches/`. Nothing is published automatically; promoting a patch is a human decision. Lessons persist across resets. The dashboard panel **Post-mortem** shows the actual and best command per decision, regret, gap, latency, loop signals, the reflection text and the active lessons.
+
+Reference case: run `58a5e3dc` (development v25) had the Scout Agent call `report_scout_plan` twelve times over four minutes because the tool result was empty and it read that as failure. From the recorded telemetry the harvester flags the loop, the oracle grades it as an execution gap, and the live post-mortem run `90242a22` named the empty tool result as root cause with a rule to treat an empty result as success (`tests/test_reference_case.py`, fixtures under `tests/fixtures/`). The oracle's cost function is a demo heuristic (exposed people, unwarned downwind, burning cells, invalid or looping runs), not an operational standard. Design notes: `docs/superpowers/specs/2026-09-20-self-healing-blackbox-oracle-reflection-design.md`.
+
 ## Verify
 
 ```sh
@@ -69,7 +88,7 @@ node --test tests/test_dashboard.cjs
 node --check simulator/static/app.js
 ```
 
-Tests cover spread timing, wind, containment, local knowledge, satellite latency, evacuation, blocked routes, stale/invalid commands, immutable replay, and MCP parsing. Restart the server after Python changes; no hot reload.
+Tests cover spread timing, wind, containment, local knowledge, satellite latency, evacuation, blocked routes, stale/invalid commands, immutable replay, MCP parsing, the black box, telemetry signals, the oracle, the reflection client, the healing tiers and the reference loop case. Live HappyRobot calls are mocked in tests. Restart the server after Python changes; no hot reload.
 
 [Recorded validation cases](docs/demo-validation.md) include the real HappyRobot run IDs and physical outcomes.
 
