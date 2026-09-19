@@ -14,7 +14,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = '01a0b8ea-d9af-71f3-9fb7-8a469f9ac25b'
 EDGE_NODE = '01a0b96a-d5b4-771c-809c-850010ddbb67'
-EDITOR = 'https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/87qrddztuq85'
+EDITOR = 'https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/v6yzemaywt3j'
 
 
 class HappyRobot:
@@ -170,8 +170,8 @@ class HappyRobot:
         decision = dict(next(iter(unique.values())))
         # HappyRobot Extract's parameter builder can encode numbers as strings.
         # Accept canonical integers only, without rounding or coercing garbage.
-        for field in ('target_x', 'target_y'):
-            value = decision[field]
+        for field in ('target_x', 'target_y', 'truck_target_x', 'truck_target_y'):
+            value = decision.get(field)
             if isinstance(value, str) and re.fullmatch(r'-?\d{1,4}', value):
                 decision[field] = int(value)
         if not isinstance(decision['reason'], str) or not isinstance(decision['mission'], str):

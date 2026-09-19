@@ -155,6 +155,32 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(s.phase,'finished')
         self.assertEqual((s.truck['x'],s.truck['y']),s.base)
 
+    def test_drone_orders_truck_while_evacuating(self):
+        s=Simulation();s.ignite();s.farmer_call()
+        d=command('evacuate_farm',65,10)
+        d.update(truck_command='attack_sector',truck_target_x=45,truck_target_y=25,
+                 truck_reason='Truck leads the main attack with six times drone suppression.')
+        s.apply(d,'coordinated',s.incident_id,s.tick)
+        self.assertEqual(s.crew_target,[45,25])
+        self.assertEqual(s.truck['drone_order']['issued_by'],'drone')
+        s.drone.update(x=61.,y=43.);s.observe()
+        self.assertEqual(s.crew_target,[45,25])
+        s.tick=8;s.update_truck()
+        self.assertEqual(s.crew_target,[45,25])
+        self.assertNotEqual((s.truck['x'],s.truck['y']),s.base)
+        s.apply(dict(command('hold',61,43),truck_command='continue'),'keep',s.incident_id,s.tick)
+        self.assertEqual(s.truck_telemetry()['drone_order']['sector'],[45,25])
+
+    def test_invalid_truck_order_rejects_drone_command(self):
+        s=Simulation()
+        before=copy.deepcopy(s.drone)
+        d=dict(command('scout',40,20),truck_command='attack_sector',
+               truck_target_x=100,truck_target_y=20,truck_reason='Attack')
+        with self.assertRaises(ValueError):s.apply(d,'invalid',s.incident_id,0)
+        self.assertEqual(s.drone,before)
+        self.assertIsNone(s.truck['drone_order'])
+        self.assertNotIn('invalid',s.seen_commands)
+
     def test_vehicle_observation_radii(self):
         s=Simulation();s.drone.update(x=20.,y=20.)
         s.truck.update(x=50.,y=20.)

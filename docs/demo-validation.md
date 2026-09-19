@@ -29,3 +29,7 @@ All three tests began with a farmer report and empty local thermal detections. D
 ## Downwind strategy — development v11
 
 Live HappyRobot checks passed: weak east wind with observed fire selected contain at safe downwind position (69,43); strong north wind selected evacuate_farm; strong west wind selected evacuate_town. The west case initially failed in v10; v11 adds observation-derived population/wind geometry and asks both agents to verify the threatened settlement. Local suite: 29 tests pass, including downwind candidate clearance and population alignment. These are sampled model runs, not a guarantee of every future decision.
+
+## Drone-to-truck coordination — development v14
+
+Live strong-north-wind farmer-call check returned evacuate_farm plus truck attack_sector (65,43). The truck_reason explicitly cited its six-cell suppression capacity and mobilization delay. Both commands passed simulator validation together. Local suite: 42 tests pass, including persistent truck orders and invalid-order rejection.

@@ -15,7 +15,8 @@ class Simulation:
     report = (65, 43)
     sensor_radius = 12
     truck_sensor_radius = 9
-    rules = dict(evacuation='Warning delivery completes the drone task; people continue independently. Reassign drone to urgent unwarned people, otherwise scout/contain to assist truck.',
+    rules = dict(truck_coordination='Drone can issue attack_sector with truck_target_x/y and truck_reason, or continue the prior truck order. Truck suppresses 6 cells/step versus drone 1; use truck for main attack, drone for scouting, flank support and urgent warnings. Orders persist; truck chooses safe stand-off and route.',
+                 evacuation='Warning delivery completes the drone task; people continue independently. Reassign drone to urgent unwarned people, otherwise scout/contain to assist truck.',
                  drone_planner='Optimistic A*: unknown cells traversable; replan when observed fire blocks the route; retain known fire until observed clear',
                  vehicle_movement='8 neighbors; diagonals cost sqrt(2) distance; blocked corners cannot be crossed',
                  ignition_probability_per_eligible_cell=0.5,
@@ -48,7 +49,7 @@ class Simulation:
         self.satellite = None
         self.satellite_queue = []
         self.mission = 'Awaiting a report'
-        self.truck = dict(x=12., y=44., status="at_station", target=None, route=[], mobilized_at=None, observed_fire=[])
+        self.truck = dict(x=12., y=44., status="at_station", target=None, route=[], mobilized_at=None, observed_fire=[],drone_order=None)
         self.roads = {(x,42) for x in range(4,75)} | {(64,y) for y in range(4,50)} | {(12,y) for y in range(28,45)}
         self.crew_due = None
         self.crew_target = None
@@ -343,7 +344,7 @@ class Simulation:
         t['observed_fire']=[dict(x=x,y=y) for x,y in visible]
         returning=self.phase=='returning'
         if not returning and (t['mobilized_at'] is None or self.tick<t['mobilized_at']):return
-        if visible:
+        if visible and not t.get('drone_order'):
             self.crew_target=list(min(visible,key=lambda p:math.hypot(p[0]-t['x'],p[1]-t['y'])))
         if not returning and not self.crew_target:return
         here=(round(t['x']),round(t['y']))
@@ -400,7 +401,7 @@ class Simulation:
                     self.memory[f'{x},{y}'] = dict(x=x,y=y,burning=fire,observed_at=self.tick)
                     if fire:
                         self.observation.append(dict(x=x,y=y))
-        if self.observation:
+        if self.observation and not self.truck.get('drone_order'):
             self.crew_target = [self.observation[0]['x'],self.observation[0]['y']]
         return self.observation
 
@@ -468,6 +469,22 @@ class Simulation:
             raise ValueError('Flight target violates the 3-cell fire stand-off. Scout from outside the burning area.')
         if command.startswith('evacuate_'):
             x,y = self.farm if command=='evacuate_farm' else self.town
+        truck_command=decision.get('truck_command','continue')
+        if truck_command not in {'continue','attack_sector'}:
+            raise ValueError('Truck command must be continue or attack_sector.')
+        if truck_command=='attack_sector':
+            tx,ty=decision.get('truck_target_x'),decision.get('truck_target_y')
+            if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or int(v)!=v for v in (tx,ty)):
+                raise ValueError('Truck sector requires integer coordinates.')
+            if not (0<=tx<self.width and 0<=ty<self.height):
+                raise ValueError('Truck sector outside map.')
+            reason=decision.get('truck_reason')
+            if not isinstance(reason,str) or not reason.strip():
+                raise ValueError('Truck order requires an explanation.')
+            self.crew_target=[int(tx),int(ty)]
+            self.truck['drone_order']=dict(command=truck_command,sector=self.crew_target[:],
+                reason=reason[:1000],issued_at=self.tick,issued_by='drone')
+            self.log('drone → truck',f'Attack sector ({int(tx)}, {int(ty)}): {reason[:500]}')
         self.seen_commands.add(command_id)
         self.mission = str(decision.get('mission',''))[:500]
         self.drone.update(mode=command,target=None if command=='hold' else [x,y],status='holding' if command=='hold' else 'en_route',sector=[x,y])
