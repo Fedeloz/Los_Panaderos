@@ -27,6 +27,7 @@ class Simulation:
     def __init__(self, seed=9):
         self.incident_id = str(uuid.uuid4())
         self.rng = random.Random(seed)
+        self.phase = "active"
         self.tick = 0
         self.wind = (1, 0)
         self.revision = 0
@@ -106,6 +107,8 @@ class Simulation:
 
     def step(self, count=1):
         for _ in range(count):
+            self.update_completion()
+            if self.phase == "finished":break
             self.tick += 1
             ignitions = set()
             for y,row in enumerate(self.cells):
@@ -158,13 +161,31 @@ class Simulation:
                         g.update(x=nx,y=ny,status='safe' if dist<=.8 else 'evacuating')
                         if g['status']=='safe':
                             self.log('people', f'{name}: {g["count"]} people reached refuge.')
+            self.update_completion()
             self.update_truck()
+            self.update_completion()
             self.observe()
             if self.tick % 12 == 0:
                 blocks = sorted({(x//8*8,y//8*8) for y,row in enumerate(self.cells) for x,c in enumerate(row) if self.burning(c)})
                 self.satellite_queue.append(dict(captured_at=self.tick,available_at=self.tick+12,blocks=blocks))
             while self.satellite_queue and self.satellite_queue[0]['available_at']<=self.tick:
                 self.satellite = self.satellite_queue.pop(0)
+
+    def update_completion(self):
+        if self.phase == 'active' and self.ignited and not self.fire_points():
+            self.phase='returning'
+            self.mission='Fire out — drone and truck returning to station'
+            self.drone.update(mode='returning',status='returning',target=list(self.base),last_drop=None)
+            self.truck.update(status='returning',target=list(self.base),last_drops=[])
+            self.log('simulation','Global simulator trigger: no fire remains. Returning both vehicles to station.')
+        if self.phase == 'returning':
+            for vehicle in (self.drone,self.truck):
+                if (vehicle['x'],vehicle['y']) == self.base:
+                    vehicle.update(status='at_station',target=None,route=[])
+            if all((v['x'],v['y']) == self.base for v in (self.drone,self.truck)):
+                self.phase='finished'
+                self.mission='Finished — fire out, both vehicles at station'
+                self.log('simulation','Both vehicles returned to station. Simulation finished.')
 
     def update_people_exposure(self):
         # Each population group occupies one cell in this simplified demo.
@@ -273,16 +294,20 @@ class Simulation:
 
     def update_truck(self):
         t=self.truck;t['last_drops']=[]
+        if self.phase == 'finished':return
         visible=[p for p in self.fire_points() if math.hypot(p[0]-t['x'],p[1]-t['y'])<=12]
         t['observed_fire']=[dict(x=x,y=y) for x,y in visible]
-        if t['mobilized_at'] is None or self.tick<t['mobilized_at']:return
+        returning=self.phase=='returning'
+        if not returning and (t['mobilized_at'] is None or self.tick<t['mobilized_at']):return
         if visible:
             self.crew_target=list(min(visible,key=lambda p:math.hypot(p[0]-t['x'],p[1]-t['y'])))
-        if not self.crew_target:return
+        if not returning and not self.crew_target:return
         here=(round(t['x']),round(t['y']))
         blocked=self.danger_zone(visible)
         retreat=here in blocked
-        if retreat:
+        if returning:
+            goals={self.base};obstacles=blocked
+        elif retreat:
             goals={(x,y) for y in range(max(0,here[1]-3),min(self.height,here[1]+4))
                    for x in range(max(0,here[0]-3),min(self.width,here[0]+4)) if (x,y) not in blocked}
             obstacles=set(visible)
@@ -302,7 +327,7 @@ class Simulation:
         t.update(x=float(here[0]),y=float(here[1]),route=path,
                  target=path[-1] if path else None,travel_credit=max(0,budget) if path else 0,
                  terrain='road' if here in self.roads else 'offroad',
-                 status='retreating' if retreat else 'en_route' if path else 'on_scene')
+                 status=('returning' if path else 'at_station') if returning else 'retreating' if retreat else 'en_route' if path else 'on_scene')
         # Use the remaining weighted route and accumulated fractional movement for ETA.
         remaining=0;point=here
         for step in path:remaining+=self.truck_edge_time(point,step);point=tuple(step)
@@ -378,6 +403,7 @@ class Simulation:
             human_messages=self.call_text)
 
     def apply(self, decision, command_id, incident_id, expected_tick):
+        if self.phase != 'active':raise ValueError('Incident resolved; vehicles are returning or at station.')
         if incident_id!=self.incident_id or expected_tick!=self.tick:
             raise ValueError('Stale decision: request a new decision.')
         if command_id in self.seen_commands:
@@ -408,7 +434,7 @@ class Simulation:
 
     def state(self):
         burning = sum(self.burning(c) for row in self.cells for c in row)
-        return copy.deepcopy(dict(incident_id=self.incident_id,tick=self.tick,width=self.width,height=self.height,
+        return copy.deepcopy(dict(incident_id=self.incident_id,tick=self.tick,phase=self.phase,width=self.width,height=self.height,
             cells=self.cells,drone=self.telemetry(),wind=self.wind,base=self.base,town=self.town,farm=self.farm,
             ignition_point=self.report,report=self.report if self.called else None,ignited=self.ignited,called=self.called,mission=self.mission,
             observation=self.observation,observed_cells=list(self.memory.values()),satellite=self.satellite,

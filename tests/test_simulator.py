@@ -126,6 +126,34 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(world['fire_truck']['x'],s.truck['x'])
         self.assertIn('route',world['fire_truck'])
 
+    def test_global_fire_out_returns_both_vehicles_and_finishes(self):
+        s=Simulation();s.ignite()
+        s.drone.update(x=50.,y=20.,mode='contain',target=[65,43])
+        s.truck.update(x=35.,y=20.,mobilized_at=None)
+        for row in s.cells:
+            for c in row:c.update(heat=0)
+        s.step()
+        self.assertEqual(s.phase,'returning')
+        self.assertEqual(s.drone['target'],list(s.base))
+        self.assertEqual(s.truck['target'],list(s.base))
+        with self.assertRaises(ValueError):s.apply(command('scout',30,30),'late',s.incident_id,s.tick)
+        s.step(100)
+        self.assertEqual(s.phase,'finished')
+        for v in (s.drone,s.truck):
+            self.assertEqual((v['x'],v['y']),s.base)
+            self.assertEqual(v['status'],'at_station')
+        before=s.tick;s.step(10);self.assertEqual(s.tick,before)
+        self.assertEqual(sum('Global simulator trigger' in e['message'] for e in s.history),1)
+        self.assertEqual(Simulation().phase,'active')
+
+    def test_last_fire_suppressed_at_base_does_not_dispatch_truck(self):
+        s=Simulation();s.ignited=True;s.drone['mode']='contain'
+        s.truck['mobilized_at']=0;s.crew_target=[18,44]
+        s.cells[44][18]['heat']=1
+        s.step()
+        self.assertEqual(s.phase,'finished')
+        self.assertEqual((s.truck['x'],s.truck['y']),s.base)
+
     def test_truck_offroad_speed_and_route_cost(self):
         s=Simulation();s.roads=set()
         s.truck.update(x=10.,y=20.,mobilized_at=0);s.crew_target=[60,20]

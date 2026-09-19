@@ -53,10 +53,13 @@ class Controller:
                 if not self.running or self.busy or self.cursor is not None:
                     continue
                 self.sim.step()
-                if self.sim.ignited and self.sim.called and not any(self.sim.burning(c) for row in self.sim.cells for c in row) and not any(g['status'] in {'evacuating','blocked'} for g in self.sim.groups.values()):
-                    self.running = self.auto = False
-                    self.sim.log('simulation','Demo paused: no active fire remains in ground truth. This is an operator check, not an agent all-clear.')
+                if self.sim.phase != 'active':
+                    self.auto = False
+                if self.sim.phase == 'finished':
+                    self.running = False
                 self.record()
+                if self.sim.phase == 'finished':
+                    self.recording = False
                 if self.auto and self.sim.called and self.sim.tick>=self.next_decision:
                     self.request_decision()
 
@@ -71,6 +74,8 @@ class Controller:
                         workflow_calls=self.calls, latency=self.latency, run_evidence=self.run_evidence)
 
     def request_decision(self, event='local_observation'):
+        if self.sim.phase != 'active':
+            raise ValueError('Fire is out; vehicles are returning or at station.')
         if self.busy:
             raise ValueError('A decision is already running.')
         if not self.sim.called:
