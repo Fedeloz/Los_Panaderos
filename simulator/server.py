@@ -158,7 +158,7 @@ class Controller:
                 self.reset_pending=False
                 self.repair_attempts=0
                 self.cursor = None
-                self.sim = Simulation(drone_count=1+len(self.sim.scouts))
+                self.sim = Simulation(fleet_counts=self.sim.fleet_counts())
                 self.recording=False
                 self.error = None
                 self.auto = self.running = False
@@ -168,7 +168,7 @@ class Controller:
                 self.frames = [self.snapshot()]
                 self.next_decision = 0
             elif action == 'fleet':
-                self.sim.configure_fleet(data.get('count'))
+                self.sim.configure_fleet(data.get('count'),**data.get('counts',{}))
                 self.sim.observe()
             elif action == 'add_fire':
                 self.sim.add_fire(data.get('x'),data.get('y'))

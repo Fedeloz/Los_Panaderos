@@ -51,3 +51,7 @@ Live run 45883e62-cb27-4a1a-86cd-f1a561fe6bd9 returned a scout patrol, precautio
 ## Scout evacuation — development v20
 
 76 tests passed. A live north-wind scenario with scout-1 already near the farm returned scout evacuate_farm with district_id farm, while the extinguisher investigated smoke and the truck attacked its reported sector. The command was accepted and physical scout arrival started farm movement toward refuge. Tests verify independent district warning, refuge arrival, invalid district rejection and duplicate warning prevention across scouts and extinguisher.
+
+## Independent role counts — development v21
+
+80 tests passed. Browser checks verified separate trucks/scouts/extinguisher controls, Apply fleet, locking after ignition, count preservation on reset, and zero-role rendering. A live HappyRobot run for 2 trucks, 2 extinguisher drones and 1 scout returned exactly five ID-specific orders: scout farm evacuation, one drone scouting, one held in reserve, and two truck sectors. The complete command validated and applied. Local tests verify independent movement and sectors, no phantom sensors for absent roles, trucks-only operation, and atomic rejection of incomplete/invalid fleets.

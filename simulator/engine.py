@@ -35,7 +35,7 @@ class Simulation:
                  truck_jets=5, hose_range=10,
                  drone_standoff_cells=3, drone_suppression_range=8)
 
-    def __init__(self, seed=9, drone_count=1):
+    def __init__(self, seed=9, drone_count=1, fleet_counts=None):
         self.incident_id = str(uuid.uuid4())
         self.rng = random.Random(seed)
         self.suppression_rng = random.Random(seed+1)
@@ -76,15 +76,34 @@ class Simulation:
                 burnt=0,status='unwarned',refuge=zone['refuge'][:])
             for zone in GEOGRAPHY['observation_zones']}
         self.rules['evacuation'] = ('Each population district is independent. Use evacuate_town with target_x/y equal to the chosen unwarned town district home coordinates from people; use evacuate_farm for the single farm district. Always supply district_id copied from evacuation_targets. The HappyRobot agent selects the district explicitly; missing/invalid IDs are rejected, never replaced with a nearest district. One warning evacuates ONLY that district, never the whole town. After delivery choose the next threatened unwarned district, or help the truck. Never repeat a warning for evacuating/blocked/safe/burnt people. District counts are scenario allocations of the official municipal total; farm occupancy is assumed.')
-        self.configure_fleet(drone_count)
+        self.configure_fleet(drone_count, **(fleet_counts or {}))
         self.observe()
 
-    def configure_fleet(self, count):
+    def configure_fleet(self, count=None, scouts=None, extinguishers=1, trucks=1):
         if self.ignited or self.called:raise ValueError('Reset before changing the fleet.')
-        if type(count) is not int or not 1<=count<=4:raise ValueError('Choose 1–4 drones.')
+        if scouts is None:
+            if type(count) is not int or not 1<=count<=4:raise ValueError('Choose 1–4 drones.')
+            scouts=count-1
+        if any(type(n) is not int or not 0<=n<=3 for n in (scouts,extinguishers,trucks)) or scouts+extinguishers+trucks==0:
+            raise ValueError('Choose 0–3 of each vehicle, with at least one vehicle overall.')
         self.scouts=[dict(drone_id=f'scout-{i+1}',role='scout',x=float(self.base[0]),y=float(self.base[1]),
             mode='hold',status='at_station',target=None,waypoints=[],route=[],sensor_radius=16,
-            capabilities=['patrol','report','evacuate_town','evacuate_farm']) for i in range(count-1)]
+            capabilities=['patrol','report','evacuate_town','evacuate_farm']) for i in range(scouts)]
+        def drone(i):return dict(drone_id=f'drone-{i+1}',role='extinguisher',x=float(self.base[0]),y=float(self.base[1]),status='at_station',target=None,mode='hold')
+        def truck(i):return dict(truck_id=f'engine-{i+1}',role='truck',x=float(self.base[0]),y=float(self.base[1]),status='at_station',target=None,route=[],mobilized_at=None,observed_fire=[],drone_order=None,crew_target=None,crew_due=None)
+        self.extinguishers=[drone(i) for i in range(extinguishers)]
+        self.trucks=[truck(i) for i in range(trucks)]
+        # Legacy aliases keep old recordings/tests readable; absent vehicles never sense or act.
+        self.drone=self.extinguishers[0] if self.extinguishers else drone(0)
+        self.truck=self.trucks[0] if self.trucks else truck(0)
+        self.crew_target=self.crew_due=None
+        self.memory={}
+
+    def fleet_counts(self):
+        return dict(scouts=len(self.scouts),extinguishers=len(self.extinguishers),trucks=len(self.trucks))
+
+    def vehicles(self):
+        return self.extinguishers+self.scouts+self.trucks
 
     def add_fire(self,x,y):
         if not self.ignited:raise ValueError('Start the scenario first.')
@@ -193,9 +212,9 @@ class Simulation:
             raise ValueError('Farmer report already received; request a new decision instead.')
         self.called = True
         self.call_text = message or f'I am reporting a smoke column around grid {self.report}. Please investigate.'
-        self.truck["mobilized_at"] = self.tick + 8
-        self.truck["status"] = "mobilizing"
-        self.crew_target = list(self.report)
+        for truck in self.trucks:
+            truck.update(mobilized_at=self.tick+8,status="mobilizing",crew_target=list(self.report))
+        self.crew_target = list(self.report) if self.trucks else None
         self.log('farmer', self.call_text)
         self.log('dispatch', 'Truck mobilizing for 8 steps, then travelling on roads at 2 cells/step or off-road at 1.6 cells/step. Drone scouts ahead.')
 
@@ -256,20 +275,20 @@ class Simulation:
                 if self.rng.random()<chance:self.cells[y][x].update(heat=.25,age=0)
             self.update_people_exposure()
             self.update_scouts()
-            d = self.drone
-            d['last_drop'] = None
-            d['suppression_attempts'] = []
-            self.move_safely(d,3)
-            self.observe()
-            if d['mode'] == 'contain' and d['status'] != 'retreating':
-                candidates = [c for c in self.observation if math.hypot(c['x']-d['x'],c['y']-d['y'])<=self.rules['drone_suppression_range']]
-                if candidates:
-                    c = max(candidates,key=lambda c:c['x']*self.wind[0]+c['y']*self.wind[1])
-                    attempts=self.suppress([(c['x'],c['y'])],self.rules['drone_jets'],self.rules['drone_suppression_success_probability'])
-                    d['suppression_attempts']=attempts
-                    self.suppressed += sum(a['extinguished'] for a in attempts)
-                    d['last_drop'] = [c['x'],c['y']]
-            self.deliver_warning(d)
+            for d in self.extinguishers:
+                d['last_drop'] = None
+                d['suppression_attempts'] = []
+                self.move_safely(d,3)
+                self.observe()
+                if d['mode'] == 'contain' and d['status'] != 'retreating':
+                    candidates = [c for c in self.observation if math.hypot(c['x']-d['x'],c['y']-d['y'])<=self.rules['drone_suppression_range']]
+                    if candidates:
+                        c = max(candidates,key=lambda c:c['x']*self.wind[0]+c['y']*self.wind[1])
+                        attempts=self.suppress([(c['x'],c['y'])],self.rules['drone_jets'],self.rules['drone_suppression_success_probability'])
+                        d['suppression_attempts']=attempts
+                        self.suppressed += sum(a['extinguished'] for a in attempts)
+                        d['last_drop'] = [c['x'],c['y']]
+                self.deliver_warning(d)
             for name,g in self.groups.items():
                 if g['status'] in {'evacuating','blocked'}:
                     tx,ty = g['refuge']
@@ -284,7 +303,7 @@ class Simulation:
                         if g['status']=='safe':
                             self.log('people', f'{name}: {g["count"]} people reached refuge.')
             self.update_completion()
-            self.update_truck()
+            self.update_trucks()
             self.update_completion()
             self.observe()
             if self.tick % 12 == 0:
@@ -297,15 +316,15 @@ class Simulation:
         if self.phase == 'active' and self.ignited and not self.fire_points():
             self.phase='returning'
             self.mission='Fire out — drone and truck returning to station'
-            self.drone.update(mode='returning',status='returning',target=list(self.base),last_drop=None)
+            for drone in self.extinguishers:drone.update(mode='returning',status='returning',target=list(self.base),last_drop=None)
             for scout in self.scouts:scout.update(mode='returning',status='returning',target=list(self.base),waypoints=[])
-            self.truck.update(status='returning',target=list(self.base),last_drops=[])
+            for truck in self.trucks:truck.update(status='returning',target=list(self.base),last_drops=[])
             self.log('simulation','Global simulator trigger: no fire remains. Returning both vehicles to station.')
         if self.phase == 'returning':
-            for vehicle in (self.drone,self.truck,*self.scouts):
+            for vehicle in self.vehicles():
                 if (vehicle['x'],vehicle['y']) == self.base:
                     vehicle.update(status='at_station',target=None,route=[])
-            if all((v['x'],v['y']) == self.base for v in (self.drone,self.truck,*self.scouts)):
+            if all((v['x'],v['y']) == self.base for v in self.vehicles()):
                 self.phase='finished'
                 self.mission='Finished — fire out, both vehicles at station'
                 self.log('simulation','Both vehicles returned to station. Simulation finished.')
@@ -406,7 +425,8 @@ class Simulation:
             vehicle.update(target=None,status=vehicle.get('mode','on_scene'),route=[])
         else:vehicle['status']='en_route'
 
-    def safe_drone_positions(self):
+    def safe_drone_positions(self, drone=None):
+        drone=self.drone if drone is None else drone
         blocked=self.danger_zone([(c['x'],c['y']) for c in self.observation])
         candidates=[]
         strength=math.hypot(*self.wind)
@@ -421,7 +441,7 @@ class Simulation:
                 if fires:
                     coverage=sum(math.hypot(f['x']-p[0],f['y']-p[1])<=self.rules['drone_suppression_range'] for f in leading)
                     offset=projection(p)-front if strength else 0
-                    distance=math.hypot(p[0]-self.drone['x'],p[1]-self.drone['y'])
+                    distance=math.hypot(p[0]-drone['x'],p[1]-drone['y'])
                     # Supply safe tactical options; HappyRobot still chooses the mission and target.
                     rank=(-coverage,-int(offset>=0) if strength else 0,-fires,distance,p)
                     candidates.append((rank,dict(x=p[0],y=p[1],downwind_front_reachable=coverage,
@@ -464,6 +484,16 @@ class Simulation:
             attempts.append(dict(x=x,y=y,success=success,extinguished=success and cell['heat']==0,
                                  intensity_before=round(before,3),intensity_after=round(cell['heat'],3)))
         return attempts
+
+    def update_trucks(self):
+        primary=self.truck
+        for truck in self.trucks:
+            self.truck=truck
+            if truck is not primary:self.crew_target,self.crew_due=truck.get('crew_target'),truck.get('crew_due')
+            self.update_truck()
+            truck.update(crew_target=self.crew_target,crew_due=self.crew_due)
+        self.truck=primary
+        self.crew_target,self.crew_due=primary.get('crew_target'),primary.get('crew_due')
 
     def update_truck(self):
         t=self.truck;t['last_drops']=[];t['suppression_attempts']=[]
@@ -519,17 +549,18 @@ class Simulation:
             t['status']='suppressing'
         self.observe()
 
-    def truck_telemetry(self):
+    def truck_telemetry(self, truck=None):
+        truck=self.truck if truck is None else truck
+        due=self.crew_due if truck is self.truck else truck.get("crew_due")
         offroad=self.rules['truck_cells_per_step']*self.rules['truck_offroad_speed_factor']
-        return dict(self.truck,truck_id='engine-1',speed=self.rules['truck_cells_per_step'],
+        return dict(truck,truck_id=truck.get('truck_id','engine-1'),speed=self.rules['truck_cells_per_step'],
                     offroad_speed=offroad,can_travel_offroad=True,sensor_radius=self.truck_sensor_radius,hose_range=self.rules['hose_range'],jets=self.rules['truck_jets'],
                     suppression_success_probability=self.rules['truck_suppression_success_probability'],expected_successful_jet_hits_per_step=3.0,
-                    position_reported_at=self.tick,arrival_estimate_steps=max(0,self.crew_due-self.tick) if self.crew_due is not None else None)
+                    position_reported_at=self.tick,arrival_estimate_steps=max(0,due-self.tick) if due is not None else None)
 
     def observe(self):
         current={}
-        for source,vehicle,radius in [('drone',self.drone,self.sensor_radius),
-                                      ('truck',self.truck,self.truck_sensor_radius)]+[(d['drone_id'],d,16) for d in self.scouts]:
+        for source,vehicle,radius in [(d['drone_id'],d,self.sensor_radius) for d in self.extinguishers]+[(t['truck_id'],t,self.truck_sensor_radius) for t in self.trucks]+[(d['drone_id'],d,16) for d in self.scouts]:
             own=[]
             for y in range(max(0,int(vehicle['y'])-radius),min(self.height,int(vehicle['y'])+radius+1)):
                 for x in range(max(0,int(vehicle['x'])-radius),min(self.width,int(vehicle['x'])+radius+1)):
@@ -543,12 +574,13 @@ class Simulation:
             vehicle['observed_fire']=own
         self.memory.update(current)
         self.observation=[dict(x=c['x'],y=c['y']) for c in current.values() if c['burning']]
-        if self.observation and not self.truck.get('drone_order'):
+        if self.trucks and self.observation and not self.truck.get('drone_order'):
             self.crew_target = [self.observation[0]['x'],self.observation[0]['y']]
         return self.observation
 
-    def telemetry(self):
-        return dict(self.drone,drone_id='drone-1',role='extinguisher',jets=self.rules['drone_jets'],suppression_success_probability=self.rules['drone_suppression_success_probability'],expected_successful_jet_hits_per_step=0.4,sensor_radius=self.sensor_radius,standoff_cells=3,suppression_range=self.rules['drone_suppression_range'],safe_containment_positions=self.safe_drone_positions(),capabilities=['scout','contain','evacuate_farm','evacuate_town'])
+    def telemetry(self, drone=None):
+        drone=self.drone if drone is None else drone
+        return dict(drone,drone_id=drone.get('drone_id','drone-1'),role='extinguisher',jets=self.rules['drone_jets'],suppression_success_probability=self.rules['drone_suppression_success_probability'],expected_successful_jet_hits_per_step=0.4,sensor_radius=self.sensor_radius,standoff_cells=3,suppression_range=self.rules['drone_suppression_range'],safe_containment_positions=self.safe_drone_positions(drone),capabilities=['scout','contain','evacuate_farm','evacuate_town'])
 
     def population_wind_alignment(self):
         sources=[(f['x'],f['y']) for f in self.observation]
@@ -601,7 +633,7 @@ class Simulation:
                     stale_observation_ticks=sorted({c['observed_at'] for c in cells.values() if c['observed_at']!=self.tick}),
                     landmarks=dict(farm=list(self.farm),town=list(self.town),station=list(self.base)),
                     smoke_report=list(self.report) if self.called else None,
-                    drone_position=[self.drone['x'],self.drone['y']],truck_position=[t['x'],t['y']],
+                    drone_position=[self.drone['x'],self.drone['y']] if self.extinguishers else None,truck_position=[t['x'],t['y']] if self.trucks else None,
                     satellite=self.satellite)
 
     def mission_context(self):
@@ -635,25 +667,20 @@ class Simulation:
                 target_x=g['home'][0],target_y=g['home'][1])
                 for key,g in self.groups.items() if g['status']=='unwarned'],
             population_wind_alignment=self.population_wind_alignment(),
-            satellite=self.satellite,rules=self.rules,observed_fire_details=[c for c in self.memory.values() if c['observed_at']==self.tick and c['burning']],people=self.groups,fire_truck=self.truck_telemetry(),
+            satellite=self.satellite,rules=self.rules,observed_fire_details=[c for c in self.memory.values() if c['observed_at']==self.tick and c['burning']],people=self.groups,fire_truck=self.truck_telemetry() if self.trucks else None,fire_trucks=[self.truck_telemetry(t) for t in self.trucks],
             firefighters_eta=max(0,self.crew_due-self.tick) if self.crew_due else None,
             mission=self.mission,last_action_result=self.last_result,
-            fleet=[self.telemetry()]+self.scout_telemetry(),scout_reports=self.scout_reports,
-            fleet_policy='One extinguisher and zero to three scout/evacuation drones plus a stronger truck. Scouts patrol agent-selected waypoints, can deliver district evacuation warnings but cannot suppress, and report separate observed fires. Prioritize each observed focus by population exposure and wind, not discovery order. Hidden ignitions are never included.',
+            fleet=[self.telemetry(d) for d in self.extinguishers]+self.scout_telemetry(),fleet_counts=self.fleet_counts(),scout_reports=self.scout_reports,
+            fleet_policy='Use fleet and fire_trucks as the exact available inventory; any role can have zero to three vehicles. Assign every listed ID, never invent absent resources. Scouts patrol agent-selected waypoints, can deliver district evacuation warnings but cannot suppress, and report separate observed fires. Prioritize each observed focus by population exposure and wind, not discovery order. Hidden ignitions are never included.',
             mission_context=self.mission_context(),known_map=self.known_map(),smoke_scout_positions=self.smoke_scout_positions(),
             memory=[e for e in self.history if e['source']!='simulation'][-8:])
         return dict(event_id=str(uuid.uuid4()),event_type=event_type,incident_id=self.incident_id,sim_time=str(self.tick),
-            world_state=json.dumps(known),drone_telemetry=json.dumps(self.telemetry()),
+            world_state=json.dumps(known),drone_telemetry=json.dumps(self.telemetry() if self.extinguishers else {'available':False,'safe_containment_positions':[]}),
             thermal_detections=json.dumps(dict(observed_at=self.tick,burning_cells=[c for c in self.memory.values() if c['observed_at']==self.tick and c['burning']],
                 coverage=f'Joint current observations: radius {self.sensor_radius} around drone plus radius {self.truck_sensor_radius} around truck. Both share fire and clear-cell updates. Empty is not global containment.')),
             human_messages=self.call_text)
 
-    def apply(self, decision, command_id, incident_id, expected_tick):
-        if self.phase != 'active':raise ValueError('Incident resolved; vehicles are returning or at station.')
-        if incident_id!=self.incident_id or expected_tick!=self.tick:
-            raise ValueError('Stale decision: request a new decision.')
-        if command_id in self.seen_commands:
-            raise ValueError('Duplicate command rejected.')
+    def validate_drone_order(self, decision, drone):
         command = decision.get('command')
         if command not in {'scout','contain','evacuate_farm','evacuate_town','hold'}:
             raise ValueError('Unsupported drone command.')
@@ -664,7 +691,7 @@ class Simulation:
         if not (0<=x<self.width and 0<=y<self.height):
             raise ValueError('Target outside map.')
         self.observe()
-        if command=='contain' and (x,y) not in {(c['x'],c['y']) for c in self.safe_drone_positions()}:
+        if command=='contain' and (x,y) not in {(c['x'],c['y']) for c in self.safe_drone_positions(drone)}:
             raise ValueError('Containment position unsafe or ineffective. Choose exact coordinates from drone_telemetry.safe_containment_positions; these are flight positions, NOT burning targets.')
         if command in {'scout','contain'} and (x,y) in self.danger_zone([(c['x'],c['y']) for c in self.observation]):
             raise ValueError('Flight target violates the 3-cell fire stand-off. Scout from outside the burning area.')
@@ -681,30 +708,68 @@ class Simulation:
             x,y=candidates[evacuation_group]['home']
         elif decision.get('district_id') not in (None,''):
             raise ValueError('district_id must be empty for non-evacuation commands.')
+        return command,x,y,evacuation_group
+
+    @staticmethod
+    def order_array(raw, vehicles, id_field, legacy=None):
+        if raw is None:
+            if not vehicles:return []
+            if len(vehicles)==1 and legacy is not None:return [dict(legacy,**{id_field:vehicles[0][id_field]})]
+            raise ValueError('Supply an order for every vehicle ID.')
+        if isinstance(raw,str):
+            try:raw=json.loads(raw)
+            except ValueError:raise ValueError('Vehicle orders must be a JSON array.')
+        if not isinstance(raw,list) or any(not isinstance(o,dict) for o in raw):raise ValueError('Vehicle orders must be an array of objects.')
+        ids=[o.get(id_field) for o in raw]
+        if any(not isinstance(i,str) for i in ids) or len(set(ids))!=len(ids) or set(ids)!={v[id_field] for v in vehicles}:
+            raise ValueError('Orders must cover every configured vehicle exactly once; no unknown IDs.')
+        return raw
+
+    def apply(self, decision, command_id, incident_id, expected_tick):
+        if self.phase != 'active':raise ValueError('Incident resolved; vehicles are returning or at station.')
+        if incident_id!=self.incident_id or expected_tick!=self.tick:raise ValueError('Stale decision: request a new decision.')
+        if command_id in self.seen_commands:raise ValueError('Duplicate command rejected.')
+        self.observe()
+        drone_orders=self.order_array(decision.get('extinguisher_orders'),self.extinguishers,'drone_id',decision)
         scout_orders=self.validate_scout_orders(decision.get('scout_orders'))
-        assigned={evacuation_group} if evacuation_group else set()
+        legacy_truck=dict(command=decision.get('truck_command','continue'),target_x=decision.get('truck_target_x'),target_y=decision.get('truck_target_y'),reason=decision.get('truck_reason',''))
+        truck_orders=self.order_array(decision.get('truck_orders'),self.trucks,'truck_id',legacy_truck)
+        planned=[];assigned=set()
+        for order in drone_orders:
+            drone=next(d for d in self.extinguishers if d['drone_id']==order['drone_id'])
+            command,x,y,district=self.validate_drone_order(order,drone)
+            if district:
+                if district in assigned:raise ValueError('Assign only one drone to warn each district.')
+                assigned.add(district)
+            planned.append((drone,command,x,y,district))
         for order in scout_orders:
             scout=next(d for d in self.scouts if d['drone_id']==order['drone_id'])
             district=order.get('district_id') if order['command'].startswith('evacuate_') else scout.get('evacuation_group') if order['command']=='continue' and scout['mode'].startswith('evacuate_') else None
             if district and self.groups[district]['status']=='unwarned':
                 if district in assigned:raise ValueError('Assign only one drone to warn each district.')
                 assigned.add(district)
-        truck_command=decision.get('truck_command','continue')
-        if truck_command not in {'continue','attack_sector'}:
-            raise ValueError('Truck command must be continue or attack_sector.')
-        if truck_command=='attack_sector':
-            tx,ty=decision.get('truck_target_x'),decision.get('truck_target_y')
-            if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or int(v)!=v for v in (tx,ty)):
-                raise ValueError('Truck sector requires integer coordinates.')
-            if not (0<=tx<self.width and 0<=ty<self.height):
-                raise ValueError('Truck sector outside map.')
-            reason=decision.get('truck_reason')
-            if not isinstance(reason,str) or not reason.strip():
-                raise ValueError('Truck order requires an explanation.')
-            self.crew_target=[int(tx),int(ty)]
-            self.truck['drone_order']=dict(command=truck_command,sector=self.crew_target[:],
-                reason=reason[:1000],issued_at=self.tick,issued_by='drone')
-            self.log('drone → truck',f'Attack sector ({int(tx)}, {int(ty)}): {reason[:500]}')
+        for order in truck_orders:
+            if order.get('command') not in {'attack_sector','continue','hold'}:raise ValueError('Truck command must be attack_sector, continue or hold.')
+            if order['command']=='attack_sector':
+                tx,ty=order.get('target_x'),order.get('target_y')
+                if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or int(v)!=v for v in (tx,ty)):raise ValueError('Truck sector requires integer coordinates.')
+                if not (0<=tx<self.width and 0<=ty<self.height):raise ValueError('Truck sector outside map.')
+                if not isinstance(order.get('reason'),str) or not order['reason'].strip():raise ValueError('Truck order requires an explanation.')
+        if self.mission_records:self.mission_records[-1]=self.mission_context()[-1]
+        # Commit only after all vehicle orders and shared district reservations validate.
+        for order in truck_orders:
+            truck=next(t for t in self.trucks if t['truck_id']==order['truck_id'])
+            if order['command']=='attack_sector':
+                target=[int(order['target_x']),int(order['target_y'])]
+                truck.update(crew_target=target,drone_order=dict(command='attack_sector',sector=target,reason=order['reason'][:1000],issued_at=self.tick,issued_by='drone'))
+                if truck is self.truck:self.crew_target=target
+                self.log('drone → truck',f"{truck['truck_id']} attack sector {target}: {order['reason'][:500]}")
+            elif order['command']=='hold':
+                truck.update(crew_target=None,drone_order=dict(command='hold',issued_at=self.tick),target=None,route=[],status='holding')
+                if truck is self.truck:self.crew_target=None
+        for drone,command,x,y,district in planned:
+            drone.update(evacuation_group=district,mode=command,target=None if command=='hold' else [x,y],status='holding' if command=='hold' else 'en_route',sector=[x,y])
+            self.log(drone['drone_id'],f'{command} at ({x}, {y})'+(f' — {district}' if district else ''))
         for order in scout_orders:
             scout=next(d for d in self.scouts if d['drone_id']==order['drone_id'])
             if order['command']!='continue':
@@ -713,16 +778,12 @@ class Simulation:
                 target=list(self.groups[district]['home']) if district else points.pop(0) if points else None
                 scout.update(mode=order['command'],evacuation_group=district,status='en_route' if target else 'holding',target=target,waypoints=points,route=[])
             self.log('scout agent',f"{scout['drone_id']}: {order['reason']}")
-        if self.mission_records:
-            self.mission_records[-1]=self.mission_context()[-1]
-        self.mission_records.append(dict(issued_at=self.tick,decision=copy.deepcopy(decision),
-            wind=list(self.wind),baseline=dict(drone_extinguished=self.suppressed,
-                                               truck_extinguished=self.crew_extinguished)))
+        self.mission_records.append(dict(issued_at=self.tick,decision=copy.deepcopy(decision),wind=list(self.wind),baseline=dict(drone_extinguished=self.suppressed,truck_extinguished=self.crew_extinguished)))
         self.mission_records=self.mission_records[-128:]
         self.seen_commands.add(command_id)
-        self.mission = str(decision.get('mission',''))[:500]
-        self.drone.update(evacuation_group=evacuation_group,mode=command,target=None if command=='hold' else [x,y],status='holding' if command=='hold' else 'en_route',sector=[x,y])
-        self.last_result = dict(command=command,target=[x,y],district_id=evacuation_group,accepted_at=self.tick,command_id=command_id)
+        self.mission=str(decision.get('mission',''))[:500]
+        first=planned[0] if planned else (None,'hold',0,0,None)
+        self.last_result=dict(command=first[1],target=list(first[2:4]),district_id=first[4],accepted_at=self.tick,command_id=command_id)
         self.log('central',self.mission)
         self.log('edge',str(decision.get('reason',''))[:1000],decision=decision)
         return self.last_result
@@ -731,10 +792,10 @@ class Simulation:
         burning = sum(self.burning(c) for row in self.cells for c in row)
         return copy.deepcopy(dict(incident_id=self.incident_id,tick=self.tick,phase=self.phase,width=self.width,height=self.height,
             geography={k:v for k,v in GEOGRAPHY.items() if k not in ("roads","image_source")},
-            cells=self.cells,drone=self.telemetry(),scouts=self.scout_telemetry(),drone_count=1+len(self.scouts),wind=self.wind,base=self.base,town=self.town,farm=self.farm,
+            cells=self.cells,drone=self.telemetry() if self.extinguishers else None,extinguishers=[self.telemetry(d) for d in self.extinguishers],trucks=[self.truck_telemetry(t) for t in self.trucks],fleet_counts=self.fleet_counts(),scouts=self.scout_telemetry(),drone_count=len(self.extinguishers)+len(self.scouts),wind=self.wind,base=self.base,town=self.town,farm=self.farm,
             ignition_point=self.report,report=self.report if self.called else None,ignited=self.ignited,called=self.called,mission=self.mission,
             observation=self.observation,observed_cells=list(self.memory.values()),satellite=self.satellite,
             history=self.history,mission_context=self.mission_context(),burning=burning,burned=sum(c.get('burned',0)>0 for row in self.cells for c in row),
             burnt_people=sum(g.get('burnt',0) for g in self.groups.values()),
             extinguished=self.suppressed,contained=self.ignited and burning==0,people=self.groups,
-            truck=self.truck_telemetry(),roads=sorted(self.roads),crew_due=self.crew_due,crew_target=self.crew_target,crew_extinguished=self.crew_extinguished,rules=self.rules))
+            truck=self.truck_telemetry() if self.trucks else None,roads=sorted(self.roads),crew_due=self.crew_due,crew_target=self.crew_target,crew_extinguished=self.crew_extinguished,rules=self.rules))

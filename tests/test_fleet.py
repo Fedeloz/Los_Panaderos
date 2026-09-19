@@ -87,3 +87,41 @@ class FleetTests(unittest.TestCase):
         with self.assertRaises(ValueError):s.apply(d,'duplicate2',s.incident_id,0)
         s.groups['town']['status']='safe'
         with self.assertRaises(ValueError):s.validate_scout_orders(orders)
+
+    def mixed_orders(self,s):
+        return dict(mission='Separate tasks',reason='test',command='hold',target_x=0,target_y=0,
+            scout_orders=[dict(drone_id=d['drone_id'],command='hold',reason='test') for d in s.scouts],
+            extinguisher_orders=[dict(drone_id=d['drone_id'],command='scout',target_x=25+i*8,target_y=15,district_id='',reason='test') for i,d in enumerate(s.extinguishers)],
+            truck_orders=[dict(truck_id=t['truck_id'],command='attack_sector',target_x=30+i*25,target_y=20,reason='test') for i,t in enumerate(s.trucks)])
+
+    def test_independent_counts_and_movement(self):
+        s=Simulation(fleet_counts=dict(scouts=2,extinguishers=2,trucks=2));s.ignite();s.farmer_call()
+        s.apply(self.mixed_orders(s),'fleet',s.incident_id,s.tick);s.step(10)
+        self.assertNotEqual(s.extinguishers[0]['x'],s.extinguishers[1]['x'])
+        self.assertNotEqual(s.trucks[0]['crew_target'],s.trucks[1]['crew_target'])
+        self.assertNotEqual(s.trucks[0]['x'],s.trucks[1]['x'])
+        w=json.loads(s.payload()['world_state']);self.assertEqual(len(w['fleet']),4);self.assertEqual(len(w['fire_trucks']),2)
+
+    def test_zero_roles_have_no_phantom_sensors_or_actions(self):
+        s=Simulation(fleet_counts=dict(scouts=1,extinguishers=0,trucks=0))
+        s.scouts[0].update(x=65.,y=10.);s.memory={};s.observe()
+        self.assertNotIn(f'{s.base[0]},{s.base[1]}',s.memory)
+        w=json.loads(s.payload()['world_state']);self.assertIsNone(w['fire_truck']);self.assertEqual(len(w['fleet']),1)
+        self.assertIsNone(s.state()['drone']);self.assertIsNone(s.state()['truck'])
+        s.ignite();s.farmer_call();s.apply(self.mixed_orders(s),'only-scout',s.incident_id,0);s.step(10)
+        self.assertEqual(s.suppressed+s.crew_extinguished,0)
+
+    def test_missing_or_invalid_extra_vehicle_is_atomic(self):
+        s=Simulation(fleet_counts=dict(scouts=0,extinguishers=2,trucks=2))
+        d=self.mixed_orders(s);d['truck_orders'][1]['target_x']=1000
+        before=copy.deepcopy(s.vehicles())
+        with self.assertRaises(ValueError):s.apply(d,'bad',s.incident_id,0)
+        self.assertEqual(s.vehicles(),before)
+        d=self.mixed_orders(s);d['extinguisher_orders'].pop()
+        with self.assertRaises(ValueError):s.apply(d,'missing',s.incident_id,0)
+        with self.assertRaises(ValueError):s.configure_fleet(scouts=0,extinguishers=0,trucks=0)
+
+    def test_zero_drones_trucks_only(self):
+        s=Simulation(fleet_counts=dict(scouts=0,extinguishers=0,trucks=2));s.ignite();s.farmer_call()
+        s.apply(self.mixed_orders(s),'trucks',s.incident_id,0);s.step(9)
+        self.assertTrue(all(t['x']!=s.base[0] or t['y']!=s.base[1] for t in s.trucks))

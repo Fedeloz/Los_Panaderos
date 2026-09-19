@@ -324,7 +324,7 @@ class PhysicsTests(unittest.TestCase):
         s.cells[20][25]['heat']=1;s.cells[20][65]['heat']=1
         s.observe()
         self.assertEqual({(c['x'],c['y']) for c in s.observation},{(25,20),(65,20)})
-        self.assertEqual(s.memory['65,20']['sources'],['truck'])
+        self.assertEqual(s.memory['65,20']['sources'],['engine-1'])
         s.drone.update(x=10.,y=40.);s.tick+=1
         s.cells[20][65]['heat']=0;s.observe()
         self.assertFalse(s.memory['65,20']['burning'])
