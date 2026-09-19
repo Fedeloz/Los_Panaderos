@@ -284,7 +284,7 @@ def serve(port=8765):
                     cesium_token=env.get('CESIUM_API_KEY') or None,
                     nasa_key=env.get('NASA_KEY') or None,
                     place=dict(PLACE)))
-            elif path in pages or path in {'/app.js', '/ops.js', '/chrome.js', '/situacion.js', '/medios.js', '/archivo.js', '/mapa.js', '/mapa.css', '/observation-map.js', '/vendor/bootstrap-icons.js', '/style.css', '/flamethrower-cursor.svg', '/maps/brunete.jpg', '/maps/brunete-illustrated.png', '/maps/spain-location.svg'}:
+            elif path in pages or path in {'/app.js', '/ops.js', '/chrome.js', '/situacion.js', '/medios.js', '/archivo.js', '/mapa.js', '/mapa.css', '/observation-map.js', '/vendor/bootstrap-icons.js', '/style.css', '/cursors/flamethrower-hover.svg', '/cursors/flamethrower-active.svg', '/maps/brunete.jpg', '/maps/brunete-illustrated.png', '/maps/spain-location.svg'}:
                 name = pages[path] if path in pages else path[1:]
                 types = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.jpg':'image/jpeg', '.png':'image/png', '.svg':'image/svg+xml'}
                 file = static/name

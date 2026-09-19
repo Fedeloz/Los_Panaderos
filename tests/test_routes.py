@@ -46,7 +46,8 @@ class PageRouteTests(unittest.TestCase):
                  'mapa.js': 'text/javascript', 'mapa.css': 'text/css',
                  'app.js': 'text/javascript', 'ops.js': 'text/javascript',
                  'observation-map.js': 'text/javascript', 'vendor/bootstrap-icons.js': 'text/javascript',
-                 'style.css': 'text/css', 'flamethrower-cursor.svg': 'image/svg+xml',
+                 'style.css': 'text/css', 'cursors/flamethrower-hover.svg': 'image/svg+xml',
+                 'cursors/flamethrower-active.svg': 'image/svg+xml',
                  'maps/brunete.jpg': 'image/jpeg', 'maps/brunete-illustrated.png': 'image/png'}
         for path, expected in paths.items():
             with self.subTest(path=path):

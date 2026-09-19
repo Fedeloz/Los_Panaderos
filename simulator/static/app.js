@@ -344,7 +344,6 @@ function renderFireControl(s){
   $('firePlacementHint').hidden=!placing;
   $('firePlacementHint').textContent=t.addFireHint;
   document.body.classList.toggle('is-adding-fire',placing);
-  $('truth').classList.toggle('fire-placement',placing);
 }
 function renderFleet(s){
   const t=I18N[lang],counts=fleetCounts(s),vehicles=fleetVehicles(s);

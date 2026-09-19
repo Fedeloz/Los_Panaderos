@@ -48,7 +48,7 @@ button,select,summary,.record-import{cursor:pointer}button:hover{background:#142
 /* Incident map instruments: glass frames around the untouched canvases */
 .maps{counter-reset:feed;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}.map-card{counter-increment:feed;min-width:0;background:var(--panel);border:1px solid var(--line-strong);box-shadow:0 8px 30px rgba(0,0,0,.45);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}.maptitle{min-height:42px;padding:6px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);background:linear-gradient(var(--mast-2),var(--mast))}.maptitle h2{font:700 10.5px var(--meta);letter-spacing:1.6px;text-transform:uppercase;color:var(--cyan-soft)}.maptitle h2::before{content:"0" counter(feed) " / ";color:var(--dim)}.maptitle>span{font-size:9px;letter-spacing:.8px;color:var(--dim);text-align:right;max-width:45%;text-transform:uppercase}
 .map-stage{position:relative;aspect-ratio:80/56;overflow:hidden;background:#070e18}
-#globe,#truth,#belief{display:block;width:100%;height:100%;aspect-ratio:80/56;border:0;border-radius:0}#globe{position:relative;overflow:hidden}#truth,#belief{image-rendering:auto}#truth,#globe{cursor:crosshair}
+#globe,#truth,#belief{display:block;width:100%;height:100%;aspect-ratio:80/56;border:0;border-radius:0}#globe{position:relative;overflow:hidden}#truth,#belief{image-rendering:auto}#globe{cursor:crosshair}#truth{cursor:url(cursors/flamethrower-hover.svg) 62 22,crosshair}#truth:active{cursor:url(cursors/flamethrower-active.svg) 62 22,crosshair}
 #globe .cesium-viewer,#globe .cesium-viewer-cesiumWidgetContainer,#globe .cesium-widget,#globe .cesium-widget canvas{width:100%!important;height:100%!important}
 .map-paused,.map-replay{display:none;position:absolute;top:10px;right:10px;padding:5px 8px;font:800 10px var(--meta);letter-spacing:1px;background:var(--warn);color:#1a1200;pointer-events:none;border:1px solid #ffc65c}.is-busy:not(.is-replay) .map-paused,.is-replay .map-replay{display:block}.map-replay{background:#171b2e;color:#d0d4f2;border-color:#5b62a3}
 .legend{list-style:none;display:flex;flex-wrap:wrap;gap:5px 12px;padding:7px 10px 0;margin:0;font-size:9.5px;color:var(--ink)}.legend li{display:flex;align-items:center;gap:5px}.legend i{width:8px;height:8px;display:inline-block;flex:none;border-radius:2px}.legend .hollow{border:1px solid var(--cyan-soft);background:transparent}
@@ -79,7 +79,6 @@ a{color:var(--cyan-soft);text-decoration:underline;text-underline-offset:3px}pre
 #addFire{border-color:#a2432f;background:#2a1410;color:#ffb3a0}#addFire[aria-pressed="true"]{background:#b3341f;color:white;border-color:#d64a2e}
 .fire-placement-hint{font-size:10px;padding:5px 10px;color:var(--warn);background:rgba(255,176,32,.08)}
 .is-adding-fire .map-card:first-child{border-color:var(--alert-soft)}
-#truth.fire-placement{cursor:url("/flamethrower-cursor.svg") 5 5,crosshair}
 
 /* Navigation rail */
 aside.cecop-nav{display:flex;flex-direction:column;gap:4px;padding:14px 12px;background:var(--mast);border-right:1px solid var(--line);font:11px var(--meta);text-transform:uppercase;letter-spacing:1px;min-height:100vh;position:sticky;top:0;align-self:start}

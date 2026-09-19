@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="81" viewBox="34 37 953 801">
+<defs>
+    <radialGradient id="background-glow">
+      <stop stop-color="#0b1227" offset="0"/>
+      <stop stop-color="#080c1c" offset="1"/>
+    </radialGradient>
+    <linearGradient id="steel" x2=".8" y2="1">
+      <stop stop-color="#f0f6fc" offset="0"/>
+      <stop stop-color="#afbdce" offset=".34"/>
+      <stop stop-color="#798ba5" offset=".65"/>
+      <stop stop-color="#52627f" offset="1"/>
+    </linearGradient>
+    <linearGradient id="body-blue" y2="1">
+      <stop stop-color="#3c6095" offset="0"/>
+      <stop stop-color="#233d68" offset=".45"/>
+      <stop stop-color="#142039" offset="1"/>
+    </linearGradient>
+    <linearGradient id="grip-blue" y2=".5">
+      <stop stop-color="#314e7a" offset="0"/>
+      <stop stop-color="#213355" offset=".5"/>
+      <stop stop-color="#17233e" offset="1"/>
+    </linearGradient>
+    <linearGradient id="orange-cell" y2="1">
+      <stop stop-color="#ff930b" offset="0"/>
+      <stop stop-color="#ff7400" offset=".45"/>
+      <stop stop-color="#fb4900" offset="1"/>
+    </linearGradient>
+    <linearGradient id="flame-orange" x1=".2" x2=".8" y1="1">
+      <stop stop-color="#ff9704" offset="0"/>
+      <stop stop-color="#ff6800" offset=".5"/>
+      <stop stop-color="#ff7600" offset="1"/>
+    </linearGradient>
+    <linearGradient id="flame-core" y1="1">
+      <stop stop-color="#fff845" offset="0"/>
+      <stop stop-color="#ffec3b" offset=".6"/>
+      <stop stop-color="#ffe34a" offset="1"/>
+    </linearGradient>
+    <linearGradient id="plasma" y2="1">
+      <stop stop-color="#8eeaff" offset="0"/>
+      <stop stop-color="#40c4f3" offset=".55"/>
+      <stop stop-color="#73e7ff" offset="1"/>
+    </linearGradient>
+  </defs>
+<g id="weapon-upper-silhouette">
+    <path d="m174 377h30v16h14v-38h17v-20h-32v-22h29v-11h22v-11h22v26h15v-8h24v20h14v-25h15v-23h48v15h16v12h18v22h11v36h-15v17h18v-16h13v-23h32v17h11v-45h27v14h17v-21h19v-17h30v-9h20v-13h10v-13h21v15h17v34h16v56h-28v13h-28v17h-24v15h-25v14h-38v-14h-15v38h-38v7h-15v37h-14v36h-19v21h-20v17h-42v15h-43v16h-29v-11h-27v16h-73v-17h-10v-77h-16v-18h-8v-29h14z" fill="#080f1e"/>
+  </g>
+<g id="rear-cable">
+    <path d="m77 481h19v41h-12v30h-11v33h16v16h23v8h33v-18h11v-33h27v37h-8v32h-15v23h-63v-10h-22v-14h-17v-18h-15v-27h-1v-46h14v-30h16z" fill="#101a2d"/>
+    <path d="m74 489h20v31h-16v22h-5v43h16v17h14v15h42v-31h13v-22h21v33h-14v36h-8v14h-59v-14h-23v-16h-16v-30h-14v-51h14v-31h15z" fill="#263e65"/>
+    <path d="m59 520v-15h15v-15h14v17h-8v27h-18v17h-17v-15h14zm-14 50h16v18h15v14h13v16h25v13h-16v-1h-23v-13h-16v-29h-14zm72 62h29v-15h8v-26h16v-20h10v14h-7v16h-8v32h-9v14h-24v-12h-15z" fill="#355b8d"/>
+    <path d="m60 505h15v15h-15zm-14 31h15v13h-15zm0 36h14v13h-14zm29 30h13v14h-13zm15 16h12v13h-12zm56-43h17v15h-17zm19-24h14v19h-14z" fill="#406b9e"/>
+    <path d="m61 551h13v19h-13zm43 67h14v13h-14zm-5 16h17v13h-17zm33-15h13v14h-13z" fill="#1b2d4c"/>
+  </g>
+<g id="pistol-grip-and-trigger-guard">
+    <path d="m266 553h45v46h-6v31h-11v30h-14v27h-4v48h-13v31h12v29h-19v18h-26v17h-32v-15h-18v-13h-22v-40h13v-41h13v-29h14v-31h13v-29h14v-24h18v-30h23z" fill="#0a1123"/>
+    <path d="m269 579h22v18h13v31h-13v31h-13v30h-12v30h-12v28h-12v19h-14v16h-28v-9h-19v-22h4v-29h14v-31h13v-30h11v-29h16v-22h13v-19h17z" fill="url(#grip-blue)"/>
+    <path d="m250 597h32v13h-18v18h-15v18h-12v26h-12v32h-13v29h-14v19h-25v-18h13v-28h12v-28h12v-31h13v-18h1v-16h15v-3h11z" fill="#2e4c79"/>
+    <path d="m250 597h14v15h-14v16h-13v32h-14v30h-12v28h-13v17h-25v-12h14v-17h12v-15h13v-31h3v-16h11v-14h14v-19h10z" fill="#3c6294"/>
+    <path d="m199 676h14v14h-14zm-13 30h13v16h-13zm-14 29h25v15h-25zm-14 27h16v26h-16zm120-56h16v45h-15v14h-8v15h-5v-28h12z" fill="#233d63"/>
+    <path d="m280 713h12v37h-13v-15z" fill="#32547e"/>
+    <path d="m172 766h18v17h23v14h16v-15h36v13h-11v16h-26v15h-29v-14h-15v-13h-13z" fill="#304d75"/>
+    <path d="m172 766h17v16h10v14h14v14h-15v1h-14v-13h-13z" fill="#5a769c"/>
+    <path d="m199 797h28v14h-15v12h-13zm29 0h26v14h-26z" fill="#42648e"/>
+    <path d="m304 580h19v44h30v-14h24v-29h11v-35h23v66h-17v15h-21v19h-32v15h-37v-21h24v-12h-25z" fill="#172a46"/>
+    <path d="m391 550h15v61h-16v17h-18v16h-32v15h-35v-17h23v-12h27v-10h18v-14h17z" fill="#365a8c"/>
+    <path d="m313 566h51v14h-15v40h-25v-10h-11z" fill="#15223b"/>
+    <path d="m327 566h22v15h-6v15h4v15h-20z" fill="#ff6404"/>
+    <path d="m329 581h13v14h-13z" fill="#ff960f"/>
+    <path d="m328 568h17v10h-14v6h-4zm1 31h6v10h-6z" fill="#e34c04"/>
+  </g>
+<g id="orange-power-cells">
+    <path d="m88 441h14v-17h8v-14h22v-15h32v13h10v17h11v17h7v29h13v17h-25v35h-19v17h-32v-13h-16v-7h-10v-30h-14z" fill="url(#orange-cell)"/>
+    <path d="m90 455h14v16h11v18h11v15h20v4h30v-14h15v-14h14v8h-25v36h-19v16h-32v-13h-16v-7h-9v-30h-14z" fill="#fa5600"/>
+    <path d="m102 429h9v-5h19v-8h20v-8h15v16h-20v10h-21v12h-20v11h-15v-16h14z" fill="#ffa220"/>
+    <path d="m112 430h20v-7h19v-10h14v9h-18v10h-18v7h-14v9h-10v-8h7zm20 10h14v16h-9v8h-10v-13h6z" fill="#ffcc36"/>
+    <path d="m90 457h13v29h-13zm26 37h12v16h32v14h-30v-3h-12zm15 34h28v12h-28z" fill="#f46b08"/>
+    <path d="m206 365h14v-3h16v-10h16v-4h15v-5h11v23h16v15h9v33h10v16h-20v13h-13v13h-29v-16h-13v-17h-6v-16h-12v-18h-14z" fill="url(#orange-cell)"/>
+    <path d="m208 366h25v-7h16v-8h17v-8h12v19h-14v7h-19v8h-15v10h-12v-8h-10z" fill="#ffb624"/>
+    <path d="m218 371h18v-7h16v-11h17v-5h9v13h-14v6h-18v8h-15v7h-12z" fill="#ffd340"/>
+    <path d="m241 426h25v-4h21v-9h15v4h11v13h-20v11h-14v15h-28v-15h-12z" fill="#ed5706"/>
+    <path d="m312 303h33v-16h44v15h16v7h11v11h6v14h10v29h-14v14h-14v6h-15v10h-28v-15h-14v-15h-4v-18h-12v-14h-11v-13h-8z" fill="url(#orange-cell)"/>
+    <path d="m345 287h44v17h12v11h-17v-8h-19v10h-24v13h-16v-13h20z" fill="#ff9d16"/>
+    <path d="m327 322h16v-9h18v-8h10v-8h8v8h10v14h-29v5h-15v10h-14v-3h-4z" fill="#ffd23b"/>
+    <path d="m389 315h10v18h6v13h-6v-10h-7zm10 30h15v13h-7v13h-16v7h-16v4h-15v-14h23v-5h16z" fill="#ffb328"/>
+    <path d="m417 334h15v29h-14v13h-14v7h-15v10h-28v-13h25v-7h18v-13h14z" fill="#ef4b03"/>
+  </g>
+<g id="cell-cradles">
+    <path d="m174 379h20v15h15v16h10v27h13v19h7v14h-15v19h-16v-17h-10v-28h-11v-21h-7v-18h-6z" fill="url(#body-blue)"/>
+    <path d="m175 380h18v15h13v14h10v16h-13v-12h-11v-16h-17z" fill="#365c8e"/>
+    <path d="m192 411h17v13h11v14h-16v16h-6v-15h-9v-14h-5v-18h8z" fill="#274471"/>
+    <path d="m208 438h14v16h10v2h7v14h-16v3h-6v-15h-9z" fill="#1b2b49"/>
+    <path d="m286 335h8v-13h12v11h11v15h9v17h9v29h11v15h-11v15h-19v-16h-8v-29h-9v-18h-13z" fill="url(#body-blue)"/>
+    <path d="m294 333h13v2h11v14h-8v14h-14v-15h-12v-12z" fill="#355b8c"/>
+    <path d="m309 350h17v15h8v27h-14v-13h-10z" fill="#2c4976"/>
+    <path d="m206 317h29v-12h23v-8h14v7h5v17h-12v14h-17v7h-17v6h-25z" fill="url(#steel)"/>
+    <path d="m206 317h25v14h-25zm29-11h23v10h-23zm24-9h13v7h-13z" fill="#e0e8f0"/>
+    <path d="m208 334h13v13h-13zm29-14h19v14h-8v7h-17v-9h6z" fill="#8e9fb6"/>
+    <path d="m259 305h18v16h-13v13h-14v-13h9z" fill="#62738d"/>
+  </g>
+<g id="receiver">
+    <path d="m191 503h17v-11h16v-9h26v-15h24v-16h30v-11h23v-15h28v-14h26v-6h15v18h14v13h14v33h9v23h9v29h-16v13h-17v14h-32v13h-23v12h-29v10h-27v-5h-24v-15h-8v16h-32v16h-36v-15h-5z" fill="url(#body-blue)"/>
+    <path d="m192 508h17v-10h17v-13h24v-10h24v-13h21v-7h15v-10h18v-11h15v-7h16v-9h21v-9h15v16h-24v9h-29v12h-25v11h-26v17h-16v17h-25v14h-28v15h-15v30h-11v30h-4z" fill="#335783"/>
+    <path d="m207 520h15v-14h29v-13h15v50h-11v22h-19v16h-28z" fill="#17253f"/>
+    <path d="m210 521h16v-13h26v-6h13v47h-14v16h-15v15h-26z" fill="#233b62"/>
+    <path d="m207 506h13v-5h16v-11h15v-12h16v12h-16v15h-29v15h-15v29h-11v-29h-5v-13z" fill="#436b9d"/>
+    <path d="m205 580h31v14h-31zm31-13h14v-13h15v23h-14v6h-15z" fill="#355985"/>
+    <path d="m276 556h21v-12h17v-8h21v-14h26v-13h24v-14h22v-19h14v-9h12v20h-14v20h-14v16h-22v13h-26v14h-30v14h-19v14h-23v6h-18v-15h9z" fill="#111c32"/>
+    <path d="m296 565h21v-13h26v-16h27v-13h19v-14h22v-20h21v16h10v18h-17v12h-17v14h-33v13h-21v12h-31v9h-25z" fill="#294572"/>
+    <path d="m407 509h13v-17h13v13h9v17h-18v13h-18zm-141 58h16v14h-16z" fill="#375d90"/>
+    <path d="m251 475h15v-9h15v-11h15v-5h17v-10h18v-9h15v-7h15v-13h19v-2h12v15h8v16h5v44h-13v14h-15v10h-15v13h-18v9h-18v10h-19v9h-14v7h-19v-9h-8v-59h-15z" fill="url(#steel)"/>
+    <path d="m266 475h11v66h17v13h-19v-8h-8v-59h-13v-10z" fill="#8296b2"/>
+    <path d="m267 467h16v-10h15v-6h15v-8h15v-7h17v-9h15v-13h16v10h-15v12h-19v6h-16v12h-19v9h-16v11h-14v12h-12z" fill="#b5c2d2"/>
+    <path d="m294 479h13v-7h6v49h-19z" fill="#0b1222"/>
+    <path d="m326 458h16v-5h4v51h-18v-14h-2z" fill="#0a1120"/>
+    <path d="m358 443h16v-4h4v49h-20z" fill="#09101f"/>
+    <path d="m288 481h6v40h19v7h-24zm34-20h5v44h18v6h-21zm31-18h5v46h18v5h-22z" fill="#526c90"/>
+  </g>
+<g id="forward-barrel">
+    <path d="m394 408h16v-17h18v-9h19v-13h20v8h16v23h9v27h-12v16h-29v17h-19v13h-16v-25h-14v-22h-8z" fill="#101b31"/>
+    <path d="m398 408h13v-14h18v-10h19v-13h18v14h-15v12h-17v12h-17v15h-18z" fill="#315585"/>
+    <path d="m408 424h17v-10h18v-13h20v-12h15v18h-11v13h-18v11h-21v12h-20z" fill="#243c64"/>
+    <path d="m418 442h16v-10h17v-10h17v-8h14v17h-14v15h-19v11h-16v13h-14z" fill="#3d6594"/>
+    <path d="m434 431h15v-11h18v-5h7v14h-15v10h-11v6h-17z" fill="#111e35"/>
+    <path d="m419 473h15v16h-15zm15-14h15v14h-15zm1 14h20v16h-20z" fill="#263e63"/>
+    <path d="m458 350h26v18h13v25h11v46h-24v-17h-5v-37h-10v-14h-11z" fill="url(#steel)"/>
+    <path d="m459 350h23v13h-12v12h-11z" fill="#e3ebf3"/>
+    <path d="m472 366h13v12h12v29h-16v-23h-9z" fill="#a9bacd"/>
+    <path d="m483 410h24v16h-11v12h-12z" fill="#899eb9"/>
+    <path d="m496 430h12v9h-24v-8z" fill="#546986"/>
+    <path d="m489 349h14v14h10v19h12v23h-15v11h-7v-26h-7v-16h-7z" fill="#284875"/>
+    <path d="m489 349h8v14h-8zm21 45h15v11h-15z" fill="#426495"/>
+    <path d="m498 322h21v13h15v17h9v17h6v31h15v15h-28v-13h-6v-17h-9v-18h-8v-24h-15z" fill="url(#steel)"/>
+    <path d="m499 322h20v13h11v14h-14v-8h-17z" fill="#e1e9f1"/>
+    <path d="m520 353h16v16h8v17h-10v-10h-7v-9h-7z" fill="#aabace"/>
+    <path d="m535 385h14v15h15v15h-28z" fill="#778aa5"/>
+    <path d="m544 342h15v-6h20v-12h19v-13h18v-10h13v16h11v40h-15v15h-16v15h-19v11h-18v-14h-7v-15h-17z" fill="#172641"/>
+    <path d="m554 340h22v-11h15v-9h17v-9h14v14h5v18h-17v17h-19v8h-20v-1h-12v-15h-5z" fill="#223d67"/>
+    <path d="m566 349h14v-11h16v-8h14v-19h12v30h-13v12h-17v16h-17v-6h-10z" fill="#365c8e"/>
+    <path d="m577 367h17v-12h16v-10h16v-15h15v21h-12v13h-19v15h-19v8h-17z" fill="#15243e"/>
+    <path d="m574 387h12v11h-12zm20-15h15v14h-15zm28-18h15v10h-8v8h-12v-9h5z" fill="#355580"/>
+    <path d="m542 314h22v-17h30v-10h15v22h8v16h-21v-8h-16v16h-18v8h-15v-7h-5z" fill="url(#steel)"/>
+    <path d="m543 314h23v-3h12v13h-17v10h-16zm22-16h27v10h-15v6h-12z" fill="#d2dfe9"/>
+    <path d="m594 290h15v19h8v15h-16v-8h-13v-7h6z" fill="#95a9c2"/>
+    <path d="m609 279h14v-17h15v15h14v16h5v17h10v48h-20v-32h-9v-16h-9v-17h-12v-7h-8z" fill="url(#steel)"/>
+    <path d="m623 262h15v16h6v7h-20z" fill="#e3eaf2"/>
+    <path d="m630 285h21v23h9v19h-14v-11h-8v-16h-8z" fill="#a6b4c8"/>
+    <path d="m647 328h20v30h-20z" fill="#667891"/>
+    <path d="m648 341h18v16h-18z" fill="#7d8ba6"/>
+  </g>
+</svg>
