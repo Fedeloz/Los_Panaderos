@@ -98,7 +98,7 @@ def signals(steps, payload):
         contradictions.append('claims_no_extinguisher')
     if world.get('fire_trucks') and re.search(r'no (authoritative )?(fire_trucks|fire truck|truck)', text):
         contradictions.append('claims_no_truck')
-    if not thermal.get('burning_cells') and re.search(r'confirmed fire|fire is confirmed', text):
+    if not thermal.get('burning_cells') and re.search(r'(?<!no )(?<!not )(?<!un)(confirmed fire|fire is confirmed)', text):
         contradictions.append('claims_confirmed_fire')
     return dict(steps_per_agent={a: len(v) for a, v in per.items()},
                 repeated_tool_calls=repeated,

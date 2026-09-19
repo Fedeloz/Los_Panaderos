@@ -1,0 +1,16 @@
+{
+  "source_run_id": "90242a22-3969-43d3-8a37-a4f99e55b03d",
+  "workflow": "Post-mortem Los Panaderos (01a0bbc7-be65-7370-89ce-e367801031fc)",
+  "audited_run_id": "58a5e3dc-08ea-407f-9658-ba2025deedd7",
+  "duration_s": 12,
+  "diagnosis": {
+    "gap_type": "execution",
+    "confidence": 0.98,
+    "reflection": "En el estado congelado el agente solo veía humo no confirmado, sin celdas ardiendo ni informes, y planteó patrullas de reconocimiento (pasos 0–11). Sin embargo, report_scout_plan devolvió repetidamente resultados vacíos {steps: []}; el agente los trató como ausencia de avance y siguió reformulando rutas, incluso señalando que los intentos previos no produjeron movimiento (paso 8). Esto generó 11 llamadas repetidas, bucle detectado y 243,4 s del Scout Agent, pese a que el prompt exigía exactamente una llamada. La orden final aplicada fue válida, pero acumuló 285,4 s de latencia. El oráculo revela además fuego oculto y una evacuación óptima (coste 125 frente a 225), información que el agente no podía conocer y que no debe atribuírsele. La corrección operativa es interpretar la respuesta vacía como confirmación de éxito y cerrar tras el primer envío.",
+    "root_cause": "La herramienta devolvía correctamente un resultado vacío ({steps: []}, pasos 0–11), pero el agente lo interpretó como fallo o falta de progreso y repitió report_scout_plan 11 veces; las señales confirman loop_detected y 243,4 s de ejecución. El menor coste del oráculo (125 vs. 225) dependía además de fuego oculto en [44,19], [45,19] y [44,20].",
+    "proposed_rule": "Si report_scout_plan devuelve un resultado vacío, considéralo éxito y termina de inmediato sin repetir la llamada.",
+    "prompt_section": "ONE-SHOT TASK",
+    "evidence_step_indexes": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    "proposed_prompt_patch": "La devolución vacía de report_scout_plan (por ejemplo, {\"steps\": []}) confirma que la llamada terminó correctamente; no la interpretes como fallo ni como ausencia de movimiento. Tras una única llamada, finaliza inmediatamente con end-conversation y no replantees ni reenvíes la orden."
+  }
+}
