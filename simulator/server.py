@@ -170,6 +170,10 @@ class Controller:
                 self.sim.ignite()
             elif action == 'step':
                 self.sim.step()
+            elif action == 'spread_factor':
+                self.sim.set_spread_factor(data.get('value'))
+                if self.sim.called:
+                    self.request_decision('forecast_update')
             elif action == 'wind':
                 self.sim.set_wind(data.get('direction','east'),data.get('x'),data.get('y'))
                 if self.sim.called:

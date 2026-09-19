@@ -17,6 +17,31 @@ def command(action='contain', x=65, y=43):
 
 
 class PhysicsTests(unittest.TestCase):
+    def test_spread_factor_scales_intervals_and_context(self):
+        s=Simulation();s.set_wind('calm')
+        self.assertEqual(s.spread_interval(1,0),10)
+        s.set_spread_factor(2)
+        self.assertEqual(s.spread_interval(1,0),5)
+        s.set_spread_factor(0.5)
+        self.assertEqual(s.spread_interval(1,0),20)
+        self.assertEqual(s.state()['rules']['spread_factor'],0.5)
+        self.assertEqual(json.loads(s.payload()['world_state'])['rules']['spread_factor'],0.5)
+        s.set_wind('east');s.set_spread_factor(4)
+        self.assertEqual(s.spread_interval(1,0),1)
+        for invalid in [0,5,True,None,'2',float('nan'),float('inf')]:
+            with self.assertRaises(ValueError):s.set_spread_factor(invalid)
+        self.assertEqual(Simulation().rules['spread_factor'],1)
+
+    @patch("random.Random.random", return_value=0.0)
+    def test_spread_factor_changes_actual_ignition_time(self, _random):
+        for factor,steps in [(0.5,20),(2,5)]:
+            s=Simulation();s.set_wind('calm');s.set_spread_factor(factor)
+            s.cells[20][20]['heat']=1
+            s.step(steps-1)
+            self.assertFalse(s.burning(s.cells[20][21]))
+            s.step()
+            self.assertTrue(s.burning(s.cells[20][21]))
+
     def test_selected_fire_location_updates_report_and_payload(self):
         s=Simulation();s.place_fire(35,20);s.ignite();s.farmer_call()
         self.assertTrue(s.burning(s.cells[20][35]))
@@ -55,7 +80,8 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(sims[0].cells,sims[1].cells)
         self.assertNotEqual(sims[0].cells,sims[2].cells)
 
-    def test_containment_extinguishes_one_cell_per_step(self):
+    @patch("random.Random.random", return_value=0.0)
+    def test_containment_extinguishes_one_cell_per_step(self, _random):
         s=Simulation();s.ignite();s.drone.update(x=61.,y=43.)
         s.observe();pos=s.safe_drone_positions()[0];s.apply(command('contain',pos['x'],pos['y']),'a',s.incident_id,0)
         s.step();self.assertEqual(s.suppressed,1)
@@ -220,6 +246,42 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(len(s.state()['mission_context']),2)
         self.assertEqual(Simulation().mission_context(),[])
 
+    def test_joint_observation_shares_fire_and_clear_updates(self):
+        s=Simulation();s.drone.update(x=20.,y=20.);s.truck.update(x=60.,y=20.)
+        s.cells[20][25]['heat']=1;s.cells[20][65]['heat']=1
+        s.observe()
+        self.assertEqual({(c['x'],c['y']) for c in s.observation},{(25,20),(65,20)})
+        self.assertEqual(s.memory['65,20']['sources'],['truck'])
+        s.drone.update(x=10.,y=40.);s.tick+=1
+        s.cells[20][65]['heat']=0;s.observe()
+        self.assertFalse(s.memory['65,20']['burning'])
+        self.assertTrue(s.memory['25,20']['burning'])
+        self.assertLess(s.memory['25,20']['observed_at'],s.tick)
+        self.assertNotIn(dict(x=25,y=20),s.observation)
+
+    @patch("random.Random.random", return_value=0.0)
+    def test_truck_suppresses_drone_sighting_beyond_own_sensor(self, _random):
+        s=Simulation();s.drone.update(x=35.,y=20.)
+        s.truck.update(x=20.,y=20.,mobilized_at=0,
+                       drone_order=dict(command='attack_sector',sector=[30,20]))
+        s.crew_target=[30,20];s.cells[20][30]['heat']=1
+        s.observe()
+        self.assertEqual(s.truck['observed_fire'],[])
+        self.assertIn(dict(x=30,y=20),s.observation)
+        s.update_truck()
+        self.assertEqual((s.truck['x'],s.truck['y']),(20,20))
+        self.assertEqual(s.crew_extinguished,1)
+        self.assertFalse(s.memory['30,20']['burning'])
+
+    def test_shared_map_does_not_allow_blind_suppression(self):
+        s=Simulation();s.drone.update(x=70.,y=40.)
+        s.truck.update(x=20.,y=20.,mobilized_at=0,
+                       drone_order=dict(command='attack_sector',sector=[28,20]))
+        s.crew_target=[28,20];s.cells[20][30]['heat']=1
+        s.update_truck()
+        self.assertEqual(s.crew_extinguished,0)
+        self.assertTrue(s.burning(s.cells[20][30]))
+
     def test_vehicle_observation_radii(self):
         s=Simulation();s.drone.update(x=20.,y=20.)
         s.truck.update(x=50.,y=20.)
@@ -322,7 +384,8 @@ class PhysicsTests(unittest.TestCase):
         self.assertTrue(path)
         self.assertTrue(all(tuple(p) not in blocked for p in path))
 
-    def test_larger_suppression_ranges(self):
+    @patch("random.Random.random", return_value=0.0)
+    def test_larger_suppression_ranges(self, _random):
         s=Simulation();s.drone.update(x=40.,y=20.,mode='contain')
         s.cells[20][48]['heat']=1;s.cells[20][49]['heat']=1
         s.step()
@@ -334,11 +397,46 @@ class PhysicsTests(unittest.TestCase):
         self.assertFalse(s.burning(s.cells[20][50]))
         self.assertEqual(s.truck_telemetry()['hose_range'],10)
 
-    def test_crew_suppresses_six_cells_from_hose_range(self):
+    @patch("random.Random.random", return_value=0.0)
+    def test_crew_five_jets_can_suppress_five_cells(self, _random):
         s=Simulation();s.truck.update(x=60.,y=42.,mobilized_at=0)
         for x,y in [(65,42),(65,43),(65,44),(66,42),(66,43),(66,44),(67,42)]:s.cells[y][x]['heat']=1
         s.crew_target=[65,42];s.update_truck()
-        self.assertEqual(s.crew_extinguished,6)
+        self.assertEqual(s.crew_extinguished,5)
+
+    def test_jet_probability_threshold_and_attempt_limit(self):
+        s=Simulation();points=[(30+i,20) for i in range(6)]
+        for x,y in points:s.cells[y][x]['heat']=1
+        with patch.object(s.suppression_rng,'random',side_effect=[0.59,0.6,0.1,0.9,0.0]) as draw:
+            attempts=s.suppress(points,5,0.6)
+        self.assertEqual(draw.call_count,5)
+        self.assertEqual([a['success'] for a in attempts],[True,False,True,False,True])
+        self.assertTrue(s.burning(s.cells[20][35]))
+        self.assertTrue(s.burning(s.cells[20][31]))
+        with patch.object(s.suppression_rng,'random',return_value=0.0):
+            self.assertTrue(s.suppress([(31,20)],1,0.4)[0]['success'])
+
+    def test_drone_jet_probability_boundary(self):
+        for value,expected in [(0.399,True),(0.4,False)]:
+            s=Simulation();s.cells[20][30]['heat']=1
+            with patch.object(s.suppression_rng,'random',return_value=value):
+                attempt=s.suppress([(30,20)],s.rules['drone_jets'],s.rules['drone_suppression_success_probability'])
+            self.assertEqual(attempt[0]['success'],expected)
+
+    def test_jet_context_and_seeded_results(self):
+        sims=[Simulation(seed=9),Simulation(seed=9)]
+        outcomes=[]
+        for s in sims:
+            for x in range(30,36):s.cells[20][x]['heat']=1
+            outcomes.append(s.suppress([(x,20) for x in range(30,36)],5,0.6))
+        self.assertEqual(*outcomes)
+        s=sims[0];w=json.loads(s.payload()['world_state'])
+        self.assertEqual(w['rules']['truck_jets'],5)
+        self.assertEqual(s.telemetry()['jets'],1)
+        self.assertEqual(s.truck_telemetry()['suppression_success_probability'],0.6)
+        self.assertEqual(s.telemetry()['expected_extinguished_per_step'],0.4)
+        self.assertEqual(s.truck_telemetry()['expected_extinguished_per_step'],3.0)
+        self.assertEqual(s.telemetry()['suppression_success_probability'],0.4)
 
     def test_vector_wind_strength_diagonal_and_validation(self):
         s=Simulation();s.set_wind(x=0,y=0)

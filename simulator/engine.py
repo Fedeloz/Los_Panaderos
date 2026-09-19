@@ -15,25 +15,30 @@ class Simulation:
     report = (65, 43)
     sensor_radius = 12
     truck_sensor_radius = 9
-    rules = dict(truck_coordination='Drone can issue attack_sector with truck_target_x/y and truck_reason, or continue the prior truck order. Truck suppresses 6 cells/step versus drone 1; use truck for main attack, drone for scouting, flank support and urgent warnings. Orders persist; truck chooses safe stand-off and route.',
+    rules = dict(observation_sharing='Both vehicles share current fire and clear sightings and timestamped memory. Truck may suppress drone-observed fire within hose range and pursue active sightings within its assigned sector. Never use hidden truth or stale sightings for suppression.',
+                 truck_coordination='Drone can issue attack_sector with truck_target_x/y and truck_reason, or continue the prior truck order. Truck has 5 jets with 60% success each versus drone 1 jet with 40% success; use truck for main attack, drone for scouting, flank support and urgent warnings. Orders persist; truck chooses safe stand-off and route.',
                  evacuation='Warning delivery completes the drone task; people continue independently. Reassign drone to urgent unwarned people, otherwise scout/contain to assist truck.',
                  drone_planner='Optimistic A*: unknown cells traversable; replan when observed fire blocks the route; retain known fire until observed clear',
                  vehicle_movement='8 neighbors; diagonals cost sqrt(2) distance; blocked corners cannot be crossed',
                  ignition_probability_per_eligible_cell=0.5,
                  spread_attempts="One chance per eligible adjacent cell per step; failed attempts retry at wind-dependent intervals.",
                  drone_cells_per_step=3,
-                 drone_extinguishes_per_step=1, satellite_delay_steps=12,
+                 drone_jets=1, drone_expected_extinguished_per_step=0.4,
+                 drone_suppression_success_probability=0.4, truck_suppression_success_probability=0.6,
+                 suppression_policy="CURRENT PHYSICS overrides older prompt capacity examples: drone 1 jet, truck 5 jets, each independently attempts one distinct observed burning cell per step, with 40% success for the drone and 60% for the truck. Maximum 1/5 and expected 0.4/3.0 extinguished cells per step with enough targets, not guaranteed. Failed cells remain burning; unused jets idle. Containment position is a safe flight position, not a flame.", satellite_delay_steps=12,
                  satellite_interval_steps=12, satellite_block_size=8,
                  truck_cells_per_step=2, truck_offroad_speed_factor=0.8, truck_mobilization_steps=8,
-                 firefighter_extinguishes_per_step=6, hose_range=10,
+                 truck_jets=5, truck_expected_extinguished_per_step=3.0, hose_range=10,
                  drone_standoff_cells=3, drone_suppression_range=8)
 
     def __init__(self, seed=9):
         self.incident_id = str(uuid.uuid4())
         self.rng = random.Random(seed)
+        self.suppression_rng = random.Random(seed+1)
         self.phase = "active"
         self.tick = 0
         self.wind = (1, 0)
+        self.rules = dict(self.rules, spread_factor=1.0, spread_factor_policy="Divide wind-dependent attempt intervals by spread_factor, round to whole steps, minimum 1 step. Ignition probability remains 50%; vehicle speed and suppression are unchanged.")
         self.revision = 0
         self.cells = [[dict(fuel=1, heat=0, age=0) for x in range(self.width)] for y in range(self.height)]
         self.drone = dict(x=12., y=44., status='at_station', target=None, mode='hold')
@@ -107,9 +112,17 @@ class Simulation:
         self.revision+=1
         self.log('weather',f'Wind vector updated: X={self.wind[0]}, Y={self.wind[1]} (east/south positive); strength {math.hypot(*self.wind):.2f}.')
 
+    def set_spread_factor(self, value):
+        if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or not 0.25<=value<=4:
+            raise ValueError('Spread factor must be a finite number between 0.25 and 4.')
+        self.rules['spread_factor']=float(value)
+        self.revision+=1
+        self.log('weather',f'Fire spread factor updated: {value:g}×.')
+
     def spread_interval(self, dx, dy):
         projection=dx*self.wind[0]+dy*self.wind[1]
-        return max(1,round(10/(1+4*projection))) if projection>=0 else round(10*(1-projection))
+        base = max(1,round(10/(1+4*projection))) if projection>=0 else round(10*(1-projection))
+        return max(1,round(base/self.rules['spread_factor']))
 
     def step(self, count=1):
         for _ in range(count):
@@ -139,14 +152,16 @@ class Simulation:
             self.update_people_exposure()
             d = self.drone
             d['last_drop'] = None
+            d['suppression_attempts'] = []
             self.move_safely(d,3)
             self.observe()
             if d['mode'] == 'contain' and d['status'] != 'retreating':
                 candidates = [c for c in self.observation if math.hypot(c['x']-d['x'],c['y']-d['y'])<=self.rules['drone_suppression_range']]
                 if candidates:
                     c = max(candidates,key=lambda c:c['x']*self.wind[0]+c['y']*self.wind[1])
-                    self.cells[c['y']][c['x']].update(heat=0,fuel=0)
-                    self.suppressed += 1
+                    attempts=self.suppress([(c['x'],c['y'])],self.rules['drone_jets'],self.rules['drone_suppression_success_probability'])
+                    d['suppression_attempts']=attempts
+                    self.suppressed += sum(a['success'] for a in attempts)
                     d['last_drop'] = [c['x'],c['y']]
             if d['target'] is None and d['mode'].startswith('evacuate_'):
                 name = d['mode'].split('_',1)[1]
@@ -338,11 +353,20 @@ class Simulation:
                     costs[q]=candidate;parents[q]=p;heapq.heappush(queue,(candidate,q))
         return None,None
 
+    def suppress(self, candidates, jets, success_probability):
+        attempts=[]
+        for x,y in list(dict.fromkeys(candidates))[:jets]:
+            if not self.burning(self.cells[y][x]):continue
+            success=self.suppression_rng.random()<success_probability
+            attempts.append(dict(x=x,y=y,success=success))
+            if success:self.cells[y][x].update(heat=0,fuel=0)
+        return attempts
+
     def update_truck(self):
-        t=self.truck;t['last_drops']=[]
+        t=self.truck;t['last_drops']=[];t['suppression_attempts']=[]
         if self.phase == 'finished':return
-        visible=[p for p in self.fire_points() if math.hypot(p[0]-t['x'],p[1]-t['y'])<=self.truck_sensor_radius]
-        t['observed_fire']=[dict(x=x,y=y) for x,y in visible]
+        self.observe()
+        visible=[(c['x'],c['y']) for c in self.observation]
         returning=self.phase=='returning'
         if not returning and (t['mobilized_at'] is None or self.tick<t['mobilized_at']):return
         if visible and not t.get('drone_order'):
@@ -358,7 +382,10 @@ class Simulation:
                    for x in range(max(0,here[0]-3),min(self.width,here[0]+4)) if (x,y) not in blocked}
             obstacles=set(visible)
         else:
-            fx,fy=self.crew_target;radius=min(self.rules['hose_range'],self.truck_sensor_radius)
+            # Follow shared active sightings within the assigned sector without replacing the order.
+            nearby=[p for p in visible if math.dist(p,self.crew_target)<=self.rules['hose_range']]
+            aim=min(nearby,key=lambda p:math.dist(p,self.crew_target)) if nearby else self.crew_target
+            fx,fy=aim;radius=self.rules['hose_range'] if nearby else self.truck_sensor_radius
             goals={(x,y) for y in range(max(0,fy-radius),min(self.height,fy+radius+1))
                    for x in range(max(0,fx-radius),min(self.width,fx+radius+1))
                    if 3<=math.hypot(x-fx,y-fy)<=radius and (x,y) not in blocked}
@@ -378,36 +405,46 @@ class Simulation:
         remaining=0;point=here
         for step in path:remaining+=self.truck_edge_time(point,step);point=tuple(step)
         self.crew_due=self.tick+math.ceil(max(0,remaining-t['travel_credit']))
-        local=[p for p in self.fire_points() if math.hypot(p[0]-t['x'],p[1]-t['y'])<=min(self.rules['hose_range'],self.truck_sensor_radius)]
+        self.observe()
+        visible=[(c['x'],c['y']) for c in self.observation]
+        local=[p for p in visible if math.hypot(p[0]-t['x'],p[1]-t['y'])<=self.rules['hose_range']]
         if local and here not in self.danger_zone(visible):
-            for x,y in sorted(local,key=lambda p:math.hypot(p[0]-t['x'],p[1]-t['y']))[:6]:
-                self.cells[y][x].update(heat=0,fuel=0);self.crew_extinguished+=1
-                t['last_drops'].append([x,y])
+            attempts=self.suppress(sorted(local,key=lambda p:math.hypot(p[0]-t['x'],p[1]-t['y'])),self.rules['truck_jets'],self.rules['truck_suppression_success_probability'])
+            t['suppression_attempts']=attempts
+            self.crew_extinguished+=sum(a['success'] for a in attempts)
+            t['last_drops']=[[a['x'],a['y']] for a in attempts]
             t['status']='suppressing'
-        t['observed_fire']=[dict(x=x,y=y) for x,y in self.fire_points() if math.hypot(x-t['x'],y-t['y'])<=self.truck_sensor_radius]
+        self.observe()
 
     def truck_telemetry(self):
         offroad=self.rules['truck_cells_per_step']*self.rules['truck_offroad_speed_factor']
         return dict(self.truck,truck_id='engine-1',speed=self.rules['truck_cells_per_step'],
-                    offroad_speed=offroad,can_travel_offroad=True,sensor_radius=self.truck_sensor_radius,hose_range=self.rules['hose_range'],extinguishes_per_step=6,
+                    offroad_speed=offroad,can_travel_offroad=True,sensor_radius=self.truck_sensor_radius,hose_range=self.rules['hose_range'],jets=self.rules['truck_jets'],
+                    suppression_success_probability=self.rules['truck_suppression_success_probability'],expected_extinguished_per_step=self.rules['truck_expected_extinguished_per_step'],
                     position_reported_at=self.tick,arrival_estimate_steps=max(0,self.crew_due-self.tick) if self.crew_due is not None else None)
 
     def observe(self):
-        d = self.drone
-        self.observation = []
-        for y in range(max(0,int(d['y'])-self.sensor_radius),min(self.height,int(d['y'])+self.sensor_radius+1)):
-            for x in range(max(0,int(d['x'])-self.sensor_radius),min(self.width,int(d['x'])+self.sensor_radius+1)):
-                if math.hypot(x-d['x'],y-d['y'])<=self.sensor_radius:
-                    fire = self.burning(self.cells[y][x])
-                    self.memory[f'{x},{y}'] = dict(x=x,y=y,burning=fire,observed_at=self.tick)
-                    if fire:
-                        self.observation.append(dict(x=x,y=y))
+        current={}
+        for source,vehicle,radius in [('drone',self.drone,self.sensor_radius),
+                                      ('truck',self.truck,self.truck_sensor_radius)]:
+            own=[]
+            for y in range(max(0,int(vehicle['y'])-radius),min(self.height,int(vehicle['y'])+radius+1)):
+                for x in range(max(0,int(vehicle['x'])-radius),min(self.width,int(vehicle['x'])+radius+1)):
+                    if math.hypot(x-vehicle['x'],y-vehicle['y'])<=radius:
+                        key=f'{x},{y}'
+                        cell=current.setdefault(key,dict(x=x,y=y,burning=self.burning(self.cells[y][x]),
+                                                         observed_at=self.tick,sources=[]))
+                        cell['sources'].append(source)
+                        if cell['burning']:own.append(dict(x=x,y=y))
+            vehicle['observed_fire']=own
+        self.memory.update(current)
+        self.observation=[dict(x=c['x'],y=c['y']) for c in current.values() if c['burning']]
         if self.observation and not self.truck.get('drone_order'):
             self.crew_target = [self.observation[0]['x'],self.observation[0]['y']]
         return self.observation
 
     def telemetry(self):
-        return dict(self.drone,drone_id='drone-1',sensor_radius=self.sensor_radius,standoff_cells=3,suppression_range=self.rules['drone_suppression_range'],safe_containment_positions=self.safe_drone_positions(),capabilities=['scout','contain','evacuate_farm','evacuate_town'])
+        return dict(self.drone,drone_id='drone-1',jets=self.rules['drone_jets'],suppression_success_probability=self.rules['drone_suppression_success_probability'],expected_extinguished_per_step=self.rules['drone_expected_extinguished_per_step'],sensor_radius=self.sensor_radius,standoff_cells=3,suppression_range=self.rules['drone_suppression_range'],safe_containment_positions=self.safe_drone_positions(),capabilities=['scout','contain','evacuate_farm','evacuate_town'])
 
     def population_wind_alignment(self):
         sources=[(f['x'],f['y']) for f in self.observation]
@@ -446,13 +483,8 @@ class Simulation:
 
     def known_map(self):
         # This map never includes cells outside sensor observations. Static landmarks are separate.
-        cells={key:dict(value,source='drone') for key,value in self.memory.items()}
-        t=self.truck;r=self.truck_sensor_radius
-        for y in range(max(0,int(t['y'])-r),min(self.height,int(t['y'])+r+1)):
-            for x in range(max(0,int(t['x'])-r),min(self.width,int(t['x'])+r+1)):
-                if math.hypot(x-t['x'],y-t['y'])<=r:
-                    cells[f'{x},{y}']=dict(x=x,y=y,burning=self.burning(self.cells[y][x]),
-                                           observed_at=self.tick,source='truck')
+        cells=self.memory
+        t=self.truck
         rows=[['?']*self.width for _ in range(self.height)]
         for c in cells.values():
             fresh=c['observed_at']==self.tick
@@ -494,7 +526,7 @@ class Simulation:
         return dict(event_id=str(uuid.uuid4()),event_type=event_type,incident_id=self.incident_id,sim_time=str(self.tick),
             world_state=json.dumps(known),drone_telemetry=json.dumps(self.telemetry()),
             thermal_detections=json.dumps(dict(observed_at=self.tick,burning_cells=self.observation,
-                coverage=f'Only radius {self.sensor_radius} around drone. Truck reports its own radius {self.truck_sensor_radius} observations separately. Empty is not global containment.')),
+                coverage=f'Joint current observations: radius {self.sensor_radius} around drone plus radius {self.truck_sensor_radius} around truck. Both share fire and clear-cell updates. Empty is not global containment.')),
             human_messages=self.call_text)
 
     def apply(self, decision, command_id, incident_id, expected_tick):
