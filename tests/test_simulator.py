@@ -636,13 +636,57 @@ class CommunicationTests(unittest.TestCase):
         self.assertNotIn('town_north', [t['district_id'] for t in json.loads(s.payload()['world_state'])['evacuation_targets']])
         sources = [e['source'] for e in s.history]
         self.assertIn('central → telegram', sources); self.assertIn('central → phone', sources)
-        # Second alert to the same district is recorded but has no further effect.
+        self.assertEqual(applied[0]['action'], 'evacuate')
+        self.assertEqual(applied[0]['action_source'], 'inferred_from_criticality')
+        # Second alert to the same district carries no action: it informs, it does not re-evacuate.
         again = s.apply_communications([dict(kind='zone_alert', district_id='town_north', information='again')])
-        self.assertNotIn('effect', again[0])
+        self.assertEqual(again[0]['effect'], 'district_informed')
         self.assertEqual(s.groups['town_north']['status'], 'evacuating')
         state = s.state()
         self.assertEqual(len(state['communications']), 3)
         self.assertTrue(all(len(str(p['phone_number'] or '')) <= 4 for p in state['contacts']['people']))
+
+    def test_information_broadcast_never_evacuates_a_district(self):
+        """The demo's "todo bien, les mantendremos informados" message to Brunete."""
+        s = Simulation(); s.ignite(); s.farmer_call()
+        towns = ['town', 'town_north', 'town_south', 'town_rosales']
+        applied = s.apply_communications([
+            dict(kind='zone_alert', district_id=d, action='inform', criticality='informativa', status='sent',
+                 information='Brunete no corre peligro; les mantendremos informados.') for d in towns])
+        self.assertEqual({a['effect'] for a in applied}, {'district_informed'})
+        self.assertEqual({a['action_source'] for a in applied}, {'explicit'})
+        self.assertEqual([s.groups[d]['status'] for d in towns], ['unwarned']*4)
+        self.assertEqual(sum(s.groups[d]['count'] for d in towns if s.groups[d]['status'] != 'unwarned'), 0)
+        self.assertIsNone(s.pending_decision_event)
+        # Informed districts are still valid evacuation targets for a later decision.
+        targets = [t['district_id'] for t in json.loads(s.payload()['world_state'])['evacuation_targets']]
+        self.assertTrue(set(towns) <= set(targets))
+
+    def test_explicit_evacuation_order_moves_the_district(self):
+        s = Simulation(); s.ignite(); s.farmer_call()
+        applied = s.apply_communications([dict(kind='zone_alert', district_id='town_south', action='evacuate',
+                                               criticality='informativa', status='sent', information='Salgan ahora.')])
+        self.assertEqual(applied[0]['effect'], 'district_warned')
+        self.assertEqual(applied[0]['action_source'], 'explicit')
+        self.assertEqual(s.groups['town_south']['status'], 'evacuating')
+        self.assertEqual(s.pending_decision_event, 'evacuation_warning_delivered')
+
+    def test_unlabelled_alert_informs_and_flags_the_ambiguity(self):
+        s = Simulation(); s.ignite(); s.farmer_call()
+        applied = s.apply_communications([dict(kind='zone_alert', district_id='town', status='sent', information='x')])
+        self.assertEqual((applied[0]['action'], applied[0]['action_source']), ('inform', 'default'))
+        self.assertEqual(s.groups['town']['status'], 'unwarned')
+        self.assertTrue(any('no explicit action' in e['message'] for e in s.history if e['source'] == 'system'))
+
+    def test_failed_and_undeliverable_alerts_report_their_effect(self):
+        s = Simulation(); s.ignite(); s.farmer_call()
+        failed, unknown = s.apply_communications([
+            dict(kind='zone_alert', district_id='town', action='evacuate', status='failed', information='x'),
+            dict(kind='zone_alert', district_id='no_existe', action='evacuate', status='sent', information='x')])
+        self.assertEqual(failed['effect'], 'no_change')
+        self.assertEqual(unknown['effect'], 'no_recipient')
+        self.assertEqual(s.groups['town']['status'], 'unwarned')
+        self.assertTrue(any('reached NO district' in e['message'] for e in s.history))
 
     def test_dispatch_summary_logged(self):
         s = Simulation()

@@ -257,7 +257,7 @@ class HappyRobot:
         # Call/Telegram nodes are sub-workflow calls: their output is the child's response
         # (status, audience_label, message_sent, summary...) and may or may not echo the inputs.
         text_keys = ('information', 'message_sent', 'summary')
-        who_keys = ('contact_name', 'audience_label', 'chat_id', 'phone_number')
+        who_keys = ('contact_name', 'audience_label', 'chat_id', 'phone_number', 'action', 'alert_type')
         payload = {}
         for item in HappyRobot.json_values(value):
             if isinstance(item, dict) and (any(k in item for k in text_keys) or any(k in item for k in who_keys)):
@@ -292,6 +292,9 @@ class HappyRobot:
         if payload.get('status') == 'no_recipients' or payload.get('recipients_delivered') == 0 and payload.get('recipients_attempted'):
             status = str(payload.get('status') or 'failed')
         return dict(kind=kind, district_id=district, contact_name=name, criticality=payload.get('criticality'),
+                    # `action` tells the simulator whether a zone alert ORDERS an evacuation or just
+                    # informs. Absent, Simulation.alert_action falls back to criticality and flags it.
+                    action=payload.get('action') or payload.get('alert_type'),
                     information=information, status=status, run_id=run_id)
 
     # ---- run orchestration -----------------------------------------------

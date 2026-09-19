@@ -750,8 +750,30 @@ class Simulation:
             human_messages=self.call_text,
             contacts=json.dumps(contacts, ensure_ascii=False))
 
+    DELIVERED_STATUSES={'sent','delivered','succeeded'}
+    EVACUATION_ACTIONS={'evacuate','evacuar','evacuacion','evacuación','orden_evacuacion','evacuation_order'}
+    INFORM_ACTIONS={'inform','informar','informativa','informativo','information','update','reassure','tranquilizar','all_clear'}
+    EVACUATION_CRITICALITIES={'critica','crítica','critical','alta','high','emergencia','emergency'}
+
+    @classmethod
+    def alert_action(cls,item):
+        """Split a zone alert into an evacuation ORDER or an informational broadcast.
+
+        Explicit `action` wins. Without it we fall back to `criticality` and mark the record
+        inferred, so the dashboard and the next payload show the agent that it never said which
+        one it meant. Anything unlabelled is an information broadcast: a reassurance message
+        must never put a district on the road.
+        """
+        raw=str(item.get('action') or item.get('alert_type') or '').strip().lower()
+        if raw in cls.EVACUATION_ACTIONS:return 'evacuate','explicit'
+        if raw in cls.INFORM_ACTIONS:return 'inform','explicit'
+        criticality=str(item.get('criticality') or '').strip().lower()
+        if criticality in cls.EVACUATION_CRITICALITIES:return 'evacuate','inferred_from_criticality'
+        return 'inform','default'
+
     def apply_communications(self, communications):
-        """Record calls/Telegram alerts HappyRobot actually sent. A zone alert warns its district; a call reaches one person."""
+        """Record calls/Telegram alerts HappyRobot actually sent. A zone alert either ORDERS its
+        district to evacuate or INFORMS it; a call reaches one person."""
         applied=[]
         for item in communications or []:
             if not isinstance(item,dict):continue
@@ -764,13 +786,29 @@ class Simulation:
             group=self.groups.get(record['district_id']) if record['district_id'] else None
             label=group['name'] if group else (record['contact_name'] or 'unknown recipient')
             if kind=='zone_alert':
-                if group and group['status']=='unwarned' and record['status'] in {'sent','delivered','succeeded'}:
+                action,source=self.alert_action(item)
+                record.update(action=action,action_source=source)
+                delivered=record['status'] in self.DELIVERED_STATUSES
+                if not group:
+                    # No district resolved: nobody was warned. Say so instead of logging a silent success.
+                    record['effect']='no_recipient'
+                    self.log('central → telegram',f"Zone alert to {label} [{record['status']}] reached NO district "
+                             f"(district_id={record['district_id']!r}); population unchanged: {record['information'][:160]}")
+                elif action=='evacuate' and group['status']=='unwarned' and delivered:
                     group['status']='evacuating'
                     record['effect']='district_warned'
                     self.pending_decision_event=self.pending_decision_event or 'evacuation_warning_delivered'
-                    self.log('central → telegram',f"Zone alert ({record['criticality'] or 'n/a'}) to {label}: {group['count']} people moving to refuge. {record['information'][:200]}")
+                    self.log('central → telegram',f"EVACUATION order ({record['criticality'] or 'n/a'}) to {label}: {group['count']} people moving to refuge. {record['information'][:200]}")
+                elif action=='inform':
+                    record['effect']='district_informed'
+                    self.log('central → telegram',f"Information broadcast to {label} [{record['status']}] — "
+                             f"{group['count']} people informed, NOT evacuated (status stays {group['status']}): {record['information'][:200]}")
                 else:
-                    self.log('central → telegram',f"Zone alert to {label} [{record['status']}]"+(f" — already {group['status']}" if group else '')+f": {record['information'][:200]}")
+                    record['effect']='no_change'
+                    self.log('central → telegram',f"Evacuation order to {label} [{record['status']}]"+(f" — already {group['status']}" if group else '')+f": {record['information'][:200]}")
+                if source!='explicit' and group:
+                    self.log('system',f"Zone alert to {label} carried no explicit action; read as {action!r} from "
+                             f"criticality={record['criticality'] or 'empty'!r}. Set action=evacuate|inform in alertar_zona.")
             elif kind=='call':
                 record['effect']='person_called'
                 self.log('central → phone',f"Call to {label}{' ('+group['name']+')' if group else ''} [{record['status']}]: {record['information'][:200]}")

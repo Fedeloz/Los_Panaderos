@@ -39,7 +39,7 @@ class BuildStateTests(unittest.TestCase):
     def test_state_document_shape(self):
         with patch.dict('os.environ', {'DEMO_TOWN_PHONE': '+34611'}), patch('simulator.contacts.load_env'):
             s = Simulation(); s.set_wind(x=-2.0, y=0.5); s.ignite(); s.farmer_call()
-            s.apply_communications([dict(kind='zone_alert', district_id='farm', information='go north', status='sent')])
+            s.apply_communications([dict(kind='zone_alert', district_id='farm', action='evacuate', information='go north', status='sent')])
             state = build_state(s)
         self.assertEqual(state['incident_id'], s.incident_id)
         self.assertEqual({d['district_id'] for d in state['districts']}, set(s.groups))
