@@ -14,7 +14,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = '01a0b8ea-d9af-71f3-9fb7-8a469f9ac25b'
 EDGE_NODE = '01a0b96a-d5b4-771c-809c-850010ddbb67'
-EDITOR = 'https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/xr7tz9z4cvq9'
+EDITOR = 'https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/d285dnh8ngo8'
 
 
 class HappyRobot:

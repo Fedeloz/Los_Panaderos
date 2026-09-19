@@ -13,7 +13,7 @@ from simulator.happyrobot import HappyRobot
 
 
 def command(action='contain', x=65, y=43):
-    return dict(command=action, target_x=x, target_y=y, reason='Test decision', mission='Contain')
+    return dict(command=action, target_x=x, target_y=y, reason='Test decision', mission='Contain',district_id='farm' if action=='evacuate_farm' else 'town' if action=='evacuate_town' else '')
 
 
 class PhysicsTests(unittest.TestCase):
@@ -63,24 +63,20 @@ class PhysicsTests(unittest.TestCase):
         self.assertFalse(any((c['x'],c['y'])==(75,2) for c in details))
         self.assertEqual(len(w['terrain_map']['rows']),56)
 
-    def test_aerial_geography_matches_agents_and_grid(self):
+    def test_illustrated_geography_matches_agents_and_grid(self):
         s=Simulation();world=json.loads(s.payload()['world_state'])
         self.assertEqual(s.farm,(73,21))
-        self.assertEqual(s.base,(10,35))
+        self.assertEqual(s.base,(12,32))
         self.assertEqual(world['farm'],dict(x=73,y=21))
-        self.assertEqual(world['station'],dict(x=10,y=35))
+        self.assertEqual(world['station'],dict(x=12,y=32))
         self.assertEqual((s.truck['x'],s.truck['y']),s.base)
         self.assertEqual((s.drone['x'],s.drone['y']),s.base)
         self.assertEqual((s.groups['farm']['x'],s.groups['farm']['y']),s.farm)
-        self.assertEqual(s.state()['geography']['id'],'brunete-el-alamo-v1')
+        self.assertEqual(s.state()['geography']['id'],'brunete-illustrated-v1')
+        self.assertNotIn('bounds_3857',s.state()['geography'])
         self.assertTrue(all(0<=x<80 and 0<=y<56 for x,y in s.roads))
         self.assertIn(s.base,s.roads)
         self.assertIn(s.farm,s.roads)
-        # The farm's surveyed point must land in its displayed grid cell.
-        west,south,east,north=s.state()['geography']['bounds_3857']
-        mx=6378137*math.radians(-3.96242)
-        my=6378137*math.log(math.tan(math.pi/4+math.radians(40.41103)/2))
-        self.assertEqual((int((mx-west)/(east-west)*80),int((north-my)/(north-south)*56)),s.farm)
 
     def test_spread_factor_scales_intervals_and_context(self):
         s=Simulation();s.set_wind('calm')
@@ -181,11 +177,11 @@ class PhysicsTests(unittest.TestCase):
         s=Simulation();s.ignite();s.set_wind('west')
         self.assertFalse(any(g['measurements'] for g in s.population_wind_alignment().values()))
         s.farmer_call()
-        for wind,expected in [((-3,0),'town'),((0,-3),'farm'),((3,0),None),((0,0),None)]:
+        for wind,expected in [((-3,0),['town_north','town','town_south']),((0,-3),['farm']),((3,0),[]),((0,0),[])]:
             s.set_wind(x=wind[0],y=wind[1])
             alignment=s.population_wind_alignment()
             self.assertEqual([name for name,g in alignment.items() if g['downwind_sector']],
-                             [expected] if expected else [])
+                             expected)
 
     def test_containment_options_cover_downwind_front_safely(self):
         for wind,pos in [((1,0),(69,43)),((-1,0),(61,43)),((0,-1),(65,39)),((0,1),(65,48)),((1,-1),(69,39))]:
@@ -241,9 +237,10 @@ class PhysicsTests(unittest.TestCase):
 
     def test_last_fire_suppressed_at_base_does_not_dispatch_truck(self):
         s=Simulation();s.ignited=True;s.drone['mode']='contain'
-        s.truck['mobilized_at']=0;s.crew_target=[18,44]
-        s.cells[44][18]['heat']=1
-        s.step()
+        x,y=s.base[0]+4,s.base[1]
+        s.truck['mobilized_at']=0;s.crew_target=[x,y]
+        s.cells[y][x].update(heat=.1,fuel=1.,terrain='field')
+        with patch.object(s.suppression_rng,'random',return_value=0):s.step()
         self.assertEqual(s.phase,'finished')
         self.assertEqual((s.truck['x'],s.truck['y']),s.base)
 
@@ -286,6 +283,16 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(s.known_map()['rows'][43][65],'f')
         s.drone.update(x=61.,y=43.);s.observe()
         self.assertEqual(s.known_map()['rows'][43][65],'.')
+
+    def test_first_scout_prefers_the_wind_direction(self):
+        s=Simulation();s.ignite();s.farmer_call()
+        for wind in [(1,0),(-1,0),(0,-1),(0,1),(1,-1)]:
+            s.set_wind(x=wind[0],y=wind[1])
+            p=s.smoke_scout_positions()[0]
+            self.assertGreaterEqual(p['wind_alignment'],0.7)
+            self.assertGreater((p['x']-s.report[0])*wind[0]+(p['y']-s.report[1])*wind[1],0)
+        s.set_wind('calm')
+        self.assertTrue(all(p['wind_alignment']==0 for p in s.smoke_scout_positions()))
 
     def test_smoke_scout_positions_are_near_report_and_avoid_known_fire(self):
         s=Simulation();s.place_fire(65,43);s.ignite()
@@ -600,7 +607,7 @@ class ControllerTests(unittest.TestCase):
                     self.assertEqual(c.sim.incident_id,old)
                     release.set()
                     deadline=time.monotonic()+3
-                    while c.busy and time.monotonic()<deadline:time.sleep(.01)
+                    while c.state()['busy'] and time.monotonic()<deadline:time.sleep(.01)
                     self.assertFalse(c.busy)
                     self.assertFalse(c.reset_pending)
                     self.assertNotEqual(c.sim.incident_id,old)
@@ -641,7 +648,7 @@ class ControllerTests(unittest.TestCase):
                         c.action('pause',{})
                         release.set()
                         deadline=time.monotonic()+2
-                        while c.busy and time.monotonic()<deadline:time.sleep(.01)
+                        while c.state()['busy'] and time.monotonic()<deadline:time.sleep(.01)
                         self.assertFalse(c.busy)
                         self.assertEqual(c.sim.tick,before['tick'])
                         if invalid_first:self.assertEqual(attempts[-1],'command_rejected')

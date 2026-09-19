@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from .terrain import PROFILES, make_cells
 
-GEOGRAPHY = json.loads((Path(__file__).parent / "static/maps/brunete.json").read_text())
+GEOGRAPHY = json.loads((Path(__file__).parent / "static/maps/brunete-illustrated.json").read_text())
 
 
 class Simulation:
@@ -60,7 +60,7 @@ class Simulation:
         self.mission = 'Awaiting a report'
         self.truck = dict(x=float(self.base[0]), y=float(self.base[1]), status="at_station", target=None, route=[], mobilized_at=None, observed_fire=[],drone_order=None)
         self.roads = {tuple(p) for p in GEOGRAPHY['roads']}
-        self.cells = make_cells(self.width,self.height,self.roads,GEOGRAPHY.get("terrain_source_window"))
+        self.cells = make_cells(self.width,self.height,self.roads,GEOGRAPHY.get("terrain_source_window"),GEOGRAPHY)
         for x,y in (self.base,self.farm):
             self.cells[y][x].update(terrain='built',fuel=1.,initial_fuel=1.)
         self.rules.update(terrain_profiles=PROFILES,fire_model='Intensity 0..1 grows while fuel burns. Eight-neighbor spread depends on target terrain, source intensity, wind and wetness. Roads/bare cells block surface fire; no ember spotting. Terrain is a hand-authored approximation, not measured land cover.',suppression_policy='Each drone jet succeeds with 40% probability, each truck jet with 60%. A successful jet reduces intensity by 0.20 and wets its target for 8 steps, preventing regrowth and new ignition during that period. Intense fire needs repeated hits. Truck has 5 jets; drone 1. Counters count actual extinguished cells, not successful hits. Cooled fuel can reignite after drying. Prioritize urgent warnings; truck handles main suppression.',jet_cooling=0.20,wet_steps=8,intensity_growth_per_step=0.04,burn_duration_multiplier=2.0)
@@ -68,8 +68,12 @@ class Simulation:
         self.crew_target = None
         self.crew_extinguished = 0
         self.groups = {
-            'farm': dict(x=float(self.farm[0]), y=float(self.farm[1]), count=6, burnt=0, status='unwarned', refuge=GEOGRAPHY.get('refuges',{}).get('farm',[52,20])),
-            'town': dict(x=float(self.base[0]), y=float(self.base[1]), count=32, burnt=0, status='unwarned', refuge=GEOGRAPHY.get('refuges',{}).get('town',[6,32]))}
+            zone['id']: dict(x=float(zone['anchor'][0]),y=float(zone['anchor'][1]),
+                name=zone['name'],kind=zone['kind'],home=zone['anchor'][:],
+                count=zone['population'],population_basis=zone['population_basis'],
+                burnt=0,status='unwarned',refuge=zone['refuge'][:])
+            for zone in GEOGRAPHY['observation_zones']}
+        self.rules['evacuation'] = ('Each population district is independent. Use evacuate_town with target_x/y equal to the chosen unwarned town district home coordinates from people; use evacuate_farm for the single farm district. Always supply district_id copied from evacuation_targets. The HappyRobot agent selects the district explicitly; missing/invalid IDs are rejected, never replaced with a nearest district. One warning evacuates ONLY that district, never the whole town. After delivery choose the next threatened unwarned district, or help the truck. Never repeat a warning for evacuating/blocked/safe/burnt people. District counts are scenario allocations of the official municipal total; farm occupancy is assumed.')
         self.observe()
 
     def log(self, source, message, **extra):
@@ -179,7 +183,7 @@ class Simulation:
                     self.suppressed += sum(a['extinguished'] for a in attempts)
                     d['last_drop'] = [c['x'],c['y']]
             if d['target'] is None and d['mode'].startswith('evacuate_'):
-                name = d['mode'].split('_',1)[1]
+                name = d.get('evacuation_group') or d['mode'].split('_',1)[1]
                 group = self.groups[name]
                 if group['status'] == 'unwarned':
                     group['status'] = 'evacuating'
@@ -187,7 +191,7 @@ class Simulation:
                     self.last_result=dict(status='warning_delivered',settlement=name,tick=self.tick,
                                           detail='Residents move independently; drone available for the next mission.')
                     self.pending_decision_event='evacuation_warning_delivered'
-                    self.log('drone', f'Loudspeaker warning delivered to {name}: {group["count"]} people moving to refuge.')
+                    self.log('drone', f'Loudspeaker warning delivered to {group.get("name",name)}: {group["count"]} people moving to refuge.')
             for name,g in self.groups.items():
                 if g['status'] in {'evacuating','blocked'}:
                     tx,ty = g['refuge']
@@ -404,7 +408,7 @@ class Simulation:
         else:
             # Follow shared active sightings within the assigned sector without replacing the order.
             nearby=[p for p in visible if math.dist(p,self.crew_target)<=self.rules['hose_range']]
-            aim=min(nearby,key=lambda p:math.dist(p,self.crew_target)) if nearby else self.crew_target
+            aim=max(nearby,key=lambda p:(p[0]*self.wind[0]+p[1]*self.wind[1],-math.dist(p,self.crew_target))) if nearby else self.crew_target
             fx,fy=aim;radius=self.rules['hose_range'] if nearby else self.truck_sensor_radius
             goals={(x,y) for y in range(max(0,fy-radius),min(self.height,fy+radius+1))
                    for x in range(max(0,fx-radius),min(self.width,fx+radius+1))
@@ -429,7 +433,7 @@ class Simulation:
         visible=[(c['x'],c['y']) for c in self.observation]
         local=[p for p in visible if math.hypot(p[0]-t['x'],p[1]-t['y'])<=self.rules['hose_range']]
         if local and here not in self.danger_zone(visible):
-            attempts=self.suppress(sorted(local,key=lambda p:math.hypot(p[0]-t['x'],p[1]-t['y'])),self.rules['truck_jets'],self.rules['truck_suppression_success_probability'])
+            attempts=self.suppress(sorted(local,key=lambda p:(-(p[0]*self.wind[0]+p[1]*self.wind[1]),math.hypot(p[0]-t['x'],p[1]-t['y']))),self.rules['truck_jets'],self.rules['truck_suppression_success_probability'])
             t['suppression_attempts']=attempts
             self.crew_extinguished+=sum(a['extinguished'] for a in attempts)
             t['last_drops']=[[a['x'],a['y']] for a in attempts]
@@ -498,8 +502,9 @@ class Simulation:
                 distance=math.hypot(x-rx,y-ry)
                 if 3<=distance<=4 and (x,y) not in blocked:
                     downwind=(x-rx)*self.wind[0]+(y-ry)*self.wind[1]
-                    candidates.append(((downwind>0,distance,math.dist((x,y),(self.drone['x'],self.drone['y']))),
-                                       dict(x=x,y=y,distance_from_report=round(distance,2))))
+                    alignment=downwind/(distance*math.hypot(*self.wind)) if any(self.wind) else 0
+                    candidates.append(((alignment<0.7 if any(self.wind) else False,distance,-alignment,math.dist((x,y),(self.drone['x'],self.drone['y']))),
+                                       dict(x=x,y=y,distance_from_report=round(distance,2),wind_alignment=round(alignment,3))))
         return [p for _,p in sorted(candidates,key=lambda item:item[0])[:12]]
 
     def known_map(self):
@@ -540,6 +545,15 @@ class Simulation:
             farm=dict(zip(("x","y"),self.farm)),town=dict(zip(("x","y"),self.town)),station=dict(zip(("x","y"),self.base)),
             geography={k:v for k,v in GEOGRAPHY.items() if k not in ("roads","image_source")},
             terrain_map=dict(description='Static approximate land cover; not live fire observations',legend={k[0].upper():k for k in PROFILES if k!='built'},built_symbol='U',rows=[''.join('U' if c['terrain']=='built' else c['terrain'][0].upper() for c in row) for row in self.cells]),
+            districts=[dict(district_id=key,name=g['name'],kind=g['kind'],home=g['home'],
+                position=[g['x'],g['y']],population=g['count'],population_basis=g['population_basis'],
+                burnt=g['burnt'],status=g['status'],refuge=g['refuge'],
+                boundary=next(z['polygon'] for z in GEOGRAPHY['observation_zones'] if z['id']==key))
+                for key,g in self.groups.items()],
+            evacuation_targets=[dict(district_id=key,name=g['name'],count=g['count'],
+                command='evacuate_farm' if g['kind']=='farm' else 'evacuate_town',
+                target_x=g['home'][0],target_y=g['home'][1])
+                for key,g in self.groups.items() if g['status']=='unwarned'],
             population_wind_alignment=self.population_wind_alignment(),
             satellite=self.satellite,rules=self.rules,observed_fire_details=[c for c in self.memory.values() if c['observed_at']==self.tick and c['burning']],people=self.groups,fire_truck=self.truck_telemetry(),
             firefighters_eta=max(0,self.crew_due-self.tick) if self.crew_due else None,
@@ -572,8 +586,19 @@ class Simulation:
             raise ValueError('Containment position unsafe or ineffective. Choose exact coordinates from drone_telemetry.safe_containment_positions; these are flight positions, NOT burning targets.')
         if command in {'scout','contain'} and (x,y) in self.danger_zone([(c['x'],c['y']) for c in self.observation]):
             raise ValueError('Flight target violates the 3-cell fire stand-off. Scout from outside the burning area.')
+        evacuation_group = None
         if command.startswith('evacuate_'):
-            x,y = self.farm if command=='evacuate_farm' else self.town
+            kind='farm' if command=='evacuate_farm' else 'town'
+            candidates={key:g for key,g in self.groups.items() if g['kind']==kind and g['status']=='unwarned'}
+            if not candidates:
+                raise ValueError('No unwarned districts for this evacuation command; choose another mission.')
+            requested=decision.get('district_id')
+            if not isinstance(requested,str) or requested not in candidates:
+                raise ValueError('District must be an unwarned group of the requested kind.')
+            evacuation_group=requested
+            x,y=candidates[evacuation_group]['home']
+        elif decision.get('district_id') not in (None,''):
+            raise ValueError('district_id must be empty for non-evacuation commands.')
         truck_command=decision.get('truck_command','continue')
         if truck_command not in {'continue','attack_sector'}:
             raise ValueError('Truck command must be continue or attack_sector.')
@@ -598,8 +623,8 @@ class Simulation:
         self.mission_records=self.mission_records[-128:]
         self.seen_commands.add(command_id)
         self.mission = str(decision.get('mission',''))[:500]
-        self.drone.update(mode=command,target=None if command=='hold' else [x,y],status='holding' if command=='hold' else 'en_route',sector=[x,y])
-        self.last_result = dict(command=command,target=[x,y],accepted_at=self.tick,command_id=command_id)
+        self.drone.update(evacuation_group=evacuation_group,mode=command,target=None if command=='hold' else [x,y],status='holding' if command=='hold' else 'en_route',sector=[x,y])
+        self.last_result = dict(command=command,target=[x,y],district_id=evacuation_group,accepted_at=self.tick,command_id=command_id)
         self.log('central',self.mission)
         self.log('edge',str(decision.get('reason',''))[:1000],decision=decision)
         return self.last_result

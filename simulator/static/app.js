@@ -11,7 +11,11 @@ window.AerialView = (() => {
   aerial.onload=()=>{for(const [canvas,belief] of views)if(previous)paint(canvas,previous,belief,performance.now())};
   aerial.onerror=()=>{aerialFailed=true;for(const [canvas,belief] of views)if(previous)paint(canvas,previous,belief,performance.now())};
   aerial.src='/maps/brunete.jpg';
+  const illustrated=new Image();
+  illustrated.onload=()=>{for(const [canvas,belief] of views)if(previous)paint(canvas,previous,belief,performance.now())};
+  illustrated.src='/maps/brunete-illustrated.png';
   function terrain(s){
+    if(s.geography?.map_style==='illustrated'&&illustrated.complete&&illustrated.naturalWidth)return illustrated;
     if(s.geography?.id==='brunete-el-alamo-v1'){
       if(aerial.complete&&aerial.naturalWidth){
         if(!s.geography.image_crop)return aerial;
@@ -116,28 +120,6 @@ window.AerialView = (() => {
     c.restore();text(c,x-18,y+(drone?-18:27),drone?'DRONE 01':'ENGINE 01');
     for(const [fx,fy] of drone?(v.last_drop?[v.last_drop]:[]):v.last_drops||[]){c.save();c.strokeStyle='#d8f7ffbb';c.lineWidth=drone?1.8:3;c.shadowColor='#8cdaef';c.shadowBlur=4;c.beginPath();c.moveTo(x,y);c.quadraticCurveTo((x+fx*Z)/2,(y+fy*Z)/2-12,fx*Z,fy*Z);c.stroke();c.restore()}
   }
-  function observationZones(c,s){
-    c.save();
-    for(const zone of s.geography?.observation_zones||[]){
-      const color=zone.kind==='town'?'#a9caff':'#f5d285';
-      c.beginPath();zone.polygon.forEach(([x,y],i)=>i?c.lineTo(x*Z,y*Z):c.moveTo(x*Z,y*Z));c.closePath();
-      c.fillStyle=color+'24';c.fill();c.strokeStyle=color+'bb';c.lineWidth=1.5;c.setLineDash([5,4]);c.stroke();
-      text(c,zone.label[0]*Z,zone.label[1]*Z,zone.name,color);
-    }
-    c.restore();
-  }
-  function refugeMarkers(c,s){
-    c.save();
-    for(const [name,group] of Object.entries(s.people||{})){
-      const refuge=group.refuge;if(!refuge)continue;
-      const x=refuge[0]*Z+5,y=refuge[1]*Z+5;
-      c.strokeStyle='#bcebd7';c.fillStyle='#163c32';c.lineWidth=2;
-      c.beginPath();c.moveTo(x,y-8);c.lineTo(x+8,y);c.lineTo(x,y+8);c.lineTo(x-8,y);c.closePath();c.fill();c.stroke();
-      text(c,Math.max(60,Math.min(W-145,x+14)),y+4,name.toUpperCase()+' REFUGE','#bcebd7');
-    }
-    if(s.geography?.observation_zones)text(c,60,48,'ZONES ≈ · ◇ DEMO REFUGES','#cdded5');
-    c.restore();
-  }
   function distanceAxes(c,s){
     const metres=s.geography?.meters_per_cell_approx;
     if(!metres)return;
@@ -161,7 +143,7 @@ window.AerialView = (() => {
     const fires=[],seen=new Set(),time=s.replay?s.tick*.4:phase;
     function fire(x,y,stale=false,intensity=1){const key=x+','+y;if(!seen.has(key)){seen.add(key);fires.push({x,y,stale,intensity})}}
     if(belief){
-      c.fillStyle='#102623a8';c.fillRect(0,0,W,H);observationZones(c,s);
+      c.fillStyle=s.geography?.map_style==='illustrated'?'#10262318':'#10262355';c.fillRect(0,0,W,H);ObservationMap.zones(c,s);
       for(const o of s.observed_cells||[]){if(o.burning)fire(o.x,o.y,o.observed_at!==s.tick,o.intensity??1);else{c.fillStyle=o.observed_at===s.tick?'#aecfac0a':'#aecfac04';c.fillRect(o.x*Z,o.y*Z,Z,Z)}}
       for(const f of s.truck?.observed_fire||[]){const key=f.x+','+f.y;const old=fires.find(p=>p.x===f.x&&p.y===f.y);if(old)old.stale=false;else fire(f.x,f.y)}
       for(const [x,y] of s.satellite?.blocks||[]){c.fillStyle='#e0ae5b22';c.fillRect(x*Z,y*Z,80,80);c.strokeStyle='#d8b06977';c.strokeRect(x*Z,y*Z,80,80)}
@@ -197,20 +179,20 @@ window.AerialView = (() => {
     const d=position('drone',now),t=position('truck',now);
     if(belief){sensor(c,s.drone,d,'#d7efbcbb');if(s.truck)sensor(c,s.truck,t,'#82cde9bb');for(const p of s.drone.safe_containment_positions||[])ellipse(c,p.x*Z+5,p.y*Z+5,2,2,'#8de3cc')}
     route(c,s.drone,d,'#eef2c9a0');if(s.truck)route(c,s.truck,t,'#f2917b99');
-    for(const [name,g] of Object.entries(s.people||{})){ellipse(c,g.x*Z+2,g.y*Z+3,4,2,'#182f2477');ellipse(c,g.x*Z,g.y*Z,2.5,3.2,g.status==='burnt'?'#a64335':g.status==='safe'?'#c1e99c':'#f5ead2');if(g.status!=='unwarned')text(c,g.x*Z+7,g.y*Z,name.toUpperCase()+': '+g.status.toUpperCase())}
+    for(const [name,g] of Object.entries(s.people||{})){ellipse(c,g.x*Z+2,g.y*Z+3,4,2,'#182f2477');ellipse(c,g.x*Z,g.y*Z,2.5,3.2,g.status==='burnt'?'#a64335':g.status==='safe'?'#c1e99c':'#f5ead2');if(!belief&&g.status!=='unwarned')text(c,g.x*Z+7,g.y*Z,name.toUpperCase()+': '+g.status.toUpperCase())}
     if(s.truck)vehicle(c,s.truck,t,false,time);vehicle(c,s.drone,d,true,time);
     if(!s.ignited&&!belief&&s.ignition_point){const [x,y]=s.ignition_point;c.strokeStyle='#fff0bd';c.lineWidth=1.5;c.beginPath();c.arc(x*Z,y*Z,17,0,Math.PI*2);c.moveTo(x*Z-23,y*Z);c.lineTo(x*Z+23,y*Z);c.moveTo(x*Z,y*Z-23);c.lineTo(x*Z,y*Z+23);c.stroke();text(c,x*Z-27,y*Z-27,'IGNITION')}
     if(belief&&s.report){c.strokeStyle='#f4d89a';c.setLineDash([3,4]);c.beginPath();c.arc(s.report[0]*Z,s.report[1]*Z,22,0,Math.PI*2);c.stroke();c.setLineDash([]);text(c,s.report[0]*Z-30,s.report[1]*Z+36,'SMOKE REPORT')}
     if(s.geography){
-      text(c,s.town[0]*Z-65,s.town[1]*Z-30,'BRUNETE');
+      if(!belief){text(c,s.town[0]*Z-65,s.town[1]*Z-30,'BRUNETE');
       text(c,s.farm[0]*Z-50,s.farm[1]*Z-22,'FARM · EL ÁLAMO');
-      text(c,s.base[0]*Z-65,s.base[1]*Z+48,'DEMO RESPONSE BASE');
-      text(c,60,519,'PNOA · CC BY 4.0 scne.es');
+      text(c,s.base[0]*Z-65,s.base[1]*Z+48,'DEMO RESPONSE BASE');}
+      text(c,60,519,s.geography.map_style==='illustrated'?'ILLUSTRATED SCENARIO · APPROX. SCALE':'PNOA · CC BY 4.0 scne.es');
       c.strokeStyle='#ffffff';c.lineWidth=2;c.beginPath();c.moveTo(60,536);c.lineTo(60+1000/(s.geography.meters_per_cell_approx||60)*Z,536);c.stroke();text(c,60,530,`1 km · grid ≈${s.geography.meters_per_cell_approx||60} m/cell`);
     }else{text(c,38,361,'TOWN · CÁRTAMA');text(c,585,39,'FARM');text(c,31,546,'FIRE STATION')}
     text(c,60,28,'N ↑');
-    text(c,549,541,`WIND →  X ${s.wind[0]} · Y ${s.wind[1]}`);text(c,275,28,belief?'OBSERVATION / THERMAL OVERLAY':(s.geography?'BRUNETE · REAL AERIAL IMAGE':'AERIAL VIEW · SIMULATED TERRAIN'));
-    if(belief){distanceAxes(c,s);refugeMarkers(c,s);}
+    text(c,549,541,`WIND →  X ${s.wind[0]} · Y ${s.wind[1]}`);text(c,275,28,belief?'OBSERVATION / THERMAL OVERLAY':(s.geography?.map_style==='illustrated'?'BRUNETE · ILLUSTRATED TERRAIN':s.geography?'BRUNETE · REAL AERIAL IMAGE':'AERIAL VIEW · SIMULATED TERRAIN'));
+    if(belief){distanceAxes(c,s);ObservationMap.labels(c,s);}
   }
   function frame(now){
     requestAnimationFrame(frame);if(now-lastFrame<33||!previous||document.hidden)return;
@@ -235,7 +217,7 @@ $('back').onclick=()=>{stopReplay();act('seek',{index:Math.max(0,state.frame_ind
 function stopReplay(){clearInterval(replayTimer);replayTimer=null;$('replayPlay').textContent='▶ Replay'}
 $('replayPlay').onclick=async()=>{if(replayTimer){stopReplay();return}if(!state.replay||state.frame_index===state.frame_count-1)await act('seek',{index:0});$('replayPlay').textContent='Ⅱ Replay';replayTimer=setInterval(async()=>{if(pending)return;if(state.frame_index>=state.frame_count-1){stopReplay();return}pending=true;await act('seek',{index:state.frame_index+1});pending=false},250)};
 function pixelMap(canvas,s,belief){window.AerialView.draw(canvas,s,belief)}
-function render(s){state=s;$('error').hidden=!s.error;if(s.error)$('error').textContent=s.error;$('workflow').href=s.workflow_url;$('clock').textContent=`T+${s.tick} steps`;$('connection').textContent=s.reset_pending?'Reset queued · waiting for HappyRobot':s.busy?'HappyRobot deliberating · clock paused':s.replay?'Viewing recorded history':s.running?'Live · simulation running':'Paused';$('crew').textContent=s.truck?`Engine 1 · ${s.truck.status} · (${s.truck.x}, ${s.truck.y})`:'Truck at station';$('runs').textContent=`${s.workflow_calls} HappyRobot runs${s.latency?' · last '+s.latency+'s':''}`;$('play').textContent=s.running?'Ⅱ Pause':'▶ Play';if(!windDirty||s.replay){$('windX').value=s.wind[0];$('windY').value=s.wind[1];windDirty=false}updateWindPreview();for(const id of ['windX','windY','applyWind','calmWind','spreadFactor'])$(id).disabled=s.busy||s.replay;if(!spreadDirty||s.replay){$('spreadFactor').value=s.rules?.spread_factor??1;$('spreadFactorValue').textContent=`${$('spreadFactor').value}×`;}$('speed').value=s.speed;$('mission').textContent=s.mission;$('truthstats').textContent=`${s.burning} burning cells · ${s.extinguished} extinguished by drone · ${s.crew_extinguished} by crew`;$('beliefstats').textContent=`${s.observation.length} fires in shared view · ${s.drone?.observed_fire?.length||0} drone / ${s.truck?.observed_fire?.length||0} truck · satellite ${s.satellite?`age ${s.tick-s.satellite.captured_at} steps, 8×8-cell blocks`:'not yet available'} · teal dots = safe flight positions`;$('timeline').max=s.frame_count-1;$('timeline').value=s.frame_index;$('replayPlay').disabled=s.frame_count<2;$('frame').textContent=s.replay?`Replay ${s.frame_index+1}/${s.frame_count}`:'Live';$('people').replaceChildren(...Object.entries(s.people).map(([name,g])=>{const el=document.createElement('span');el.className='person';el.textContent=`${name.toUpperCase()} · ${g.count} people · ${g.status==='burnt'?'0 unwarned':g.status} · Burnt: ${g.burnt||0}`;return el}));$('trail').replaceChildren(...s.history.slice().reverse().map(e=>{const row=document.createElement('div');row.className='entry';const b=document.createElement('b');b.textContent=`T+${e.tick} ${e.source.toUpperCase()}`;const t=document.createElement('span');t.textContent=e.message;row.append(b,t);return row}));$('evidence').textContent=s.run_evidence||'No platform run yet.';document.querySelectorAll('.toolbar button,.toolbar select').forEach(b=>{b.disabled=(s.busy||s.replay)&&b.id!=='play'});$('resetSim').disabled=!!s.reset_pending;$('resetSim').textContent=s.reset_pending?'↺ Reset queued…':'↺ Reset simulation';$('play').disabled=s.replay||s.busy&&!s.running;$('recordRun').disabled=s.busy||s.replay||s.recording;$('stopRecord').disabled=!s.recording;$('downloadRecord').disabled=!s.recorded_frames;$('playRecord').disabled=!s.recorded_frames||s.recording;$('recordRun').textContent=s.recording?`● Recording · ${s.recorded_frames} frames`:'● Run & record';pixelMap($('truth'),s,false);pixelMap($('belief'),s,true)}
+function render(s){state=s;const source=s.geography?.population_source;$('populationSource').hidden=!source;if(source)$('populationSource').textContent=`Brunete: ${source.official_total.toLocaleString('en-US')} residents (${source.reference_year} municipal census). District split is estimated; farm: 6 assumed occupants. Illustrated map, not official district boundaries.`;$('belief').setAttribute('role','img');$('belief').setAttribute('aria-label','Observation map. '+Object.entries(s.people||{}).map(([name,g])=>`${g.name||name}: ${g.count} people, ${g.status}; refuge: ${g.status==='safe'?Math.max(0,g.count-(g.burnt||0)):0} arrived`).join('. '));$('error').hidden=!s.error;if(s.error)$('error').textContent=s.error;$('workflow').href=s.workflow_url;$('clock').textContent=`T+${s.tick} steps`;$('connection').textContent=s.reset_pending?'Reset queued · waiting for HappyRobot':s.busy?'HappyRobot deliberating · clock paused':s.replay?'Viewing recorded history':s.running?'Live · simulation running':'Paused';$('crew').textContent=s.truck?`Engine 1 · ${s.truck.status} · (${s.truck.x}, ${s.truck.y})`:'Truck at station';$('runs').textContent=`${s.workflow_calls} HappyRobot runs${s.latency?' · last '+s.latency+'s':''}`;$('play').textContent=s.running?'Ⅱ Pause':'▶ Play';if(!windDirty||s.replay){$('windX').value=s.wind[0];$('windY').value=s.wind[1];windDirty=false}updateWindPreview();for(const id of ['windX','windY','applyWind','calmWind','spreadFactor'])$(id).disabled=s.busy||s.replay;if(!spreadDirty||s.replay){$('spreadFactor').value=s.rules?.spread_factor??1;$('spreadFactorValue').textContent=`${$('spreadFactor').value}×`;}$('speed').value=s.speed;$('mission').textContent=s.mission;$('truthstats').textContent=`${s.burning} burning cells · ${s.extinguished} extinguished by drone · ${s.crew_extinguished} by crew`;$('beliefstats').textContent=`${s.observation.length} fires in shared view · ${s.drone?.observed_fire?.length||0} drone / ${s.truck?.observed_fire?.length||0} truck · satellite ${s.satellite?`age ${s.tick-s.satellite.captured_at} steps, 8×8-cell blocks`:'not yet available'} · teal dots = safe flight positions`;$('timeline').max=s.frame_count-1;$('timeline').value=s.frame_index;$('replayPlay').disabled=s.frame_count<2;$('frame').textContent=s.replay?`Replay ${s.frame_index+1}/${s.frame_count}`:'Live';$('people').replaceChildren(...Object.entries(s.people).map(([name,g])=>{const el=document.createElement('span');el.className='person';el.textContent=`${g.name||name.toUpperCase()} · ${g.count.toLocaleString('en-US')} people · ${g.status==='burnt'?'0 unwarned':g.status} · Burnt: ${g.burnt||0}`;return el}));$('trail').replaceChildren(...s.history.slice().reverse().map(e=>{const row=document.createElement('div');row.className='entry';const b=document.createElement('b');b.textContent=`T+${e.tick} ${e.source.toUpperCase()}`;const t=document.createElement('span');t.textContent=e.message;row.append(b,t);return row}));$('evidence').textContent=s.run_evidence||'No platform run yet.';document.querySelectorAll('.toolbar button,.toolbar select').forEach(b=>{b.disabled=(s.busy||s.replay)&&b.id!=='play'});$('resetSim').disabled=!!s.reset_pending;$('resetSim').textContent=s.reset_pending?'↺ Reset queued…':'↺ Reset simulation';$('play').disabled=s.replay||s.busy&&!s.running;$('recordRun').disabled=s.busy||s.replay||s.recording;$('stopRecord').disabled=!s.recording;$('downloadRecord').disabled=!s.recorded_frames;$('playRecord').disabled=!s.recorded_frames||s.recording;$('recordRun').textContent=s.recording?`● Recording · ${s.recorded_frames} frames`:'● Run & record';pixelMap($('truth'),s,false);pixelMap($('belief'),s,true)}
 async function poll(){try{if(recordingPlayback)return;const r=await fetch('/api/state');if(r.ok)render(await r.json())}catch(e){$('connection').textContent='Local server unavailable'}finally{setTimeout(poll,600)}}poll();
 
 function updateWindPreview(){const x=+$('windX').value,y=+$('windY').value;$('windStrength').textContent=`Strength ${Math.hypot(x,y).toFixed(2)}${Math.hypot(x,y)>=2?" · strong":""}`;$('windPending').textContent=windDirty?'Preview · press Apply wind':'Applied wind';const px=43+Math.sign(x)*Math.sqrt(Math.abs(x)/3)*30,py=43+Math.sign(y)*Math.sqrt(Math.abs(y)/3)*30;$('windArrow').setAttribute('d',`M43 43 L${px} ${py}`);$('windTip').setAttribute('cx',px);$('windTip').setAttribute('cy',py)}
