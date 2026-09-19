@@ -9,8 +9,10 @@ import time
 import zlib
 from urllib.parse import urlparse
 
+from .contacts import directory as contact_directory
 from .engine import Simulation
 from .happyrobot import HappyRobot, EDITOR
+from .state_store import StateStore, build_state
 
 
 class Controller:
@@ -18,6 +20,7 @@ class Controller:
         self.lock = threading.RLock()
         self.sim = Simulation(drone_count=2)
         self.robot = HappyRobot()
+        self.store = StateStore()
         self.busy = False
         self.pending_fires = []
         self.reset_pending = False
@@ -40,9 +43,16 @@ class Controller:
     def snapshot(self):
         return zlib.compress(json.dumps(self.sim.state()).encode())
 
+    def publish_state(self, force=False):
+        """Push the shared incident state (districts, danger levels, contacts, comms) to the state API."""
+        if not self.store.enabled or not self.sim.ignited:
+            return False
+        return self.store.publish(build_state(self.sim), force=force)
+
     def record(self):
         frame=self.snapshot()
         self.frames.append(frame)
+        self.publish_state()
         if self.recording:
             self.recorded_frames.append(frame)
             if len(self.recorded_frames)>=1500:self.recording=False
@@ -73,7 +83,8 @@ class Controller:
                         recording=self.recording,recorded_frames=len(self.recorded_frames),
                         frame_count=len(self.frames),replay=self.cursor is not None,live_tick=self.sim.tick,
                         connected=self.robot.connected, error=self.error, workflow_url=EDITOR,
-                        workflow_calls=self.calls, latency=self.latency, run_evidence=self.run_evidence)
+                        workflow_calls=self.calls, latency=self.latency, run_evidence=self.run_evidence,
+                        state_store=self.store.status())
 
     def request_decision(self, event='local_observation'):
         if self.sim.phase != 'active':
@@ -102,9 +113,18 @@ class Controller:
                 self.calls += 1
                 self.latency = round(time.monotonic()-start, 1)
                 self.run_evidence = evidence
-                self.sim.apply(decision,payload['event_id'],payload['incident_id'],tick)
+                # Communications and the dispatch summary are facts about what Central already did;
+                # record them even if the drone mission is later rejected by validation.
+                if self.sim.incident_id==payload['incident_id']:
+                    self.sim.record_dispatch(getattr(self.robot,'last_dispatch',None))
+                    self.sim.apply_communications(getattr(self.robot,'last_communications',None))
+                if decision is not None:
+                    self.sim.apply(decision,payload['event_id'],payload['incident_id'],tick)
+                else:
+                    self.sim.log('central','No drone mission issued this round; vehicles keep their current orders.')
                 self.next_decision = self.sim.tick + 16
                 self.record()
+                self.publish_state(force=True)
         except Exception as exc:
             with self.lock:
                 if self.reset_pending:return
@@ -285,6 +305,9 @@ def serve(port=8765):
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     print(f'Los Panaderos: http://127.0.0.1:{port}', flush=True)
     print('HappyRobot development workflow; farmer call is a simulated transcript.', flush=True)
+    missing = contact_directory().get('missing', [])
+    if missing:
+        print('Demo contacts without phone/Telegram IDs (set DEMO_* in .env): '+', '.join(missing), flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

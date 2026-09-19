@@ -7,6 +7,7 @@ import random
 import uuid
 from pathlib import Path
 from .terrain import PROFILES, make_cells
+from .contacts import directory as contact_directory
 
 GEOGRAPHY = json.loads((Path(__file__).parent / "static/maps/brunete-illustrated.json").read_text())
 
@@ -50,6 +51,8 @@ class Simulation:
         self.ignited = self.called = False
         self.call_text = ''
         self.history = []
+        self.communications = []
+        self.dispatch = None
         self.mission_records = []
         self.seen_commands = set()
         self.suppressed = 0
@@ -664,6 +667,8 @@ class Simulation:
 
     def payload(self, event_type='local_observation'):
         self.observe()
+        contacts = contact_directory(self.groups)
+        channels = {d['district_id']: d for d in contacts['districts']}
         known = dict(width=self.width,height=self.height,wind=dict(dx=self.wind[0],dy=self.wind[1],strength=round(math.hypot(*self.wind),2),units="relative simulation strength",convention="positive X east, positive Y south; vector points TO spread",spread_steps={name:self.spread_interval(dx,dy) for name,dx,dy in [("east",1,0),("west",-1,0),("north",0,-1),("south",0,1)]}),
             forecast=dict(issued_at=self.tick,description='Synthetic forecast; arbitrary X/Y vector points TO destination, including diagonal and calm wind. wind.spread_steps gives directional ignition ATTEMPT intervals, not guaranteed propagation times. Ignition base probability is 50%, modified by terrain, source intensity and diagonal distance; stronger downwind wind shortens the interval, while upwind spread is slower. Failed attempts retry; predict uncertain fire arrival, not exact fronts. Assess settlement alignment with the full vector, not just named cardinal presets.'),
             farmer_report_location=dict(x=self.report[0],y=self.report[1]) if self.called else None,
@@ -674,8 +679,11 @@ class Simulation:
             districts=[dict(district_id=key,name=g['name'],kind=g['kind'],home=g['home'],
                 position=[g['x'],g['y']],population=g['count'],population_basis=g['population_basis'],
                 burnt=g['burnt'],status=g['status'],refuge=g['refuge'],
+                chat_id=channels.get(key,{}).get('chat_id'),evacuation_point=channels.get(key,{}).get('evacuation_point'),
                 boundary=next(z['polygon'] for z in GEOGRAPHY['observation_zones'] if z['id']==key))
                 for key,g in self.groups.items()],
+            contacts=contacts,
+            communications_sent=self.communications[-12:],last_dispatch=self.dispatch,
             evacuation_targets=[dict(district_id=key,name=g['name'],count=g['count'],
                 command='evacuate_farm' if g['kind']=='farm' else 'evacuate_town',
                 target_x=g['home'][0],target_y=g['home'][1])
@@ -692,7 +700,49 @@ class Simulation:
             world_state=json.dumps(known),drone_telemetry=json.dumps(self.telemetry() if self.extinguishers else {'available':False,'safe_containment_positions':[]}),
             thermal_detections=json.dumps(dict(observed_at=self.tick,burning_cells=[c for c in self.memory.values() if c['observed_at']==self.tick and c['burning']],
                 coverage=f'Joint current observations: radius {self.sensor_radius} around drone plus radius {self.truck_sensor_radius} around truck. Both share fire and clear-cell updates. Empty is not global containment.')),
-            human_messages=self.call_text)
+            human_messages=self.call_text,
+            contacts=json.dumps(contacts, ensure_ascii=False))
+
+    def apply_communications(self, communications):
+        """Record calls/Telegram alerts HappyRobot actually sent. A zone alert warns its district; a call reaches one person."""
+        applied=[]
+        for item in communications or []:
+            if not isinstance(item,dict):continue
+            kind=item.get('kind')
+            if kind not in {'zone_alert','call','personal_message'}:continue
+            record=dict(tick=self.tick,kind=kind,channel='telegram' if kind!='call' else 'phone',
+                        district_id=item.get('district_id') or None,contact_name=str(item.get('contact_name',''))[:120],
+                        criticality=str(item.get('criticality',''))[:16],status=str(item.get('status','sent'))[:40],
+                        information=str(item.get('information',''))[:600],run_id=item.get('run_id'))
+            group=self.groups.get(record['district_id']) if record['district_id'] else None
+            label=group['name'] if group else (record['contact_name'] or 'unknown recipient')
+            if kind=='zone_alert':
+                if group and group['status']=='unwarned' and record['status'] in {'sent','delivered','succeeded'}:
+                    group['status']='evacuating'
+                    record['effect']='district_warned'
+                    self.pending_decision_event=self.pending_decision_event or 'evacuation_warning_delivered'
+                    self.log('central → telegram',f"Zone alert ({record['criticality'] or 'n/a'}) to {label}: {group['count']} people moving to refuge. {record['information'][:200]}")
+                else:
+                    self.log('central → telegram',f"Zone alert to {label} [{record['status']}]"+(f" — already {group['status']}" if group else '')+f": {record['information'][:200]}")
+            elif kind=='call':
+                record['effect']='person_called'
+                self.log('central → phone',f"Call to {label}{' ('+group['name']+')' if group else ''} [{record['status']}]: {record['information'][:200]}")
+            else:
+                record['effect']='person_informed'
+                self.log('central → telegram',f"Message to {label} [{record['status']}]: {record['information'][:200]}")
+            applied.append(record)
+        self.communications=(self.communications+applied)[-50:]
+        if applied:self.update_people_exposure()
+        return applied
+
+    def record_dispatch(self, dispatch):
+        """Store Despacho Central's structured decision for the dashboard and next payload."""
+        if not isinstance(dispatch,dict):return
+        self.dispatch=dict(tick=self.tick,**{k:(str(v)[:800] if isinstance(v,str) else v) for k,v in dispatch.items() if k in {'decision','justificacion','criticidad','avisos_lanzados','destinatarios','datos_faltantes'}})
+        summary=f"Dispatch: {self.dispatch.get('decision','?')} · {self.dispatch.get('criticidad') or 'n/a'}"
+        if self.dispatch.get('destinatarios'):summary+=f" · warned: {self.dispatch['destinatarios']}"
+        if self.dispatch.get('datos_faltantes'):summary+=f" · missing: {self.dispatch['datos_faltantes']}"
+        self.log('central',summary[:600])
 
     def validate_drone_order(self, decision, drone):
         command = decision.get('command')
@@ -820,6 +870,17 @@ class Simulation:
         self.log('edge',str(decision.get('reason',''))[:1000],decision=decision)
         return self.last_result
 
+    def masked_contacts(self):
+        """Directory for the dashboard: real numbers/IDs stay in the payload, the browser only sees masked tails."""
+        def mask(value):
+            if not value:return None
+            value=str(value)
+            return '…'+value[-3:] if len(value)>3 else '…'
+        contacts=contact_directory(self.groups)
+        return dict(people=[dict(p,phone_number=mask(p['phone_number']),chat_id=mask(p['chat_id'])) for p in contacts['people']],
+                    districts=[dict(d,chat_id=mask(d['chat_id'])) for d in contacts['districts']],
+                    missing=contacts['missing'])
+
     def state(self):
         burning = sum(self.burning(c) for row in self.cells for c in row)
         return copy.deepcopy(dict(incident_id=self.incident_id,tick=self.tick,phase=self.phase,width=self.width,height=self.height,
@@ -830,4 +891,5 @@ class Simulation:
             history=self.history,mission_context=self.mission_context(),burning=burning,burned=sum(c.get('burned',0)>0 for row in self.cells for c in row),
             burnt_people=sum(g.get('burnt',0) for g in self.groups.values()),
             extinguished=self.suppressed,contained=self.ignited and burning==0,people=self.groups,
+            communications=self.communications,dispatch=self.dispatch,contacts=self.masked_contacts(),
             truck=self.truck_telemetry() if self.trucks else None,roads=sorted(self.roads),crew_due=self.crew_due,crew_target=self.crew_target,crew_extinguished=self.crew_extinguished,rules=self.rules))

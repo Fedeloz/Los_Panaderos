@@ -1,6 +1,11 @@
 """Local stdio MCP client. Reuses the user's configured OAuth proxy.
 
 No tokens are read, copied, or served to the browser. No inbound tunnel needed.
+
+Targets (HAPPYROBOT_TARGET):
+  dispatch (default)  Despacho Central: decides who to call/alert (phone + Telegram)
+                      and delegates the drone mission to the Los Panaderos sub-workflow.
+  drone               Los Panaderos directly: drone/scout/truck orders only, no comms.
 """
 import json
 import os
@@ -11,10 +16,35 @@ import subprocess
 import threading
 import time
 
+from .contacts import directory as contact_directory
+
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = '01a0b8ea-d9af-71f3-9fb7-8a469f9ac25b'
-EDGE_NODE = '01a0b96a-d5b4-771c-809c-850010ddbb67'
-EDITOR = 'https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/njn4x0maqj9y'
+
+TARGETS = dict(
+    dispatch=dict(
+        workflow='01a0baad-da0f-7939-aafa-7d587f577741',
+        editor='https://platform.eu.happyrobot.ai/hackspainteam9/workflows/zqtnabjy5loj/editor/9rqly4dk156p',
+        # Persistent node IDs inside Despacho Central.
+        drone_node='01a0bad2-2579-7bb7-bce4-259a366d6b51',      # Ejecutar mision de dron (sub-workflow response)
+        dispatch_node='01a0bab2-a0c9-7e18-87ad-1a7b572e3c71',   # Decision de Despacho (structured summary)
+        comm_nodes={'01a0bacc-e16d-7a6e-8aad-c5b6ee9beaa0': 'call',            # Llamar a esta persona
+                    '01a0bacd-68a6-7dd3-8b5c-ed0c6f0fa4a8': 'zone_alert',      # Enviar alerta de zona
+                    '01a0bacd-e362-7c86-8327-be89915480f8': 'personal_message'}),  # Enviar informacion personal
+    drone=dict(
+        workflow='01a0b8ea-d9af-71f3-9fb7-8a469f9ac25b',
+        editor='https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/lq3pyryjou20',
+        drone_node='01a0bad1-9191-7f3d-8200-f4e2e34ba5a1',      # Resultado de la mision
+        dispatch_node=None, comm_nodes={}),
+)
+TARGET = TARGETS.get(os.environ.get('HAPPYROBOT_TARGET', 'dispatch'), TARGETS['dispatch'])
+WORKFLOW = os.environ.get('HAPPYROBOT_WORKFLOW_ID', TARGET['workflow'])
+EDGE_NODE = os.environ.get('HAPPYROBOT_DRONE_NODE', TARGET['drone_node'])
+DISPATCH_NODE = os.environ.get('HAPPYROBOT_DISPATCH_NODE', TARGET['dispatch_node'])
+COMM_NODES = TARGET['comm_nodes']
+EDITOR = TARGET['editor']
+
+DECISION_KEYS = {'command', 'target_x', 'target_y', 'reason', 'mission'}
+ORDER_KEYS = {'extinguisher_orders', 'scout_orders', 'truck_orders'}
 
 
 class HappyRobot:
@@ -25,6 +55,8 @@ class HappyRobot:
         self.sequence = 0
         self.connected = False
         self.tools = {}
+        self.last_dispatch = None
+        self.last_communications = []
 
     def close(self):
         if self.process:
@@ -90,7 +122,7 @@ class HappyRobot:
             threading.Thread(target=self._read, args=(self.process, self.messages), daemon=True).start()
             try:
                 self._request('initialize', dict(protocolVersion='2024-11-05', capabilities={},
-                    clientInfo=dict(name='los-panaderos-simulator', version='0.1')), timeout=45)
+                    clientInfo=dict(name='los-panaderos-simulator', version='0.2')), timeout=45)
                 self._send(dict(jsonrpc='2.0', method='notifications/initialized'))
                 listing = self._request('tools/list', {})
                 self.tools = {t['name']: t for t in listing.get('tools', [])}
@@ -113,19 +145,19 @@ class HappyRobot:
     def text(result):
         return '\n'.join(c.get('text', '') for c in result.get('content', []))
 
+    # ---- payload parsing -------------------------------------------------
+
     @staticmethod
-    def decisions(value):
-        """Extract structured edge output from MCP JSON/text wrappers, never guess."""
-        found = []
+    def json_values(value):
+        """Yield every JSON object/array found in MCP wrappers, including JSON embedded in text."""
         if isinstance(value, dict):
-            if {'command', 'target_x', 'target_y', 'reason', 'mission'} <= value.keys():
-                found.append(value)
-            else:
-                for v in value.values():
-                    found.extend(HappyRobot.decisions(v))
+            yield value
+            for v in value.values():
+                yield from HappyRobot.json_values(v)
         elif isinstance(value, list):
+            yield value
             for v in value:
-                found.extend(HappyRobot.decisions(v))
+                yield from HappyRobot.json_values(v)
         elif isinstance(value, str):
             decoder = json.JSONDecoder()
             pos = 0
@@ -136,13 +168,97 @@ class HappyRobot:
                 start = min(indexes)
                 try:
                     parsed, end = decoder.raw_decode(value[start:])
-                    found.extend(HappyRobot.decisions(parsed))
+                    yield from HappyRobot.json_values(parsed)
                     pos = start+end
                 except json.JSONDecodeError:
                     pos = start+1
+
+    @staticmethod
+    def normalize(value):
+        """Map Resultado-de-la-mision shape onto the legacy edge command shape. Returns None if not a mission."""
+        if not isinstance(value, dict):
+            return None
+        d = dict(value)
+        if 'primary_command' in d and 'command' not in d:
+            d['command'] = d.pop('primary_command')
+        if 'drone_reason' in d and 'reason' not in d:
+            d['reason'] = d.pop('drone_reason')
+        if 'primary_district_id' in d and 'district_id' not in d:
+            d['district_id'] = d.pop('primary_district_id')
+        has_orders = any(k in d for k in ORDER_KEYS)
+        if not (('command' in d and 'reason' in d and 'mission' in d) and (has_orders or {'target_x', 'target_y'} <= d.keys())):
+            return None
+        if has_orders and ('target_x' not in d or 'target_y' not in d):
+            orders = d.get('extinguisher_orders')
+            if isinstance(orders, str):
+                try:
+                    orders = json.loads(orders)
+                except ValueError:
+                    orders = []
+            first = next((o for o in orders or [] if isinstance(o, dict)), {})
+            d.setdefault('target_x', first.get('target_x', 0))
+            d.setdefault('target_y', first.get('target_y', 0))
+        return d
+
+    @staticmethod
+    def decisions(value):
+        """Extract structured drone missions from MCP JSON/text wrappers, never guess."""
+        found, seen = [], set()
+        for item in HappyRobot.json_values(value):
+            if not isinstance(item, dict):
+                continue
+            if DECISION_KEYS <= item.keys():
+                candidate = dict(item)
+            else:
+                candidate = HappyRobot.normalize(item)
+            if candidate is None:
+                continue
+            key = json.dumps(candidate, sort_keys=True, default=str)
+            if key not in seen:
+                seen.add(key)
+                found.append(candidate)
         return found
 
+    @staticmethod
+    def dispatch_summary(value):
+        for item in HappyRobot.json_values(value):
+            if isinstance(item, dict) and 'decision' in item and 'justificacion' in item:
+                return {k: item.get(k) for k in ('incident_id', 'decision', 'justificacion', 'criticidad', 'avisos_lanzados', 'destinatarios', 'datos_faltantes')}
+        return None
+
+    @staticmethod
+    def communication(kind, value, contacts, run_id=None):
+        """Turn a call/Telegram node payload into a simulator communication record."""
+        payload = next((i for i in HappyRobot.json_values(value) if isinstance(i, dict) and 'information' in i and ('contact_name' in i or 'chat_id' in i or 'phone_number' in i)), None)
+        if not payload:
+            return None
+        chat_id = str(payload.get('chat_id') or '')
+        name = str(payload.get('contact_name') or '')
+        phone = str(payload.get('phone_number') or '')
+        district = None
+        for d in contacts['districts']:
+            if chat_id and d.get('chat_id') == chat_id:
+                district = d['district_id']
+        for p in contacts['people']:
+            if (phone and p.get('phone_number') == phone) or (chat_id and p.get('chat_id') == chat_id) or (name and p['contact_name'] == name):
+                district = district or p['district_id']
+                name = name or p['contact_name']
+        status = 'sent'
+        for item in HappyRobot.json_values(value):
+            if not isinstance(item, dict):
+                continue
+            for key in ('call_status', 'delivery_status', 'send_status', 'outcome', 'status'):
+                found = item.get(key)
+                if isinstance(found, str) and found and found not in {'succeeded', 'completed'}:
+                    status = found[:40]
+                    break
+        return dict(kind=kind, district_id=district, contact_name=name, criticality=payload.get('criticality'),
+                    information=payload.get('information'), status=status, run_id=run_id)
+
+    # ---- run orchestration -----------------------------------------------
+
     def decide(self, payload):
+        self.last_dispatch, self.last_communications = None, []
         result = self.tool('trigger_run', dict(workflow_id=WORKFLOW, environment='development',
                           payload=json.dumps(payload), wait=True), timeout=330)
         text = self.text(result)
@@ -150,42 +266,81 @@ class HappyRobot:
         if not run_match or not re.search(r'Status:\s*completed\b', text):
             raise RuntimeError('HappyRobot run did not complete. No command applied.')
         run_id = run_match.group(1)
-        # trigger_run returns a status summary. Fetch only the delegated policy's
-        # output, then its full payload; never parse the farmer's echoed input.
-        listing = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, node_id=EDGE_NODE))
-        output_id = self.latest_output(self.text(listing))
-        output = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=output_id))
-        evidence = dict(run=result, edge=output)
-        text += '\n\n'+self.text(output)
+        # trigger_run returns a status summary. Fetch the run's node outputs, then only the
+        # payloads we act on: the delegated drone mission, the dispatch summary and every
+        # call/Telegram action that actually ran. Never parse the echoed input.
+        listing = self.text(self.tool('monitor_runs', dict(action='outputs', run_id=run_id)))
+        outputs = self.outputs_by_node(listing)
+        evidence = dict(run=result, outputs={})
+        contacts = contact_directory()
+        for oid in outputs.get(DISPATCH_NODE, []) if DISPATCH_NODE else []:
+            out = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=oid))
+            evidence['outputs'][oid] = out
+            self.last_dispatch = self.dispatch_summary(out) or self.last_dispatch
+        for node, kind in COMM_NODES.items():
+            for oid in outputs.get(node, []):
+                out = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=oid))
+                evidence['outputs'][oid] = out
+                record = self.communication(kind, out, contacts, run_id)
+                if record:
+                    self.last_communications.append(record)
+        drone_outputs = outputs.get(EDGE_NODE, [])
+        decision = None
+        if drone_outputs:
+            output_id = self.latest_output(listing, EDGE_NODE)
+            output = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=output_id))
+            evidence['outputs'][output_id] = output
+            text += '\n\n'+self.text(output)
+            choices = self.decisions(output)
+            if not choices:
+                raise RuntimeError('HappyRobot returned no structured drone command. Inspect .runtime/last-run.json and the workflow run.')
+            unique = {json.dumps(c, sort_keys=True, default=str): c for c in choices}
+            if len(unique) != 1:
+                raise RuntimeError('HappyRobot returned conflicting commands; no action applied.')
+            decision = dict(next(iter(unique.values())))
+            # HappyRobot Extract's parameter builder can encode numbers as strings.
+            # Accept canonical integers only, without rounding or coercing garbage.
+            for field in ('target_x', 'target_y', 'truck_target_x', 'truck_target_y'):
+                value = decision.get(field)
+                if isinstance(value, str) and re.fullmatch(r'-?\d{1,4}', value):
+                    decision[field] = int(value)
+            if not isinstance(decision['reason'], str) or not isinstance(decision['mission'], str):
+                raise RuntimeError('HappyRobot returned an invalid mission or explanation.')
+        elif not self.last_dispatch and not self.last_communications:
+            raise RuntimeError('HappyRobot completed without a drone mission, dispatch decision or communication. Inspect .runtime/last-run.json.')
+        if self.last_dispatch:
+            text += '\n\nDispatch: '+json.dumps(self.last_dispatch, ensure_ascii=False)
+        if self.last_communications:
+            text += '\n\nCommunications: '+json.dumps(self.last_communications, ensure_ascii=False)
         # Keep the run evidence locally for the dashboard and reproducible checks.
         runtime = ROOT/'.runtime'
         runtime.mkdir(exist_ok=True)
-        (runtime/'last-run.json').write_text(json.dumps(evidence, indent=2))
-        choices = self.decisions(output)
-        if not choices:
-            raise RuntimeError('HappyRobot returned no structured drone command. Inspect .runtime/last-run.json and the workflow run.')
-        unique = {json.dumps(c, sort_keys=True): c for c in choices}
-        if len(unique) != 1:
-            raise RuntimeError('HappyRobot returned conflicting commands; no action applied.')
-        decision = dict(next(iter(unique.values())))
-        # HappyRobot Extract's parameter builder can encode numbers as strings.
-        # Accept canonical integers only, without rounding or coercing garbage.
-        for field in ('target_x', 'target_y', 'truck_target_x', 'truck_target_y'):
-            value = decision.get(field)
-            if isinstance(value, str) and re.fullmatch(r'-?\d{1,4}', value):
-                decision[field] = int(value)
-        if not isinstance(decision['reason'], str) or not isinstance(decision['mission'], str):
-            raise RuntimeError('HappyRobot returned an invalid mission or explanation.')
+        (runtime/'last-run.json').write_text(json.dumps(evidence, indent=2, ensure_ascii=False), encoding='utf-8')
         return decision, text[:16000]
 
     @staticmethod
-    def latest_output(listing):
+    def outputs_by_node(listing):
+        """Map node persistent ID -> [output IDs] from a monitor_runs outputs listing."""
+        outputs = {}
+        for block in listing.split('## '):
+            oid = re.search(r'Output ID:\s*([0-9a-f-]{36})', block)
+            node = re.search(r'Node Persistent ID:\s*([0-9a-f-]{36})', block)
+            ok = bool(re.search(r'Status:\s*succeeded\b', block))
+            if oid and node and ok:
+                outputs.setdefault(node.group(1), []).append(oid.group(1))
+        return outputs
+
+    @staticmethod
+    def latest_output(listing, node=None):
         # Central may revise a delegation within a run. These are proposals:
         # execute only the final successful policy output after the run completes.
         outputs = []
         for block in listing.split('## '):
             oid = re.search(r'Output ID:\s*([0-9a-f-]{36})', block)
             ts = re.search(r'Timestamp:\s*(\S+)', block)
+            pid = re.search(r'Node Persistent ID:\s*([0-9a-f-]{36})', block)
+            if node and pid and pid.group(1) != node:
+                continue
             if oid and ts:
                 outputs.append((ts.group(1), oid.group(1), bool(re.search(r'Status:\s*succeeded\b', block))))
         if not outputs:
