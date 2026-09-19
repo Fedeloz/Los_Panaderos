@@ -4,6 +4,27 @@ import unittest
 from simulator.engine import Simulation
 
 class FleetTests(unittest.TestCase):
+    def test_scout_confirms_original_focus_for_remote_extinguisher(self):
+        s=Simulation(drone_count=2);s.ignite()
+        x,y=s.report
+        s.scouts[0].update(x=x-6,y=y,mode='hold')
+        s.update_scouts()
+        self.assertEqual(s.pending_decision_event,'scout_fire_confirmation')
+        self.assertFalse(s.drone['observed_fire'])
+        self.assertTrue(s.observation)
+        self.assertTrue(s.telemetry()['safe_containment_positions'])
+        s.pending_decision_event=None;s.update_scouts()
+        self.assertIsNone(s.pending_decision_event)
+
+    def test_blocked_target_requests_replan_once(self):
+        s=Simulation();s.drone['target']=[60,40]
+        s.memory['60,40']=dict(x=60,y=40,burning=True,observed_at=0)
+        s.move_safely(s.drone,3)
+        self.assertEqual(s.drone['status'],'blocked')
+        self.assertEqual(s.pending_decision_event,'route_blocked')
+        s.pending_decision_event=None;s.move_safely(s.drone,3)
+        self.assertIsNone(s.pending_decision_event)
+
     def decision(self,s,orders):
         return dict(command='hold',target_x=s.base[0],target_y=s.base[1],reason='test',mission='test',scout_orders=orders)
 

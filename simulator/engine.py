@@ -142,6 +142,10 @@ class Simulation:
             self.move_safely(d,4)
             self.deliver_warning(d)
             self.observe()
+            if d.get('observed_fire') and not d.get('reported_first_fire'):
+                d['reported_first_fire']=True
+                self.pending_decision_event='scout_fire_confirmation'
+                self.log('scout → central',f"{d['drone_id']} confirms fire through shared sensors; reassess all drone missions now, without waiting for arrival.")
             for f in d.get('observed_fire',[]):
                 point=[f['x'],f['y']]
                 # A new focus must be spatially separate from the report and prior scout alerts.
@@ -419,7 +423,13 @@ class Simulation:
                 self.log('autopilot','Drone replanned its route from observed fire or a changed destination; unknown cells remain traversable.')
         vehicle['route']=path
         if not path and here!=tuple(target):
-            vehicle.update(status='blocked',travel_credit=0);return
+            vehicle.update(status='blocked',travel_credit=0)
+            if vehicle.get('reported_blocked_target')!=list(target):
+                vehicle['reported_blocked_target']=list(target)
+                self.pending_decision_event=self.pending_decision_event or 'route_blocked'
+                self.log('autopilot',f"{vehicle.get('drone_id','drone')} cannot reach {target} using shared remembered fire; HappyRobot must choose a new safe approach or containment position.")
+            return
+        vehicle.pop('reported_blocked_target',None)
         budget=speed+vehicle.get('travel_credit',0)
         while path and math.dist(here,path[0])<=budget+1e-9:
             step=tuple(path.pop(0));budget-=math.dist(here,step);here=step
@@ -431,7 +441,7 @@ class Simulation:
 
     def safe_drone_positions(self, drone=None):
         drone=self.drone if drone is None else drone
-        blocked=self.danger_zone([(c['x'],c['y']) for c in self.observation])
+        blocked=self.danger_zone([(c['x'],c['y']) for c in self.memory.values() if c['burning']])
         candidates=[]
         strength=math.hypot(*self.wind)
         unit=tuple(v/strength for v in self.wind) if strength else (0,0)
@@ -675,7 +685,7 @@ class Simulation:
             firefighters_eta=max(0,self.crew_due-self.tick) if self.crew_due else None,
             mission=self.mission,last_action_result=self.last_result,
             fleet=[self.telemetry(d) for d in self.extinguishers]+self.scout_telemetry(),fleet_counts=self.fleet_counts(),scout_reports=self.scout_reports,
-            fleet_policy='DISTRICT RESERVATIONS: Scout orders returned by delegate_scout reserve their evacuation districts, including continue on an active warning. Never assign an extinguisher or another scout to the same district. On coordination_conflict, read last_result and assign held vehicles useful nonduplicate work. RAPID PAIRED RESPONSE: drone-1 is named Squirtle (keep drone_id unchanged in commands). Scouts and extinguishers both observe radius 12; current telemetry overrides older prompt range claims. After a credible smoke/fire warning, when a scout and an extinguisher are available, normally dispatch BOTH in the same response toward safe approaches to the reported focus. Do not hold Squirtle at base waiting for the scout to arrive. Scout reconnoiters and reports; Squirtle approaches alongside on a complementary safe flank, then starts containment at the next decision as soon as confirmed fire and a validated safe containment position exist. For unconfirmed smoke use scout movement for Squirtle, not blind suppression. Urgent district warnings, unsafe approaches, or higher-priority existing missions override pairing; explain any exception. Maintain three-cell clearance and prioritize the downwind front. Use fleet and fire_trucks as the exact available inventory; any role can have zero to three vehicles. Assign every listed ID, never invent absent resources. Scouts patrol agent-selected waypoints, can deliver district evacuation warnings but cannot suppress, and report separate observed fires. Prioritize each observed focus by population exposure and wind, not discovery order. Hidden ignitions are never included.',
+            fleet_policy='SHARED OBSERVATIONS AND REPLANNING: Scout fire confirmation is sufficient for Squirtle to act; it need not reach its original smoke waypoint or personally observe the flames. burning_cells and each extinguisher safe_containment_positions use shared sensors. On scout_fire_confirmation or route_blocked, reassess immediately: choose containment from a validated safe position protecting the advancing front toward threatened population, considering wind and district geometry. Otherwise select a DIFFERENT reachable safe flank to regain observation; never repeat reported_blocked_target unchanged. Preserve urgent evacuation priority. Unknown/stale cells do not prove current fire or clearance. District protection must follow actual evidence, not always target town. DISTRICT RESERVATIONS: Scout orders returned by delegate_scout reserve their evacuation districts, including continue on an active warning. Never assign an extinguisher or another scout to the same district. On coordination_conflict, read last_result and assign held vehicles useful nonduplicate work. RAPID PAIRED RESPONSE: drone-1 is named Squirtle (keep drone_id unchanged in commands). Scouts and extinguishers both observe radius 12; current telemetry overrides older prompt range claims. After a credible smoke/fire warning, when a scout and an extinguisher are available, normally dispatch BOTH in the same response toward safe approaches to the reported focus. Do not hold Squirtle at base waiting for the scout to arrive. Scout reconnoiters and reports; Squirtle approaches alongside on a complementary safe flank, then starts containment at the next decision as soon as confirmed fire and a validated safe containment position exist. For unconfirmed smoke use scout movement for Squirtle, not blind suppression. Urgent district warnings, unsafe approaches, or higher-priority existing missions override pairing; explain any exception. Maintain three-cell clearance and prioritize the downwind front. Use fleet and fire_trucks as the exact available inventory; any role can have zero to three vehicles. Assign every listed ID, never invent absent resources. Scouts patrol agent-selected waypoints, can deliver district evacuation warnings but cannot suppress, and report separate observed fires. Prioritize each observed focus by population exposure and wind, not discovery order. Hidden ignitions are never included.',
             mission_context=self.mission_context(),known_map=self.known_map(),smoke_scout_positions=self.smoke_scout_positions(),
             memory=[e for e in self.history if e['source']!='simulation'][-8:])
         return dict(event_id=str(uuid.uuid4()),event_type=event_type,incident_id=self.incident_id,sim_time=str(self.tick),
