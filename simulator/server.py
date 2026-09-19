@@ -38,6 +38,12 @@ class Controller:
         self.cursor = None
         self.next_decision = 0
         self.repair_attempts = 0
+        # Optimistic clock: keep simulating while HappyRobot deliberates and apply the
+        # decision to the live tick on arrival (validation still rejects unsafe stale orders).
+        self.optimistic = False
+        self._cache_key = None
+        self._cache_body = b''
+        self._cache_etag = ''
         threading.Thread(target=self._clock, daemon=True).start()
 
     def snapshot(self):
@@ -47,7 +53,7 @@ class Controller:
         """Push the shared incident state (districts, danger levels, contacts, comms) to the state API."""
         if not self.store.enabled or not self.sim.ignited:
             return False
-        return self.store.publish(build_state(self.sim), force=force)
+        return self.store.publish(build_state(self.sim), force=force, events=self.sim.drain_events())
 
     def record(self):
         frame=self.snapshot()
@@ -62,7 +68,7 @@ class Controller:
     def _clock(self):
         while not self.stop.wait(1/self.speed):
             with self.lock:
-                if not self.running or self.busy or self.cursor is not None:
+                if not self.running or (self.busy and not self.optimistic) or self.cursor is not None:
                     continue
                 self.sim.step()
                 if self.sim.phase != 'active':
@@ -72,7 +78,7 @@ class Controller:
                 self.record()
                 if self.sim.phase == 'finished':
                     self.recording = False
-                if self.auto and self.sim.called and (self.sim.pending_decision_event or self.sim.tick>=self.next_decision):
+                if self.auto and not self.busy and self.sim.called and (self.sim.pending_decision_event or self.sim.tick>=self.next_decision):
                     self.request_decision(self.sim.pending_decision_event or 'local_observation')
 
     def state(self):
@@ -84,7 +90,22 @@ class Controller:
                         frame_count=len(self.frames),replay=self.cursor is not None,live_tick=self.sim.tick,
                         connected=self.robot.connected, error=self.error, workflow_url=EDITOR,
                         workflow_calls=self.calls, latency=self.latency, run_evidence=self.run_evidence,
+                        timings=getattr(self.robot,'last_timings',{}), optimistic=self.optimistic,
                         state_store=self.store.status())
+
+    def state_bytes(self):
+        """Serialized state with an ETag. Re-serializes only when something observable changed,
+        so the 600 ms browser poll costs nothing while HappyRobot deliberates."""
+        with self.lock:
+            key = (len(self.frames), self.sim.tick, self.sim.incident_id, self.cursor, self.busy, self.running, self.auto,
+                   self.error, self.calls, self.recording, len(self.recorded_frames), self.reset_pending,
+                   len(self.pending_fires), self.speed, self.robot.connected, self.optimistic, self.latency,
+                   json.dumps(self.store.status(), sort_keys=True, default=str))
+            if key != self._cache_key:
+                self._cache_body = json.dumps(self.state()).encode()
+                self._cache_etag = '"%08x-%d"' % (zlib.crc32(self._cache_body), len(self._cache_body))
+                self._cache_key = key
+            return self._cache_etag, self._cache_body
 
     def request_decision(self, event='local_observation'):
         if self.sim.phase != 'active':
@@ -119,6 +140,9 @@ class Controller:
                     self.sim.record_dispatch(getattr(self.robot,'last_dispatch',None))
                     self.sim.apply_communications(getattr(self.robot,'last_communications',None))
                 if decision is not None:
+                    if self.optimistic and self.sim.tick!=tick:
+                        self.sim.log('system',f'Optimistic clock: applying decision made at T+{tick} to live T+{self.sim.tick}; safety validation uses current observations.')
+                        tick=self.sim.tick
                     self.sim.apply(decision,payload['event_id'],payload['incident_id'],tick)
                 else:
                     self.sim.log('central','No drone mission issued this round; vehicles keep their current orders.')
@@ -160,6 +184,9 @@ class Controller:
                 return
             if action == 'pause':
                 self.running = False
+                return
+            if action == 'optimistic':
+                self.optimistic = bool(data.get('enabled'))
                 return
             if action == 'seek':
                 index = int(data.get('index',0))
@@ -269,7 +296,21 @@ def serve(port=8765):
                     frames=[json.loads(zlib.decompress(f)) for f in controller.recorded_frames]
                 self.reply(200,dict(format='los-panaderos-recording-v1',frames=frames))
             elif path == '/api/state':
-                self.reply(200, controller.state())
+                etag, body = controller.state_bytes()
+                if self.headers.get('If-None-Match') == etag:
+                    self.send_response(304)
+                    self.send_header('ETag', etag)
+                    self.send_header('Cache-Control', 'no-cache')
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.send_header('ETag', etag)
+                self.send_header('Cache-Control', 'no-cache')
+                self.send_header('X-Content-Type-Options', 'nosniff')
+                self.end_headers()
+                self.wfile.write(body)
             elif path in {'/', '/app.js', '/observation-map.js', '/vendor/bootstrap-icons.js', '/style.css', '/maps/brunete.jpg', '/maps/brunete-illustrated.png', '/cursors/flamethrower-hover.svg', '/cursors/flamethrower-active.svg'}:
                 name = 'index.html' if path == '/' else path[1:]
                 types = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.jpg':'image/jpeg', '.png':'image/png', '.svg':'image/svg+xml'}

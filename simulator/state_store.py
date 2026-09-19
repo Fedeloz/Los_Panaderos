@@ -80,10 +80,18 @@ def build_state(sim, dispatch=None, communications=None):
     front = 'Sin fuego confirmado por sensores' if not burning else f'{len(burning)} celdas ardiendo observadas; viento hacia ({sim.wind[0]}, {sim.wind[1]})'
     if not burning and sim.called:
         front = f'Humo reportado en {list(sim.report)} pendiente de confirmacion'
+    vehicles = {}
+    for v in sim.extinguishers+sim.scouts:
+        vehicles[v['drone_id']] = dict(role=v.get('role', 'drone'), status=v['status'], x=round(v['x'], 1), y=round(v['y'], 1), mode=v.get('mode'), sim_time=sim.tick)
+    for t in sim.trucks:
+        vehicles[t['truck_id']] = dict(role='truck', status=t['status'], x=round(t['x'], 1), y=round(t['y'], 1), sector=t.get('crew_target'), sim_time=sim.tick)
+    detections = [e for e in sim.event_log if e['kind'] == 'fire_detected']
     return dict(
         incident_id=sim.incident_id, sim_time=sim.tick, phase=sim.phase, updated_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         wind=dict(dx=sim.wind[0], dy=sim.wind[1], strength=round(strength, 2)),
-        fire=dict(confirmed=confirmed, burning_cells=len(burning), observed_cells=burning[:200], report=list(sim.report) if sim.called else None, front=front),
+        fire=dict(confirmed=confirmed or bool(detections), burning_cells=len(burning), observed_cells=burning[:200], report=list(sim.report) if sim.called else None, front=front,
+                  detections=[dict(source=e['source'], x=e['x'], y=e['y'], sim_time=e['sim_time'], district_id=e.get('district_id')) for e in detections][-20:]),
+        vehicles=vehicles, events=sim.event_log[-30:],
         incident_danger_level=worst, mission=sim.mission,
         districts=districts,
         contacts=dict(people=[{k: p.get(k) for k in ('contact_id', 'contact_name', 'role', 'district_id', 'known_location', 'phone_number', 'chat_id', 'mobility')} for p in contacts['people']],
@@ -111,7 +119,9 @@ class StateStore:
         self._signature = None
         self._last_sent_at = 0.0
         self._pending = None
+        self._pending_events = []
         self._timer = None
+        self.events_sent = 0
 
     @property
     def enabled(self):
@@ -136,13 +146,24 @@ class StateStore:
         query = '&'.join(f'{k}={urllib.request.quote(str(v))}' for k, v in params.items() if v is not None)
         return self._request('GET', '/lookup'+('?'+query if query else ''))
 
-    def publish(self, state, force=False, wait=False):
-        """PUT the state if it changed since the last publish. Returns True when a publish was scheduled."""
+    def post_events(self, incident_id, events):
+        """Batch-append field events (fire_detected, deployed, ...). One POST per flush, separate KV key server-side."""
+        events = [events] if isinstance(events, dict) else list(events)
+        return self._request('POST', f'/state/{incident_id}/events', dict(events=events, source='los-panaderos-simulator'))
+
+    def publish(self, state, force=False, wait=False, events=None):
+        """PATCH the state if it changed since the last publish (plus any queued events). Returns True when scheduled.
+
+        Events are never dropped by coalescing: they accumulate and go out in one POST with the next flush,
+        before the PATCH, so /lookup sees `fire.confirmed`/vehicles as soon as the state lands.
+        """
         if not self.enabled:
             return False
+        events = list(events or [])
         signature = json.dumps({k: v for k, v in state.items() if k != 'updated_at'}, sort_keys=True, default=str)
         with self.lock:
-            if signature == self._signature and not force:
+            self._pending_events.extend(events)
+            if signature == self._signature and not force and not self._pending_events:
                 return False
             self._signature = signature
             now = time.monotonic()
@@ -156,31 +177,41 @@ class StateStore:
                 return True
             self._last_sent_at = now
             self._pending = None
+            batch, self._pending_events = self._pending_events, []
         if wait:
-            self._send(state)
+            self._send(state, batch)
         else:
-            threading.Thread(target=self._send, args=(state,), daemon=True).start()
+            threading.Thread(target=self._send, args=(state, batch), daemon=True).start()
         return True
 
     def _flush(self):
         with self.lock:
             state, self._pending, self._timer = self._pending, None, None
+            batch, self._pending_events = self._pending_events, []
             self._last_sent_at = time.monotonic()
-        if state is not None:
-            self._send(state)
+        if state is not None or batch:
+            self._send(state, batch)
 
-    def _send(self, state):
+    def _send(self, state, events=()):
+        incident = state['incident_id'] if state else (events[0].get('incident_id') if events else None)
         try:
-            self.put(state)
+            if events and incident:
+                self.post_events(incident, list(events))
+                with self.lock:
+                    self.events_sent += len(events)
+            if state is not None:
+                self.put(state)
             with self.lock:
-                self.published += 1
-                self.last_published = state['sim_time']
+                self.published += 1 if state is not None else 0
+                self.last_published = state['sim_time'] if state is not None else self.last_published
                 self.last_error = None
         except (urllib.error.URLError, OSError, ValueError) as exc:
             with self.lock:
                 self.last_error = f'State publish failed: {str(exc)[:200]}'
+                if events:  # keep unsent events for the next flush
+                    self._pending_events = list(events)+self._pending_events
 
     def status(self):
         with self.lock:
-            return dict(enabled=self.enabled, url=self.url or None, published=self.published,
+            return dict(enabled=self.enabled, url=self.url or None, published=self.published, events_sent=self.events_sent,
                         last_published=self.last_published, error=self.last_error)

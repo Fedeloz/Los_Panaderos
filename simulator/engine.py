@@ -53,6 +53,11 @@ class Simulation:
         self.history = []
         self.communications = []
         self.dispatch = None
+        # Field events for the shared state (drones confirming fire, truck deployed/arrived/containing).
+        self.pending_events = []
+        self.event_log = []
+        self._fire_reported_by = set()
+        self._truck_milestones = {}
         self.mission_records = []
         self.seen_commands = set()
         self.suppressed = 0
@@ -196,6 +201,31 @@ class Simulation:
         self.history.append(dict(tick=self.tick, source=source, message=message, **extra))
         self.history = self.history[-100:]
 
+    def emit(self, kind, source, x=None, y=None, **extra):
+        """Queue a field event for the shared state API (drained by StateStore). Never blocks."""
+        event=dict(kind=kind,source=source,sim_time=self.tick,incident_id=self.incident_id,
+                   x=None if x is None else int(round(x)),y=None if y is None else int(round(y)),**extra)
+        self.pending_events.append(event)
+        self.event_log=(self.event_log+[event])[-200:]
+        return event
+
+    def drain_events(self):
+        events,self.pending_events=self.pending_events,[]
+        return events
+
+    def nearest_district(self, x, y):
+        return min(self.groups,key=lambda k:math.dist((x,y),self.groups[k]['home'])) if self.groups else None
+
+    def _truck_milestone(self, truck, kind, detail):
+        key=(truck.get('truck_id','engine-1'),kind)
+        if key in self._truck_milestones:return
+        self._truck_milestones[key]=self.tick
+        target=truck.get('crew_target') or [truck['x'],truck['y']]
+        status={'deployed':'en_route','arrived':'arrived','containing':'containing','returning':'returning'}[kind]
+        self.emit(kind,truck.get('truck_id','engine-1'),truck['x'],truck['y'],vehicle_id=truck.get('truck_id','engine-1'),status=status,
+                  detail=detail,district_id=self.nearest_district(target[0],target[1]))
+        self.log(truck.get('truck_id','engine-1'),detail)
+
     @staticmethod
     def burning(cell):
         return cell['heat'] > 0 and cell['fuel'] > 0
@@ -329,7 +359,10 @@ class Simulation:
             self.mission='Fire out — drone and truck returning to station'
             for drone in self.extinguishers:drone.update(mode='returning',status='returning',target=list(self.base),last_drop=None)
             for scout in self.scouts:scout.update(mode='returning',status='returning',target=list(self.base),waypoints=[])
-            for truck in self.trucks:truck.update(status='returning',target=list(self.base),last_drops=[])
+            for truck in self.trucks:
+                truck.update(status='returning',target=list(self.base),last_drops=[])
+                self._truck_milestone(truck,'returning',f"{truck.get('truck_id','engine-1')} returning to station: fire out.")
+            self.emit('fire_out','simulation',detail='No fire remains; all vehicles returning.')
             self.log('simulation','Global simulator trigger: no fire remains. Returning both vehicles to station.')
         if self.phase == 'returning':
             for vehicle in self.vehicles():
@@ -565,6 +598,13 @@ class Simulation:
             t['last_drops']=[[a['x'],a['y']] for a in attempts]
             t['status']='suppressing'
         self.observe()
+        if not returning:
+            if t['status'] in {'en_route','on_scene','suppressing'}:
+                self._truck_milestone(t,'deployed',f"{t.get('truck_id','engine-1')} deployed from station toward sector {self.crew_target}.")
+            if t['status'] in {'on_scene','suppressing'}:
+                self._truck_milestone(t,'arrived',f"{t.get('truck_id','engine-1')} arrived at the fire sector.")
+            if t['status']=='suppressing':
+                self._truck_milestone(t,'containing',f"{t.get('truck_id','engine-1')} containing: hoses on the fire.")
 
     def truck_telemetry(self, truck=None):
         truck=self.truck if truck is None else truck
@@ -589,6 +629,13 @@ class Simulation:
                         cell['sources'].append(source)
                         if cell['burning']:own.append(dict(x=x,y=y))
             vehicle['observed_fire']=own
+            if own and vehicle.get('drone_id') and source not in self._fire_reported_by:
+                # First confirmed sighting by this drone: write it to the shared state as fire_detected.
+                self._fire_reported_by.add(source)
+                first=min(own,key=lambda c:math.hypot(c['x']-vehicle['x'],c['y']-vehicle['y']))
+                self.emit('fire_detected',source,first['x'],first['y'],vehicle_id=source,role=vehicle.get('role','drone'),
+                          cells=len(own),district_id=self.nearest_district(first['x'],first['y']),
+                          detail=f"{source} confirms {len(own)} burning cell(s) near ({first['x']}, {first['y']})")
         self.memory.update(current)
         self.observation=[dict(x=c['x'],y=c['y']) for c in current.values() if c['burning']]
         if self.trucks and self.observation and not self.truck.get('drone_order'):
@@ -891,5 +938,5 @@ class Simulation:
             history=self.history,mission_context=self.mission_context(),burning=burning,burned=sum(c.get('burned',0)>0 for row in self.cells for c in row),
             burnt_people=sum(g.get('burnt',0) for g in self.groups.values()),
             extinguished=self.suppressed,contained=self.ignited and burning==0,people=self.groups,
-            communications=self.communications,dispatch=self.dispatch,contacts=self.masked_contacts(),
+            communications=self.communications,dispatch=self.dispatch,contacts=self.masked_contacts(),events=self.event_log[-30:],
             truck=self.truck_telemetry() if self.trucks else None,roads=sorted(self.roads),crew_due=self.crew_due,crew_target=self.crew_target,crew_extinguished=self.crew_extinguished,rules=self.rules))
