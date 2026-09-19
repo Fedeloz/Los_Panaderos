@@ -169,31 +169,65 @@ function defaultAdvice(district, state) {
   return `${name} esta fuera de la zona afectada. Las autoridades estan trabajando para controlar la situacion; no necesita hacer nada y le contactaremos si algo cambia.`;
 }
 
-function lookup(state, params) {
+function matchesName(person, name) {
+  if (!name || name.length < 3) return false;
+  const full = String(person.contact_name || '').toLowerCase();
+  if (!full) return false;
+  return full === name || full.startsWith(`${name} `) || full.endsWith(` ${name}`) || full.split(/\s+/).includes(name);
+}
+
+/**
+ * Who is actually on the phone.
+ *
+ * The demo handset is shared by several personas, so a caller-ID match alone identifies
+ * nobody — that is how a Brunete neighbour used to be answered as the farm manager. The
+ * name and the district the caller gives narrow the phone matches; a name that matches
+ * none of them means this is an ordinary resident who is simply not in the directory, and
+ * we answer for their district WITHOUT borrowing anyone's identity. A district is never
+ * used to invent a person.
+ */
+function identify(people, params, rank) {
   const phone = normalizePhone(params.get('phone'));
   const districtId = (params.get('district_id') || '').trim();
   const name = (params.get('name') || '').trim().toLowerCase();
+  const byPhone = phone ? people.filter((p) => normalizePhone(p.phone_number) === phone) : [];
+  let pool = byPhone.slice();
+  if (name) pool = (pool.length ? pool : people).filter((p) => matchesName(p, name));
+  if (districtId) pool = pool.filter((p) => p.district_id === districtId);
+  pool = pool.sort((a, b) => rank(b) - rank(a));
+  if (pool.length === 1) return { person: pool[0], candidates: pool, status: 'identified' };
+  if (pool.length > 1) return { person: null, candidates: pool, status: 'ambiguous' };
+  return { person: null, candidates: [], status: name || districtId ? 'unknown_caller' : 'no_match' };
+}
+
+function lookup(state, params) {
+  const districtId = (params.get('district_id') || '').trim();
   const people = state.contacts?.people || [];
   const districts = (state.districts || []).map(effective);
   const rank = (p) => DANGER_ORDER.indexOf((districts.find((d) => d.district_id === p.district_id) || {}).danger_level || 'none');
-  // Shared demo handset: two personas may have the same phone. Prefer the
-  // caller whose district is in greater danger so /lookup is unambiguous.
-  let matches = [];
-  if (phone) matches = people.filter((p) => normalizePhone(p.phone_number) === phone);
-  if (!matches.length && name) matches = people.filter((p) => String(p.contact_name || '').toLowerCase() === name);
-  matches = matches.slice().sort((a, b) => rank(b) - rank(a));
-  let person = matches[0] || null;
-  if (districtId) person = matches.find((p) => p.district_id === districtId) || people.find((p) => p.district_id === districtId) || person;
+  const { person, candidates: matches, status: identityStatus } = identify(people, params, rank);
   const targetId = districtId || person?.district_id || null;
   const district = targetId ? districts.find((d) => d.district_id === targetId) || null : null;
   const worst = districts.reduce((acc, d) => (DANGER_ORDER.indexOf(d.danger_level || 'none') > DANGER_ORDER.indexOf(acc) ? d.danger_level : acc), 'none');
   const sit = situation(state);
   const inDanger = district ? ['warning', 'critical'].includes(district.danger_level) : false;
   let guidance;
-  if (!district) guidance = 'DESCONOCIDO: pregunte donde esta la persona y relacionelo con uno de known_districts; nunca invente.';
-  else if (inDanger) guidance = 'EVACUAR: transmita el punto y la ruta de evacuacion con calma y confirme que la persona los ha entendido.' + (sit.fire_confirmed ? '' : ' (Aviso preventivo: el fuego aun no esta confirmado, pero su zona esta en alerta.)');
-  else if (!sit.fire_confirmed) guidance = 'TRANQUILIZAR: solo hay humo reportado sin confirmar y un dron lo esta verificando; la persona esta fuera de peligro; se le contactara si cambia la situacion.';
-  else guidance = 'TRANQUILIZAR: el fuego esta confirmado pero su zona esta fuera de peligro; ' + (sit.truck_containing ? 'los bomberos ya estan actuando sobre el fuego' : sit.truck_deployed ? 'el camion de bomberos esta desplegado y en camino' : 'las autoridades estan trabajando en la zona') + '; se le contactara si cambia la situacion.';
+  if (!district) {
+    guidance = identityStatus === 'ambiguous'
+      ? 'IDENTIFICAR: este numero corresponde a varias personas, asi que no sabe con quien habla. Pregunte su nombre y desde que pueblo o barrio llama, y vuelva a consultar con name y district_id.'
+      : 'IDENTIFICAR: pregunte su nombre y desde que pueblo o barrio llama, relacionelo con uno de known_districts y vuelva a consultar; nunca invente ni de por hecho quien es.';
+  } else if (inDanger) {
+    guidance = 'EVACUAR: transmita el punto y la ruta de evacuacion con calma y confirme que la persona los ha entendido.' + (sit.fire_confirmed ? '' : ' (Aviso preventivo: el fuego aun no esta confirmado, pero su zona esta en alerta.)');
+  } else if (!sit.fire_confirmed) {
+    guidance = 'TRANQUILIZAR: solo hay humo reportado sin confirmar y un dron lo esta verificando; la persona esta fuera de peligro; se le contactara si cambia la situacion.';
+  } else {
+    guidance = 'TRANQUILIZAR: el fuego esta confirmado pero su zona esta fuera de peligro; ' + (sit.truck_containing ? 'los bomberos ya estan actuando sobre el fuego' : sit.truck_deployed ? 'el camion de bomberos esta desplegado y en camino' : 'las autoridades estan trabajando en la zona') + '; se le contactara si cambia la situacion.';
+  }
+  // A district answer is valid even when we do not know the caller; what is never valid is
+  // greeting them with a name from the directory that they did not give us.
+  if (district && identityStatus !== 'identified') {
+    guidance = 'VECINO SIN IDENTIFICAR (no le llame por ningun nombre de la lista de contactos). ' + guidance;
+  }
   return {
     situation: sit,
     vehicles: state.vehicles || {},
@@ -202,6 +236,8 @@ function lookup(state, params) {
     updated_at: state.updated_at,
     sim_time: state.sim_time,
     found: Boolean(person || district),
+    identity_status: identityStatus,
+    caller_identified: identityStatus === 'identified',
     caller: person ? { contact_name: person.contact_name, district_id: person.district_id, known_location: person.known_location, mobility: person.mobility } : null,
     candidates: matches.map((p) => ({ contact_name: p.contact_name, district_id: p.district_id, known_location: p.known_location })),
     district: district
