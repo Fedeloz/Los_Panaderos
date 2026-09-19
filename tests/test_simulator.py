@@ -111,7 +111,7 @@ class PhysicsTests(unittest.TestCase):
         for action in ['scout','contain']:
             with self.assertRaises(ValueError):s.apply(command(action,65,43),'a',s.incident_id,0)
 
-    def test_truck_moves_on_roads_and_cannot_suppress_remotely(self):
+    def test_truck_mobilizes_and_cannot_suppress_remotely(self):
         s=Simulation();s.ignite();s.farmer_call();s.step(7)
         self.assertEqual(s.truck['x'],12);self.assertEqual(s.crew_extinguished,0)
         s.step();self.assertEqual((s.truck['x'],s.truck['y']),(12,42))
@@ -119,13 +119,49 @@ class PhysicsTests(unittest.TestCase):
         previous=(s.truck['x'],s.truck['y'])
         for _ in range(80):
             s.step();now=(s.truck['x'],s.truck['y'])
-            self.assertIn(now,s.roads)
             self.assertLessEqual(abs(now[0]-previous[0])+abs(now[1]-previous[1]),2)
             previous=now
         self.assertGreater(s.crew_extinguished,0)
         world=json.loads(s.payload()['world_state'])
         self.assertEqual(world['fire_truck']['x'],s.truck['x'])
         self.assertIn('route',world['fire_truck'])
+
+    def test_truck_offroad_speed_and_route_cost(self):
+        s=Simulation();s.roads=set()
+        s.truck.update(x=10.,y=20.,mobilized_at=0);s.crew_target=[60,20]
+        for _ in range(5):s.tick+=1;s.update_truck()
+        self.assertEqual((s.truck['x'],s.truck['y']),(18,20))
+        self.assertAlmostEqual(s.truck_telemetry()['offroad_speed'],1.6)
+        self.assertEqual(s.truck['terrain'],'offroad')
+        path,cost=s.truck_route((10,20),{(18,20)},set())
+        self.assertEqual(len(path),8);self.assertEqual(cost,5)
+        s.roads={(x,20) for x in range(80)}
+        path,cost=s.truck_route((10,20),{(18,20)},set())
+        self.assertEqual(cost,4)
+        s.truck.update(x=10.,y=20.,travel_credit=0)
+        for _ in range(5):s.tick+=1;s.update_truck()
+        self.assertEqual((s.truck['x'],s.truck['y']),(20,20))
+
+    def test_truck_routes_around_fire_and_uses_offroad_shortcut(self):
+        s=Simulation()
+        path,cost=s.truck_route((12,44),{(20,35)},set())
+        self.assertTrue(any(tuple(p) not in s.roads for p in path))
+        blocked={(13,44),(13,43),(13,45)}
+        path,cost=s.truck_route((12,44),{(20,44)},blocked)
+        self.assertTrue(path)
+        self.assertTrue(all(tuple(p) not in blocked for p in path))
+
+    def test_larger_suppression_ranges(self):
+        s=Simulation();s.drone.update(x=40.,y=20.,mode='contain')
+        s.cells[20][48]['heat']=1;s.cells[20][49]['heat']=1
+        s.step()
+        self.assertFalse(s.burning(s.cells[20][48]))
+        self.assertTrue(s.burning(s.cells[20][49]))
+        s=Simulation();s.truck.update(x=40.,y=20.,mobilized_at=0)
+        s.cells[20][50]['heat']=1;s.crew_target=[50,20]
+        s.update_truck()
+        self.assertFalse(s.burning(s.cells[20][50]))
+        self.assertEqual(s.truck_telemetry()['hose_range'],10)
 
     def test_crew_suppresses_six_cells_from_hose_range(self):
         s=Simulation();s.truck.update(x=60.,y=42.,mobilized_at=0)
