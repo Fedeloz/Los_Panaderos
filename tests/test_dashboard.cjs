@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const root = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'simulator/static/app.js'), 'utf8');
 const chrome = source.slice(source.indexOf('let spreadDirty=false;'));
-const html = fs.readFileSync(path.join(root, 'simulator/static/index.html'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'simulator/static/incidente.html'), 'utf8');
 const copy = value => JSON.parse(JSON.stringify(value));
 const response = (body, status = 200) => ({ok: status < 400, status, json: async () => copy(body)});
 const deferred = () => {let resolve, reject; const promise = new Promise((yes, no) => {resolve = yes; reject = no;}); return {promise, resolve, reject};};

@@ -216,7 +216,7 @@ window.AerialView = (() => {
 })();
 
 let spreadDirty=false;
-let state, replayTimer, pending=false, windDirty=false, recordingPlayback=null, lang='es', busySince=0, setupCollapsed=false;
+let state, replayTimer, pending=false, windDirty=false, recordingPlayback=null, lang=window.cecop?.lang||'es', busySince=0, setupCollapsed=false;
 let fleetDirty=false,addingFire=false;
 let viewEpoch=0,requestsInFlight=0,loadEpoch=0,replayEpoch=0,replayStarting=false,clientError='',pollingError='';
 const $=id=>document.getElementById(id);
@@ -377,8 +377,10 @@ function applyMapMode(){
   if (st.ready) requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   $('wx').hidden=true;
 }
-function applyLang(){const t=I18N[lang];document.documentElement.lang=lang;window.uiLang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{const v=t[el.dataset.i18n];if(v!==undefined)el.textContent=v});document.querySelectorAll('[data-i18n-aria-label]').forEach(el=>{const value=t[el.dataset.i18nAriaLabel];if(value)el.setAttribute('aria-label',value)});$('langToggle').textContent=lang==='es'?'EN':'ES';$('replayPlay').textContent=replayTimer||replayStarting?t.replayStop:t.replayStart;applyMapMode()}
-$('langToggle').onclick=()=>{lang=lang==='es'?'en':'es';applyLang();if(state)render(state)};
+function applyLang(){window.cecop?.applyLang();const t=I18N[lang];document.documentElement.lang=lang;window.uiLang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{const v=t[el.dataset.i18n];if(v!==undefined)el.textContent=v});document.querySelectorAll('[data-i18n-aria-label]').forEach(el=>{const value=t[el.dataset.i18nAriaLabel];if(value)el.setAttribute('aria-label',value)});$('langToggle').textContent=lang==='es'?'EN':'ES';$('replayPlay').textContent=replayTimer||replayStarting?t.replayStop:t.replayStart;applyMapMode()}
+function changeIncidentLanguage(next){lang=next;applyLang();if(state)render(state)}
+window.cecop?.onLanguageChange(changeIncidentLanguage);
+$('langToggle').onclick=()=>{const next=lang==='es'?'en':'es';if(window.cecop)window.cecop.setLang(next);else changeIncidentLanguage(next)};
 async function act(action,extra={},loadToken=null){
   if(loadToken===null)loadEpoch++;else if(loadToken!==loadEpoch)return false;
   if(recordingPlayback&&action==='seek'){

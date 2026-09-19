@@ -10,7 +10,16 @@ HackSpain wildfire response demo: a configurable fleet follows missions decided 
 python3 -m simulator.server
 ```
 
-Open [the local demo](http://127.0.0.1:8765). In **Preparar incidente**, choose 0–3 trucks, scouts and Squirtle (extinguisher) drones, then **Aplicar flota**. At least one vehicle is required; the default is one of each. Place and ignite the fire, choose/apply wind, then send **Aviso de humo**. The report starts automatic playback and agent decisions. Reset preserves fleet counts; during deliberation, Reset queues a fresh incident and discards the in-flight result and queued ignitions.
+CECOP navigation:
+- `/` (or `/situacion`): national situation desk (CECOP-ES) with a full-width tactical GIS map of Spain (`mapa.js` / `mapa.css`), national KPIs and open/closed case-file cards. The map layers active hotspots, fire perimeters, risk zones, wind streamlines, CCAA boundaries, roads, cities and topography over the schematic basemap, with a Canary Islands inset, layer switches, wheel/drag zoom and a 24 h timeline scrubber. Everything on it except the Brunete marker is a frozen demonstration scenario: perimeters and hotspots are drawn at symbolic scale, and the wind field, risk zones and incident list are fictional. Brunete's marker, its list entry and the ACTIVOS counter follow `/api/state`.
+- `/incidente` (or `/incidente/brunete`): the Brunete dual-map incident room.
+- `/medios`: national reserve pools (UME, BRIF, regional plans) plus Brunete fleet configuration and live inventory.
+- `/archivo`: closed case files, and start/stop/download/open of Brunete recordings.
+All four pages share one Controller and ES/EN preference; replay and recording-file validation stay in Sala de crisis.
+
+Brunete is the only simulated incident. The other dossiers (Sierra de Gata, Verín, Cap de Creus under observation; Sierra Bermeja, Bejís, Tenerife closed) and the reserve pools are a frozen demonstration catalog in `chrome.js`: static cards and map pins with no incident room behind them. National KPIs count watch dossiers always and fold Brunete in only once the room is live; an idle Brunete shows as "Sala preparada". The GIS basemap is a schematic equirectangular map derived from Wikimedia Commons (NordNordWest, CC BY-SA 3.0), not official cartography.
+
+Open [the local demo](http://127.0.0.1:8765), then **Sala de crisis**. In **Preparar incidente**, choose 0–3 trucks, scouts and Squirtle (extinguisher) drones, then **Aplicar flota**. At least one vehicle is required; the default is one of each. Place and ignite the fire, choose/apply wind, then send **Aviso de humo**. The report starts automatic playback and agent decisions. Reset preserves fleet counts; during deliberation, Reset queues a fresh incident and discards the in-flight result and queued ignitions.
 
 - **East:** scout, then contain visible fire.
 - **North:** scout, then warn the farm's 100 assumed occupants before returning to containment.
@@ -65,7 +74,7 @@ Completed run outputs are fetched explicitly, parsed and checked for coordinate 
 
 ```sh
 python3 -m unittest discover -s tests -v
-node --test tests/test_dashboard.cjs
+node --test tests/test_dashboard.cjs tests/test_pages.cjs
 node --check simulator/static/app.js
 ```
 

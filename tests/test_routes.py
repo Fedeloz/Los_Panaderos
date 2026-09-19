@@ -1,0 +1,98 @@
+import io
+import json
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+from simulator import server
+
+
+class PageRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.controller = Mock()
+        self.controller.state.return_value = {'tick': 0, 'busy': False}
+        with patch.object(server, 'Controller', return_value=self.controller) as constructor, \
+                patch.object(server, 'ThreadingHTTPServer') as http, \
+                patch.object(server.atexit, 'register'), patch('builtins.print'):
+            server.serve()
+        constructor.assert_called_once_with()
+        self.handler_class = http.call_args.args[1]
+        self.static = Path(server.__file__).parent / 'static'
+
+    def handler(self, path, headers=None):
+        handler = object.__new__(self.handler_class)
+        handler.path = path
+        handler.headers = headers or {'Host': '127.0.0.1:8765'}
+        handler.reply = Mock()
+        return handler
+
+    def test_page_aliases_serve_the_correct_documents(self):
+        pages = {'/': 'situacion.html', '/situacion': 'situacion.html',
+                 '/incidente': 'incidente.html', '/incidente/brunete': 'incidente.html',
+                 '/medios': 'medios.html', '/archivo': 'archivo.html'}
+        for route, filename in pages.items():
+            with self.subTest(route=route):
+                handler = self.handler(route)
+                handler.do_GET()
+                status, body, mime = handler.reply.call_args.args
+                self.assertEqual(status, 200)
+                self.assertEqual(mime, 'text/html; charset=utf-8')
+                self.assertTrue(body == (self.static / filename).read_bytes())
+        self.assertNotEqual((self.static / 'situacion.html').read_bytes(), (self.static / 'index.html').read_bytes())
+
+    def test_scripts_and_existing_assets_keep_their_mime_types(self):
+        paths = {'chrome.js': 'text/javascript', 'situacion.js': 'text/javascript',
+                 'medios.js': 'text/javascript', 'archivo.js': 'text/javascript',
+                 'mapa.js': 'text/javascript', 'mapa.css': 'text/css',
+                 'app.js': 'text/javascript', 'ops.js': 'text/javascript',
+                 'observation-map.js': 'text/javascript', 'vendor/bootstrap-icons.js': 'text/javascript',
+                 'style.css': 'text/css', 'flamethrower-cursor.svg': 'image/svg+xml',
+                 'maps/brunete.jpg': 'image/jpeg', 'maps/brunete-illustrated.png': 'image/png'}
+        for path, expected in paths.items():
+            with self.subTest(path=path):
+                handler = self.handler('/' + path)
+                handler.do_GET()
+                status, body, mime = handler.reply.call_args.args
+                self.assertEqual(status, 200)
+                self.assertEqual(mime, expected)
+                self.assertTrue(body == (self.static / path).read_bytes())
+
+    def test_unknown_paths_cannot_escape_the_allowlist(self):
+        for path in ('/unknown', '/.env', '/../.env', '/maps/../../.env', '/simulator/server.py'):
+            with self.subTest(path=path):
+                handler = self.handler(path)
+                handler.do_GET()
+                self.assertEqual(handler.reply.call_args.args[0], 404)
+
+    def test_query_string_does_not_change_incident_routing(self):
+        handler = self.handler('/incidente/brunete?view=archive')
+        handler.do_GET()
+        self.assertEqual(handler.reply.call_args.args[0], 200)
+        self.assertTrue(handler.reply.call_args.args[1] == (self.static / 'incidente.html').read_bytes())
+
+    def test_state_api_uses_the_existing_controller(self):
+        handler = self.handler('/api/state')
+        handler.do_GET()
+        self.controller.state.assert_called_once_with()
+        handler.reply.assert_called_once_with(200, self.controller.state.return_value)
+
+    def test_nonlocal_config_request_does_not_read_secrets(self):
+        handler = self.handler('/api/config', {'Host': 'evil.example'})
+        with patch.object(server, '_env_file') as env:
+            handler.do_GET()
+        env.assert_not_called()
+        self.assertEqual(handler.reply.call_args.args[0], 403)
+
+    def test_post_origin_is_host_based_not_page_based(self):
+        body = json.dumps({'action': 'fleet', 'counts': {'trucks': 2, 'scouts': 0, 'extinguishers': 1}}).encode()
+        for origin, expected in [('http://127.0.0.1:8765', 200),
+                                 ('http://localhost:8765', 200),
+                                 ('http://127.0.0.1:8765/incidente', 403),
+                                 ('http://evil.example', 403)]:
+            with self.subTest(origin=origin):
+                handler = self.handler('/api/action', {'Origin': origin, 'X-Simulator-Request': '1', 'Content-Length': str(len(body))})
+                handler.rfile = io.BytesIO(body)
+                handler.do_POST()
+                self.assertEqual(handler.reply.call_args.args[0], expected)
+        self.assertEqual(self.controller.action.call_count, 2)
+        self.controller.action.assert_called_with('fleet', json.loads(body))
