@@ -1,6 +1,8 @@
 import copy
 import json
 import unittest
+import threading
+import time
 from unittest.mock import patch
 from tempfile import TemporaryDirectory
 from pathlib import Path
@@ -14,11 +16,43 @@ def command(action='contain', x=65, y=43):
 
 
 class PhysicsTests(unittest.TestCase):
-    def test_fire_spreads_at_advertised_rate(self):
+    def test_selected_fire_location_updates_report_and_payload(self):
+        s=Simulation();s.place_fire(35,20);s.ignite();s.farmer_call()
+        self.assertTrue(s.burning(s.cells[20][35]))
+        self.assertFalse(s.burning(s.cells[43][65]))
+        self.assertIn('(35, 20)',s.call_text)
+        self.assertEqual(json.loads(s.payload()['world_state'])['farmer_report_location'],dict(x=35,y=20))
+        with self.assertRaises(ValueError):s.place_fire(20,20)
+
+    @patch("random.Random.random", return_value=0.0)
+    def test_fire_attempts_at_advertised_interval(self, _random):
         s=Simulation();s.ignite();s.step(1)
         self.assertFalse(s.burning(s.cells[43][67]))
         s.step();self.assertTrue(s.burning(s.cells[43][67]))
         self.assertFalse(s.burning(s.cells[42][65]))
+
+    def test_failed_ignition_retries_and_threshold_is_fifty_percent(self):
+        s=Simulation();s.cells[20][20]['heat']=1
+        with patch.object(s.rng,'random',return_value=0.5):
+            s.step(2)
+        self.assertFalse(s.burning(s.cells[20][21]))
+        with patch.object(s.rng,'random',return_value=0.499):
+            s.step(2)
+        self.assertTrue(s.burning(s.cells[20][21]))
+
+    def test_multiple_neighbors_give_only_one_chance_per_cell(self):
+        s=Simulation();s.set_wind('calm')
+        s.cells[20][19]['heat']=s.cells[20][21]['heat']=1
+        with patch.object(s.rng,'random',return_value=0.9) as draw:
+            s.step(10)
+        self.assertEqual(draw.call_count,7)
+        self.assertFalse(s.burning(s.cells[20][20]))
+
+    def test_seed_reproduces_uneven_front(self):
+        sims=[Simulation(seed=seed) for seed in (9,9,10)]
+        for s in sims:s.ignite();s.step(30)
+        self.assertEqual(sims[0].cells,sims[1].cells)
+        self.assertNotEqual(sims[0].cells,sims[2].cells)
 
     def test_containment_extinguishes_one_cell_per_step(self):
         s=Simulation();s.ignite();s.drone.update(x=61.,y=43.)
@@ -60,7 +94,22 @@ class PhysicsTests(unittest.TestCase):
         s.crew_target=[65,42];s.update_truck()
         self.assertEqual(s.crew_extinguished,6)
 
-    def test_wind_changes_spread(self):
+    def test_vector_wind_strength_diagonal_and_validation(self):
+        s=Simulation();s.set_wind(x=0,y=0)
+        self.assertEqual(s.spread_interval(1,0),s.spread_interval(0,-1))
+        s.set_wind(x=1,y=-1)
+        self.assertEqual(s.spread_interval(1,0),2)
+        self.assertEqual(s.spread_interval(0,-1),2)
+        s.set_wind(x=3,y=-2)
+        self.assertEqual(s.spread_interval(1,0),1)
+        self.assertGreater(s.spread_interval(-1,0),s.spread_interval(1,0))
+        self.assertEqual(json.loads(s.payload()['world_state'])['wind']['dy'],-2)
+        for x,y in [(4,0),(float('nan'),0),(True,0),(1,None)]:
+            with self.assertRaises(ValueError):s.set_wind(x=x,y=y)
+        self.assertEqual(s.wind,(3,-2))
+
+    @patch("random.Random.random", return_value=0.0)
+    def test_wind_changes_spread(self, _random):
         s=Simulation();s.ignite();s.set_wind('north');s.step(4)
         self.assertTrue(s.burning(s.cells[42][65]))
         self.assertFalse(s.burning(s.cells[43][67]))
@@ -123,6 +172,59 @@ class PhysicsTests(unittest.TestCase):
 
 
 class ControllerTests(unittest.TestCase):
+    def test_world_frozen_during_decision_and_corrective_retry(self):
+        from simulator.server import Controller
+        for invalid_first in [False,True]:
+            with self.subTest(corrective_retry=invalid_first):
+                c=Controller();c.sim.ignite();c.sim.farmer_call()
+                entered=threading.Event();release=threading.Event();attempts=[]
+                def slow_decision(payload):
+                    attempts.append(payload['event_type'])
+                    if invalid_first and len(attempts)==1:
+                        return command('contain',65,43),'invalid target'
+                    entered.set()
+                    if not release.wait(3):raise RuntimeError('Test decision release timed out')
+                    return command('hold',12,44),'valid output'
+                try:
+                    with patch.object(c.robot,'decide',side_effect=slow_decision):
+                        c.speed=8;c.running=True
+                        with c.lock:c.request_decision()
+                        self.assertTrue(entered.wait(2))
+                        before=c.sim.state()
+                        self.assertTrue(c.busy)
+                        with self.assertRaises(ValueError):c.action('step',{})
+                        # Longer than the clock's initial 0.5-second wait, plus several 8x ticks.
+                        time.sleep(.8)
+                        after=c.sim.state()
+                        for field in ['tick','cells','drone','truck','people','satellite']:
+                            self.assertEqual(before[field],after[field],field)
+                        c.action('pause',{})
+                        release.set()
+                        deadline=time.monotonic()+2
+                        while c.busy and time.monotonic()<deadline:time.sleep(.01)
+                        self.assertFalse(c.busy)
+                        self.assertEqual(c.sim.tick,before['tick'])
+                        if invalid_first:self.assertEqual(attempts[-1],'command_rejected')
+                finally:release.set();c.stop.set();c.robot.close()
+
+    def test_run_recording_and_stop_preserve_frames(self):
+        from simulator.server import Controller
+        c=Controller()
+        try:
+            with patch.object(c,'request_decision') as decide:
+                c.action('place_fire',dict(x=35,y=20))
+                c.action('record_run',dict(x=.5,y=-1))
+                decide.assert_called_once_with('farmer_call')
+                c.running=False
+                self.assertTrue(c.recording);self.assertTrue(c.sim.called)
+                c.action('step',{})
+                count=len(c.recorded_frames)
+                c.action('stop_recording',{})
+                c.action('step',{})
+                self.assertEqual(len(c.recorded_frames),count)
+                self.assertFalse(c.recording)
+        finally:c.stop.set();c.robot.close()
+
     def test_invalid_target_gets_one_corrective_agent_request(self):
         from simulator.server import Controller
         c=Controller();c.sim.ignite();c.sim.farmer_call()

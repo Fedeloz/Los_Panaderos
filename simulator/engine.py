@@ -1,8 +1,9 @@
-"""Deterministic, deliberately simplified wildfire demo; not a prediction model."""
+"""Seeded stochastic, deliberately simplified wildfire demo; not a prediction model."""
 from collections import deque
 import copy
 import json
 import math
+import random
 import uuid
 
 
@@ -13,8 +14,9 @@ class Simulation:
     farm = (65, 10)
     report = (65, 43)
     sensor_radius = 9
-    rules = dict(downwind_cells_per_step=0.5, crosswind_cells_per_step=0.1,
-                 upwind_cells_per_step=0.05, drone_cells_per_step=3,
+    rules = dict(ignition_probability_per_eligible_cell=0.5,
+                 spread_attempts="One chance per eligible adjacent cell per step; failed attempts retry at wind-dependent intervals.",
+                 drone_cells_per_step=3,
                  drone_extinguishes_per_step=1, satellite_delay_steps=12,
                  satellite_interval_steps=12, satellite_block_size=8,
                  truck_cells_per_step=1, truck_mobilization_steps=8,
@@ -23,6 +25,7 @@ class Simulation:
 
     def __init__(self, seed=9):
         self.incident_id = str(uuid.uuid4())
+        self.rng = random.Random(seed)
         self.tick = 0
         self.wind = (1, 0)
         self.revision = 0
@@ -57,12 +60,19 @@ class Simulation:
     def burning(cell):
         return cell['heat'] > 0 and cell['fuel'] > 0
 
+    def place_fire(self,x,y):
+        if self.ignited or self.called:raise ValueError('Reset before moving the ignition point.')
+        if any(isinstance(v,bool) or not isinstance(v,int) for v in (x,y)) or not (1<=x<self.width-1 and 1<=y<self.height-1):
+            raise ValueError('Select an interior map cell.')
+        if math.hypot(x-self.base[0],y-self.base[1])<6:raise ValueError('Place the fire away from the station.')
+        self.report=(x,y)
+
     def ignite(self):
         if not self.ignited:
             self.ignited = True
-            for x,y in [(65,43),(65,44),(66,43)]:
+            for x,y in [self.report,(self.report[0],self.report[1]+1),(self.report[0]+1,self.report[1])]:
                 self.cells[y][x]['heat'] = 1
-            self.log('simulation', 'Fire ignited in the southeast. Ground truth only.')
+            self.log('simulation', 'Fire ignited at the selected location. Ground truth only.')
 
     def farmer_call(self, message=''):
         if not self.ignited:
@@ -70,20 +80,27 @@ class Simulation:
         if self.called:
             raise ValueError('Farmer report already received; request a new decision instead.')
         self.called = True
-        self.call_text = message or 'I am at the farm northeast of town. There is a column of smoke south of us, around grid (65, 43). Please investigate.'
+        self.call_text = message or f'I am reporting a smoke column around grid {self.report}. Please investigate.'
         self.truck["mobilized_at"] = self.tick + 8
         self.truck["status"] = "mobilizing"
         self.crew_target = list(self.report)
         self.log('farmer', self.call_text)
         self.log('dispatch', 'Truck mobilizing for 8 steps, then travelling on roads at 1 cell/step. Drone scouts ahead.')
 
-    def set_wind(self, name):
-        choices = {'east':(1,0), 'north':(0,-1), 'west':(-1,0)}
-        if name not in choices:
-            raise ValueError('Choose east, north or west.')
-        self.wind = choices[name]
-        self.revision += 1
-        self.log('weather', f'Forecast updated: wind blowing {name}.')
+    def set_wind(self, name=None, x=None, y=None):
+        if x is None and y is None:
+            choices = {'east':(1,0), 'north':(0,-1), 'west':(-1,0), 'south':(0,1), 'calm':(0,0)}
+            if name not in choices:raise ValueError('Invalid wind direction.')
+            x,y=choices[name]
+        if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or abs(v)>3 for v in (x,y)):
+            raise ValueError('Wind X and Y must be finite numbers between -3 and 3.')
+        self.wind=(round(x,2),round(y,2))
+        self.revision+=1
+        self.log('weather',f'Wind vector updated: X={self.wind[0]}, Y={self.wind[1]} (east/south positive); strength {math.hypot(*self.wind):.2f}.')
+
+    def spread_interval(self, dx, dy):
+        projection=dx*self.wind[0]+dy*self.wind[1]
+        return max(1,round(10/(1+4*projection))) if projection>=0 else round(10*(1-projection))
 
     def step(self, count=1):
         for _ in range(count):
@@ -95,8 +112,7 @@ class Simulation:
                         continue
                     c['age'] += 1
                     for dx,dy in [(1,0),(-1,0),(0,1),(0,-1)]:
-                        dot = dx*self.wind[0]+dy*self.wind[1]
-                        interval = 2 if dot == 1 else 20 if dot == -1 else 10
+                        interval = self.spread_interval(dx,dy)
                         nx,ny = x+dx,y+dy
                         if c['age'] % interval == 0 and 0<=nx<self.width and 0<=ny<self.height:
                             n = self.cells[ny][nx]
@@ -104,8 +120,11 @@ class Simulation:
                                 ignitions.add((nx,ny))
                     if c['age'] >= 80:
                         c.update(fuel=0,heat=0)
-            for x,y in ignitions:
-                self.cells[y][x]['heat'] = 1
+            # Resolve once per destination, regardless of how many neighbors expose it.
+            # Stable ordering makes seeded runs reproducible; new fire waits until next tick.
+            for x,y in sorted(ignitions):
+                if self.rng.random() < self.rules['ignition_probability_per_eligible_cell']:
+                    self.cells[y][x]['heat'] = 1
             d = self.drone
             d['last_drop'] = None
             self.move_safely(d,3)
@@ -254,9 +273,10 @@ class Simulation:
 
     def payload(self, event_type='local_observation'):
         self.observe()
-        known = dict(width=self.width,height=self.height,wind=dict(dx=self.wind[0],dy=self.wind[1]),
-            forecast=dict(issued_at=self.tick,description='Synthetic forecast; wind vector points TO destination'),
-            farmer_report_location=dict(x=65,y=43) if self.called else None,
+        known = dict(width=self.width,height=self.height,wind=dict(dx=self.wind[0],dy=self.wind[1],strength=round(math.hypot(*self.wind),2),units="relative simulation strength",convention="positive X east, positive Y south; vector points TO spread",spread_steps={name:self.spread_interval(dx,dy) for name,dx,dy in [("east",1,0),("west",-1,0),("north",0,-1),("south",0,1)]}),
+            forecast=dict(issued_at=self.tick,description='Synthetic forecast; arbitrary X/Y vector points TO destination, including diagonal and calm wind. wind.spread_steps gives directional ignition ATTEMPT intervals, not guaranteed propagation times. Each eligible adjacent cell has a 50% ignition chance per attempt; stronger downwind wind shortens the interval, while upwind spread is slower. Failed attempts retry; predict uncertain fire arrival, not exact fronts. Assess settlement alignment with the full vector, not just named cardinal presets.'),
+            farmer_report_location=dict(x=self.report[0],y=self.report[1]) if self.called else None,
+            scenario_instructions="The ignition point is user-selected. Ignore fixed-coordinate examples. Assess life risk from farmer_report_location and forecast BEFORE scouting. Strong wind (magnitude >=2 in demo units) toward unwarned residents warrants precautionary evacuation without waiting for thermal confirmation. Otherwise scout from safe stand-off.",
             farm=dict(x=65,y=10),town=dict(x=12,y=44),station=dict(x=12,y=44),
             satellite=self.satellite,rules=self.rules,people=self.groups,fire_truck=self.truck_telemetry(),
             firefighters_eta=max(0,self.crew_due-self.tick) if self.crew_due else None,
@@ -301,7 +321,7 @@ class Simulation:
         burning = sum(self.burning(c) for row in self.cells for c in row)
         return copy.deepcopy(dict(incident_id=self.incident_id,tick=self.tick,width=self.width,height=self.height,
             cells=self.cells,drone=self.telemetry(),wind=self.wind,base=self.base,town=self.town,farm=self.farm,
-            report=self.report if self.called else None,ignited=self.ignited,called=self.called,mission=self.mission,
+            ignition_point=self.report,report=self.report if self.called else None,ignited=self.ignited,called=self.called,mission=self.mission,
             observation=self.observation,observed_cells=list(self.memory.values()),satellite=self.satellite,
             history=self.history,burning=burning,burned=sum(c['fuel']==0 for row in self.cells for c in row),
             extinguished=self.suppressed,contained=self.ignited and burning==0,people=self.groups,

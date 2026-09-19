@@ -24,6 +24,8 @@ class Controller:
         self.speed = 2
         self.error = None
         self.run_evidence = ''
+        self.recording = False
+        self.recorded_frames = []
         self.calls = 0
         self.latency = None
         self.stop = threading.Event()
@@ -37,7 +39,11 @@ class Controller:
         return zlib.compress(json.dumps(self.sim.state()).encode())
 
     def record(self):
-        self.frames.append(self.snapshot())
+        frame=self.snapshot()
+        self.frames.append(frame)
+        if self.recording:
+            self.recorded_frames.append(frame)
+            if len(self.recorded_frames)>=1500:self.recording=False
         if len(self.frames)>1500:
             self.frames.pop(0)
 
@@ -59,6 +65,7 @@ class Controller:
             frame = self.sim.state() if self.cursor is None else json.loads(zlib.decompress(self.frames[self.cursor]))
             return dict(frame, busy=self.busy, auto=self.auto,running=self.running,speed=self.speed,
                         frame_index=len(self.frames)-1 if self.cursor is None else self.cursor,
+                        recording=self.recording,recorded_frames=len(self.recorded_frames),
                         frame_count=len(self.frames),replay=self.cursor is not None,live_tick=self.sim.tick,
                         connected=self.robot.connected, error=self.error, workflow_url=EDITOR,
                         workflow_calls=self.calls, latency=self.latency, run_evidence=self.run_evidence)
@@ -111,6 +118,10 @@ class Controller:
 
     def action(self, action, data):
         with self.lock:
+            if action == 'stop_recording':
+                self.recording=False
+                self.running=False
+                return
             if action == 'pause':
                 self.running = False
                 return
@@ -124,12 +135,14 @@ class Controller:
             if action == 'live':
                 self.cursor = None
                 return
-            if self.cursor is not None:
+            if self.cursor is not None and action != 'reset':
                 raise ValueError('Return to Live to change the simulation. Replay never reruns AI.')
             if self.busy:
                 raise ValueError('HappyRobot is deciding. You can pause or inspect the timeline.')
             if action == 'reset':
+                self.cursor = None
                 self.sim = Simulation()
+                self.recording=False
                 self.error = None
                 self.auto = self.running = False
                 self.calls = 0
@@ -137,12 +150,22 @@ class Controller:
                 self.latency = None
                 self.frames = [self.snapshot()]
                 self.next_decision = 0
+            elif action == 'place_fire':
+                self.sim.place_fire(data.get('x'),data.get('y'))
+            elif action == 'record_run':
+                if 'x' in data or 'y' in data:self.sim.set_wind(x=data.get('x'),y=data.get('y'))
+                self.recorded_frames=[self.snapshot()]
+                self.recording=True
+                self.sim.ignite()
+                if not self.sim.called:self.sim.farmer_call()
+                self.running=self.auto=True
+                self.request_decision('farmer_call' if self.calls==0 else 'local_observation')
             elif action == 'ignite':
                 self.sim.ignite()
             elif action == 'step':
                 self.sim.step()
             elif action == 'wind':
-                self.sim.set_wind(data.get('direction','east'))
+                self.sim.set_wind(data.get('direction','east'),data.get('x'),data.get('y'))
                 if self.sim.called:
                     self.request_decision('forecast_update')
             elif action == 'call':
@@ -184,7 +207,11 @@ def serve(port=8765):
 
         def do_GET(self):
             path = urlparse(self.path).path
-            if path == '/api/state':
+            if path == '/api/recording':
+                with controller.lock:
+                    frames=[json.loads(zlib.decompress(f)) for f in controller.recorded_frames]
+                self.reply(200,dict(format='los-panaderos-recording-v1',frames=frames))
+            elif path == '/api/state':
                 self.reply(200, controller.state())
             elif path in {'/', '/app.js', '/style.css'}:
                 name = 'index.html' if path == '/' else path[1:]

@@ -17,3 +17,11 @@ Local checks: 16 unit tests, JavaScript syntax check, rendered browser inspectio
 
 - scout: 11880c35-d2d0-4ecb-a1c6-063750ed64a3
 - contain: d994e781-0147-47c1-a163-3245c443f2d7
+
+## Forecast-led evacuation (development version 9)
+
+All three tests began with a farmer report and empty local thermal detections. Decisions came from the nested HappyRobot workflow, without a local strategy fallback.
+
+- strong_north: evacuate_farm; run a91e95b9-c761-430c-9532-790f9bd406af.
+- strong_west: evacuate_town; run 421ca8e2-46ea-41fd-a993-7feae7a39cdc.
+- strong_away: scout; run 09b221a0-3d08-4379-9785-c48a6a0c70e3.
