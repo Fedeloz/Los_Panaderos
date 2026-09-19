@@ -60,8 +60,8 @@ class Controller:
                 self.record()
                 if self.sim.phase == 'finished':
                     self.recording = False
-                if self.auto and self.sim.called and self.sim.tick>=self.next_decision:
-                    self.request_decision()
+                if self.auto and self.sim.called and (self.sim.pending_decision_event or self.sim.tick>=self.next_decision):
+                    self.request_decision(self.sim.pending_decision_event or 'local_observation')
 
     def state(self):
         with self.lock:
@@ -85,6 +85,7 @@ class Controller:
         if event != 'command_rejected':
             self.repair_attempts = 0
         payload = self.sim.payload(event)
+        self.sim.pending_decision_event = None
         self.busy = True
         self.error = None
         threading.Thread(target=self._decide, args=(payload,self.sim.tick), daemon=True).start()

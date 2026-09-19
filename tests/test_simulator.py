@@ -1,5 +1,6 @@
 import copy
 import json
+import math
 import unittest
 import threading
 import time
@@ -114,12 +115,12 @@ class PhysicsTests(unittest.TestCase):
     def test_truck_mobilizes_and_cannot_suppress_remotely(self):
         s=Simulation();s.ignite();s.farmer_call();s.step(7)
         self.assertEqual(s.truck['x'],12);self.assertEqual(s.crew_extinguished,0)
-        s.step();self.assertEqual((s.truck['x'],s.truck['y']),(12,42))
+        s.step();self.assertNotEqual((s.truck['x'],s.truck['y']),s.base)
         self.assertEqual(s.truck_telemetry()['speed'],2)
         previous=(s.truck['x'],s.truck['y'])
         for _ in range(80):
             s.step();now=(s.truck['x'],s.truck['y'])
-            self.assertLessEqual(abs(now[0]-previous[0])+abs(now[1]-previous[1]),2)
+            self.assertLessEqual(math.dist(now,previous),2+math.sqrt(2))
             previous=now
         self.assertGreater(s.crew_extinguished,0)
         world=json.loads(s.payload()['world_state'])
@@ -153,6 +154,83 @@ class PhysicsTests(unittest.TestCase):
         s.step()
         self.assertEqual(s.phase,'finished')
         self.assertEqual((s.truck['x'],s.truck['y']),s.base)
+
+    def test_vehicle_observation_radii(self):
+        s=Simulation();s.drone.update(x=20.,y=20.)
+        s.truck.update(x=50.,y=20.)
+        for x,y in [(32,20),(33,20),(59,20),(60,20)]:s.cells[y][x]['heat']=1
+        s.observe();s.update_truck()
+        self.assertIn(dict(x=32,y=20),s.observation)
+        self.assertNotIn(dict(x=33,y=20),s.observation)
+        self.assertIn(dict(x=59,y=20),s.truck['observed_fire'])
+        self.assertNotIn(dict(x=60,y=20),s.truck['observed_fire'])
+        self.assertEqual(s.telemetry()['sensor_radius'],12)
+        self.assertEqual(s.truck_telemetry()['sensor_radius'],9)
+        self.assertIn('radius 12',json.loads(s.payload()['thermal_detections'])['coverage'])
+
+    def test_warning_frees_drone_while_people_keep_moving(self):
+        s=Simulation();s.ignite();s.farmer_call()
+        s.drone.update(x=65.,y=10.,mode='evacuate_farm',target=None)
+        s.step()
+        self.assertEqual(s.pending_decision_event,'evacuation_warning_delivered')
+        self.assertEqual(s.drone['status'],'awaiting_assignment')
+        self.assertEqual(s.last_result['status'],'warning_delivered')
+        self.assertEqual(s.groups['farm']['status'],'evacuating')
+        before=(s.groups['farm']['x'],s.groups['farm']['y'])
+        s.apply(command('scout',60,38),'next',s.incident_id,s.tick)
+        s.step()
+        self.assertNotEqual((s.groups['farm']['x'],s.groups['farm']['y']),before)
+        self.assertEqual(s.drone['mode'],'scout')
+        self.assertEqual(sum('Loudspeaker warning' in e['message'] for e in s.history),1)
+
+    def test_optimistic_astar_discovers_fire_and_replans(self):
+        s=Simulation();s.drone.update(x=20.,y=20.,target=[50,20])
+        s.cells[20][38]['heat']=1  # Initially outside the drone's sensors.
+        s.move_safely(s.drone,3)
+        self.assertIn([38,20],s.drone['route'])
+        self.assertEqual(s.drone['route_plans'],1)
+        s.move_safely(s.drone,3)
+        self.assertEqual(s.drone['route_plans'],1)  # Reuse the clear route.
+        s.move_safely(s.drone,3)
+        self.assertEqual(s.drone['route_plans'],2)
+        blocked=s.danger_zone([(38,20)])
+        self.assertTrue(all(tuple(p) not in blocked for p in s.drone['route']))
+        for _ in range(20):
+            s.move_safely(s.drone,3)
+            self.assertNotIn((s.drone['x'],s.drone['y']),blocked)
+        self.assertEqual((s.drone['x'],s.drone['y']),(50,20))
+        self.assertEqual(s.drone['route_plans'],2)
+
+    def test_astar_remembers_fire_until_observed_clear(self):
+        s=Simulation();s.drone.update(x=30.,y=20.)
+        s.cells[20][35]['heat']=1;s.observe()
+        s.drone.update(x=20.,y=20.,target=[50,20])
+        s.move_safely(s.drone,3)
+        self.assertNotIn([35,20],s.drone['route'])
+        self.assertTrue(s.memory['35,20']['burning'])
+        s.cells[20][35]['heat']=0;s.drone.update(x=30.,y=20.)
+        s.observe()
+        self.assertFalse(s.memory['35,20']['burning'])
+
+    def test_diagonal_routes_preserve_distance_and_avoid_corner_cutting(self):
+        s=Simulation()
+        self.assertEqual(s.route((20,20),(23,23),set()),[[21,21],[22,22],[23,23]])
+        s.roads=set()
+        path,cost=s.truck_route((20,20),{(23,23)},set())
+        self.assertEqual(path,[[21,21],[22,22],[23,23]])
+        self.assertAlmostEqual(cost,3*math.sqrt(2)/1.6)
+        blocked={(21,20)}
+        self.assertNotIn((21,21),list(s.neighbors((20,20),blocked)))
+        for path in [s.route((20,20),(23,23),blocked),s.truck_route((20,20),{(23,23)},blocked)[0]]:
+            previous=(20,20)
+            for point in path:
+                self.assertIn(tuple(point),list(s.neighbors(previous,blocked)))
+                previous=tuple(point)
+        s.drone.update(x=20.,y=20.,target=[40,40])
+        for _ in range(5):s.move_safely(s.drone,3)
+        distance=math.dist((20,20),(s.drone['x'],s.drone['y']))
+        self.assertLessEqual(distance,15)
+        self.assertLess(15-distance,math.sqrt(2))
 
     def test_truck_offroad_speed_and_route_cost(self):
         s=Simulation();s.roads=set()

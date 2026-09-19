@@ -1,5 +1,4 @@
 """Seeded stochastic, deliberately simplified wildfire demo; not a prediction model."""
-from collections import deque
 import copy
 import heapq
 import json
@@ -14,8 +13,12 @@ class Simulation:
     town = (12, 44)
     farm = (65, 10)
     report = (65, 43)
-    sensor_radius = 9
-    rules = dict(ignition_probability_per_eligible_cell=0.5,
+    sensor_radius = 12
+    truck_sensor_radius = 9
+    rules = dict(evacuation='Warning delivery completes the drone task; people continue independently. Reassign drone to urgent unwarned people, otherwise scout/contain to assist truck.',
+                 drone_planner='Optimistic A*: unknown cells traversable; replan when observed fire blocks the route; retain known fire until observed clear',
+                 vehicle_movement='8 neighbors; diagonals cost sqrt(2) distance; blocked corners cannot be crossed',
+                 ignition_probability_per_eligible_cell=0.5,
                  spread_attempts="One chance per eligible adjacent cell per step; failed attempts retry at wind-dependent intervals.",
                  drone_cells_per_step=3,
                  drone_extinguishes_per_step=1, satellite_delay_steps=12,
@@ -39,6 +42,7 @@ class Simulation:
         self.seen_commands = set()
         self.suppressed = 0
         self.last_result = None
+        self.pending_decision_event = None
         self.observation = []
         self.memory = {}
         self.satellite = None
@@ -147,6 +151,10 @@ class Simulation:
                 group = self.groups[name]
                 if group['status'] == 'unwarned':
                     group['status'] = 'evacuating'
+                    d.update(mode='hold',status='awaiting_assignment',route=[],travel_credit=0)
+                    self.last_result=dict(status='warning_delivered',settlement=name,tick=self.tick,
+                                          detail='Residents move independently; drone available for the next mission.')
+                    self.pending_decision_event='evacuation_warning_delivered'
                     self.log('drone', f'Loudspeaker warning delivered to {name}: {group["count"]} people moving to refuge.')
             for name,g in self.groups.items():
                 if g['status'] in {'evacuating','blocked'}:
@@ -202,25 +210,41 @@ class Simulation:
         return {(x+dx,y+dy) for x,y in points for dx in range(-clearance,clearance+1)
                 for dy in range(-clearance,clearance+1) if dx*dx+dy*dy<clearance*clearance}
 
+    def neighbors(self, point, blocked, roads=None):
+        def clear(p):
+            return 0<=p[0]<self.width and 0<=p[1]<self.height and p not in blocked and (roads is None or p in roads)
+        for dx,dy in [(1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)]:
+            p=(point[0]+dx,point[1]+dy)
+            if clear(p) and (not (dx and dy) or
+                            (clear((point[0]+dx,point[1])) and clear((point[0],point[1]+dy)))):
+                yield p
+
     def route(self, start, goal, blocked, roads=None):
         start=tuple(map(round,start));goal=tuple(map(round,goal))
         if goal in blocked:return []
-        q=deque([start]);parents={start:None}
-        while q:
-            point=q.popleft()
+        # Octile heuristic is admissible for eight-direction movement.
+        def heuristic(p):
+            dx,dy=abs(p[0]-goal[0]),abs(p[1]-goal[1])
+            return max(dx,dy)+(math.sqrt(2)-1)*min(dx,dy)
+        queue=[(heuristic(start),0,start)];costs={start:0};parents={start:None}
+        while queue:
+            _,cost,point=heapq.heappop(queue)
+            if cost>costs[point]:continue
             if point==goal:
                 path=[]
                 while parents[point] is not None:path.append(list(point));point=parents[point]
                 return path[::-1]
-            for dx,dy in [(1,0),(-1,0),(0,1),(0,-1)]:
-                p=(point[0]+dx,point[1]+dy)
-                if p not in parents and p not in blocked and 0<=p[0]<self.width and 0<=p[1]<self.height and (roads is None or p in roads):
-                    parents[p]=point;q.append(p)
+            for p in self.neighbors(point,blocked,roads):
+                candidate=cost+math.dist(point,p)
+                if candidate<costs.get(p,float('inf')):
+                    costs[p]=candidate;parents[p]=point;heapq.heappush(queue,(candidate+heuristic(p),candidate,p))
         return []
 
     def move_safely(self, vehicle, speed, roads=None):
         # Local collision avoidance is a physical safeguard, not a strategic AI substitute.
-        local=[p for p in self.fire_points() if math.hypot(p[0]-vehicle['x'],p[1]-vehicle['y'])<=9]
+        self.observe()
+        # Unknown cells are traversable. Remember observed fires until sensors see them clear.
+        local=[(c['x'],c['y']) for c in self.memory.values() if c['burning']]
         blocked=self.danger_zone(local)
         here=(round(vehicle['x']),round(vehicle['y']))
         if here in blocked:
@@ -228,21 +252,41 @@ class Simulation:
             for dx in range(-speed,speed+1):
                 for dy in range(-speed,speed+1):
                     p=(here[0]+dx,here[1]+dy)
-                    if abs(dx)+abs(dy)<=speed and p not in blocked and 0<=p[0]<self.width and 0<=p[1]<self.height and (roads is None or p in roads):
+                    if math.hypot(dx,dy)<=speed and p not in blocked and 0<=p[0]<self.width and 0<=p[1]<self.height and (roads is None or p in roads):
                         path=self.route(here,p,set(local),roads)
-                        if len(path)<=speed and path:options.append((len(path),p,path))
+                        distance=sum(math.dist(a,b) for a,b in zip([here]+path,path))
+                        if distance<=speed and path:options.append((distance,p,path))
             if options:
-                _,p,path=min(options);vehicle.update(x=float(p[0]),y=float(p[1]),route=path,status='retreating')
-            else:vehicle.update(status='trapped',route=[])
+                _,p,path=min(options);vehicle.update(x=float(p[0]),y=float(p[1]),route=path,status='retreating',travel_credit=0)
+            else:vehicle.update(status='trapped',route=[],travel_credit=0)
             return
         target=vehicle.get('target')
-        if target is None:return
-        path=self.route(here,target,blocked,roads)
+        if target is None:
+            vehicle['travel_credit']=0
+            return
+        path=vehicle.get('route',[])
+        previous=here
+        valid=bool(path) and tuple(path[-1])==tuple(target)
+        if valid:
+            for point in path:
+                if tuple(point) not in self.neighbors(previous,blocked,roads):
+                    valid=False;break
+                previous=tuple(point)
+        if not valid:
+            had_route=bool(path)
+            path=self.route(here,target,blocked,roads)
+            vehicle['route_plans']=vehicle.get('route_plans',0)+1
+            vehicle['planner']='optimistic_astar'
+            if had_route:
+                self.log('autopilot','Drone replanned its route from observed fire or a changed destination; unknown cells remain traversable.')
         vehicle['route']=path
         if not path and here!=tuple(target):
-            vehicle['status']='blocked';return
-        if path:
-            x,y=path[min(speed,len(path))-1];vehicle.update(x=float(x),y=float(y),route=path[speed:])
+            vehicle.update(status='blocked',travel_credit=0);return
+        budget=speed+vehicle.get('travel_credit',0)
+        while path and math.dist(here,path[0])<=budget+1e-9:
+            step=tuple(path.pop(0));budget-=math.dist(here,step);here=step
+        vehicle.update(x=float(here[0]),y=float(here[1]),route=path,
+                       travel_credit=max(0,budget) if path else 0)
         if (vehicle['x'],vehicle['y'])==tuple(target):
             vehicle.update(target=None,status=vehicle.get('mode','on_scene'),route=[])
         else:vehicle['status']='en_route'
@@ -271,8 +315,10 @@ class Simulation:
 
     def truck_edge_time(self, start, end):
         road=tuple(start) in self.roads and tuple(end) in self.roads
+        if start[0]!=end[0] and start[1]!=end[1]:
+            road=road and (start[0],end[1]) in self.roads and (end[0],start[1]) in self.roads
         speed=self.rules['truck_cells_per_step']*(1 if road else self.rules['truck_offroad_speed_factor'])
-        return 1/speed
+        return math.dist(start,end)/speed
 
     def truck_route(self, start, goals, blocked):
         # Fastest travel-time path: roads are faster, but off-road shortcuts are allowed.
@@ -284,9 +330,7 @@ class Simulation:
                 path=[]
                 while parents[p] is not None:path.append(list(p));p=parents[p]
                 return path[::-1],cost
-            for dx,dy in [(1,0),(-1,0),(0,1),(0,-1)]:
-                q=(p[0]+dx,p[1]+dy)
-                if not (0<=q[0]<self.width and 0<=q[1]<self.height) or q in blocked:continue
+            for q in self.neighbors(p,blocked):
                 candidate=cost+self.truck_edge_time(p,q)
                 if candidate<costs.get(q,float('inf')):
                     costs[q]=candidate;parents[q]=p;heapq.heappush(queue,(candidate,q))
@@ -295,7 +339,7 @@ class Simulation:
     def update_truck(self):
         t=self.truck;t['last_drops']=[]
         if self.phase == 'finished':return
-        visible=[p for p in self.fire_points() if math.hypot(p[0]-t['x'],p[1]-t['y'])<=12]
+        visible=[p for p in self.fire_points() if math.hypot(p[0]-t['x'],p[1]-t['y'])<=self.truck_sensor_radius]
         t['observed_fire']=[dict(x=x,y=y) for x,y in visible]
         returning=self.phase=='returning'
         if not returning and (t['mobilized_at'] is None or self.tick<t['mobilized_at']):return
@@ -312,7 +356,7 @@ class Simulation:
                    for x in range(max(0,here[0]-3),min(self.width,here[0]+4)) if (x,y) not in blocked}
             obstacles=set(visible)
         else:
-            fx,fy=self.crew_target;radius=self.rules['hose_range']
+            fx,fy=self.crew_target;radius=min(self.rules['hose_range'],self.truck_sensor_radius)
             goals={(x,y) for y in range(max(0,fy-radius),min(self.height,fy+radius+1))
                    for x in range(max(0,fx-radius),min(self.width,fx+radius+1))
                    if 3<=math.hypot(x-fx,y-fy)<=radius and (x,y) not in blocked}
@@ -332,25 +376,25 @@ class Simulation:
         remaining=0;point=here
         for step in path:remaining+=self.truck_edge_time(point,step);point=tuple(step)
         self.crew_due=self.tick+math.ceil(max(0,remaining-t['travel_credit']))
-        local=[p for p in self.fire_points() if math.hypot(p[0]-t['x'],p[1]-t['y'])<=self.rules['hose_range']]
+        local=[p for p in self.fire_points() if math.hypot(p[0]-t['x'],p[1]-t['y'])<=min(self.rules['hose_range'],self.truck_sensor_radius)]
         if local and here not in self.danger_zone(visible):
             for x,y in sorted(local,key=lambda p:math.hypot(p[0]-t['x'],p[1]-t['y']))[:6]:
                 self.cells[y][x].update(heat=0,fuel=0);self.crew_extinguished+=1
                 t['last_drops'].append([x,y])
             t['status']='suppressing'
-        t['observed_fire']=[dict(x=x,y=y) for x,y in self.fire_points() if math.hypot(x-t['x'],y-t['y'])<=12]
+        t['observed_fire']=[dict(x=x,y=y) for x,y in self.fire_points() if math.hypot(x-t['x'],y-t['y'])<=self.truck_sensor_radius]
 
     def truck_telemetry(self):
         offroad=self.rules['truck_cells_per_step']*self.rules['truck_offroad_speed_factor']
         return dict(self.truck,truck_id='engine-1',speed=self.rules['truck_cells_per_step'],
-                    offroad_speed=offroad,can_travel_offroad=True,hose_range=self.rules['hose_range'],extinguishes_per_step=6,
+                    offroad_speed=offroad,can_travel_offroad=True,sensor_radius=self.truck_sensor_radius,hose_range=self.rules['hose_range'],extinguishes_per_step=6,
                     position_reported_at=self.tick,arrival_estimate_steps=max(0,self.crew_due-self.tick) if self.crew_due is not None else None)
 
     def observe(self):
         d = self.drone
         self.observation = []
-        for y in range(max(0,int(d['y'])-9),min(self.height,int(d['y'])+10)):
-            for x in range(max(0,int(d['x'])-9),min(self.width,int(d['x'])+10)):
+        for y in range(max(0,int(d['y'])-self.sensor_radius),min(self.height,int(d['y'])+self.sensor_radius+1)):
+            for x in range(max(0,int(d['x'])-self.sensor_radius),min(self.width,int(d['x'])+self.sensor_radius+1)):
                 if math.hypot(x-d['x'],y-d['y'])<=self.sensor_radius:
                     fire = self.burning(self.cells[y][x])
                     self.memory[f'{x},{y}'] = dict(x=x,y=y,burning=fire,observed_at=self.tick)
@@ -361,7 +405,7 @@ class Simulation:
         return self.observation
 
     def telemetry(self):
-        return dict(self.drone,drone_id='drone-1',sensor_radius=9,standoff_cells=3,suppression_range=self.rules['drone_suppression_range'],safe_containment_positions=self.safe_drone_positions(),capabilities=['scout','contain','evacuate_farm','evacuate_town'])
+        return dict(self.drone,drone_id='drone-1',sensor_radius=self.sensor_radius,standoff_cells=3,suppression_range=self.rules['drone_suppression_range'],safe_containment_positions=self.safe_drone_positions(),capabilities=['scout','contain','evacuate_farm','evacuate_town'])
 
     def population_wind_alignment(self):
         sources=[(f['x'],f['y']) for f in self.observation]
@@ -399,7 +443,7 @@ class Simulation:
         return dict(event_id=str(uuid.uuid4()),event_type=event_type,incident_id=self.incident_id,sim_time=str(self.tick),
             world_state=json.dumps(known),drone_telemetry=json.dumps(self.telemetry()),
             thermal_detections=json.dumps(dict(observed_at=self.tick,burning_cells=self.observation,
-                coverage='Only radius 9 around drone. Empty is not global containment.')),
+                coverage=f'Only radius {self.sensor_radius} around drone. Truck reports its own radius {self.truck_sensor_radius} observations separately. Empty is not global containment.')),
             human_messages=self.call_text)
 
     def apply(self, decision, command_id, incident_id, expected_tick):
