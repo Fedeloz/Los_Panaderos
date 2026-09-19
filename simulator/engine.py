@@ -9,7 +9,7 @@ from pathlib import Path
 from .terrain import PROFILES, make_cells
 from .contacts import directory as contact_directory
 
-GEOGRAPHY = json.loads((Path(__file__).parent / "static/maps/brunete-illustrated.json").read_text())
+GEOGRAPHY = json.loads((Path(__file__).parent / "static/maps/brunete-illustrated.json").read_text(encoding="utf-8"))
 
 
 class Simulation:

@@ -135,7 +135,7 @@ class HappyRobot:
             path = Path(os.environ.get('HAPPYROBOT_MCP_CONFIG', str(ROOT/'.cursor/mcp.json')))
             if not path.exists():
                 raise RuntimeError('MCP config missing. Set HAPPYROBOT_MCP_CONFIG to your local MCP JSON configuration.')
-            servers = json.loads(path.read_text()).get('mcpServers', {})
+            servers = json.loads(path.read_text(encoding='utf-8')).get('mcpServers', {})
             name = os.environ.get('HAPPYROBOT_MCP_SERVER', 'happyrobot-mcp-eu-all')
             config = servers.get(name)
             if not config or not config.get('command'):
