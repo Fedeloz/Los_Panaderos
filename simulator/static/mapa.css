@@ -1,25 +1,37 @@
-/* CECOP GIS situation map: dark tactical basemap, translucent data layers, floating glass panels. */
-.gis{--gis-bg:#060c14;--gis-sea:#070e18;--gis-cyan:#5ec2e6;--gis-text:#d7e6ee;--gis-muted:#8aa3b3;--gis-dim:#5f7d90;--gis-line:rgba(94,194,230,.18);
-  grid-column:1/-1;display:flex;flex-direction:column;min-width:0;border:1px solid #1d3646;background:var(--gis-bg);color:var(--gis-text);box-shadow:0 2px 10px #0006}
+/* CECOP GIS situation map: dark tactical basemap, translucent data layers, floating glass panels. Shares :root tokens with style.css. */
+.gis{--gis-sea:#070e18;
+  grid-column:1/-1;display:flex;flex-direction:column;min-width:0;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);box-shadow:0 8px 30px rgba(0,0,0,.45)}
 .gis h2,.gis h3{margin:0}
-/* Top bar */
-.gis-top{display:flex;flex-wrap:wrap;align-items:center;gap:14px 18px;padding:8px 14px;border-bottom:1px solid var(--gis-line);background:linear-gradient(#0b1520,#08111a)}
+/* Command header: row 1 = national status, row 2 = live duty + fire situation + meteorology */
+.gis-top{display:flex;flex-direction:column;border-bottom:1px solid var(--line);background:linear-gradient(var(--mast-2),var(--mast))}
+.gis-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:8px 14px}
+.gis-row+.gis-row{border-top:1px solid var(--line);padding-block:6px}
 .gis-brand{display:flex;align-items:baseline;gap:10px;min-width:0}
 .gis-brand h2{font:800 16px var(--meta);letter-spacing:2.5px;color:#e6f2f8}
-.gis-brand span{font-size:11.5px;color:var(--gis-muted);white-space:nowrap}
-.gis-counters,.gis-weather{display:flex;gap:1px;border:1px solid var(--gis-line);background:var(--gis-line)}
-.gis-counters{margin-left:auto}
+.gis-brand span{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.gis-counters,.gis-weather{display:flex;gap:1px;border:1px solid var(--line);background:var(--line)}
+.gis-national{margin-left:auto;flex:0 1 auto;min-width:0}
+.gis-row-ops .gis-weather{margin-left:auto}
 .counter{display:grid;grid-template-columns:auto auto;column-gap:9px;align-items:center;padding:4px 12px;background:#0a141e;min-width:118px}
 .counter .dot{grid-row:1/3;width:8px;height:8px;border-radius:50%}
-.counter span,.gis-weather span,.gis-updated span{font:600 8.5px var(--meta);letter-spacing:1.2px;text-transform:uppercase;color:var(--gis-muted)}
+.counter span,.gis-weather span,.gis-updated span{font:600 8.5px var(--meta);letter-spacing:1.2px;text-transform:uppercase;color:var(--muted)}
 .counter strong{font:700 18px var(--meta);line-height:1.05;font-variant-numeric:tabular-nums}
-.counter small{grid-column:2;font-size:8px;color:var(--gis-dim);letter-spacing:.5px}
-.counter-active .dot{background:#ff4a2a;box-shadow:0 0 8px #ff4a2a}.counter-active strong{color:#ff7a5a}
-.counter-risk .dot{background:#ffb020}.counter-risk strong{color:#ffc65c}
-.counter-controlled .dot{background:#6fbfa0}.counter-controlled strong{color:#9bdcc4}
+.counter small{grid-column:2;font-size:8px;color:var(--dim);letter-spacing:.5px}
+.counter-plain{grid-template-columns:minmax(0,1fr);min-width:0;flex:1 1 0;padding-block:5px}
+.counter-plain strong{color:var(--cyan-ink)}
+.counter-plain small{grid-column:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
+.counter.kpi-level.level-observacion strong{color:#9bdcc4}.counter.kpi-level.level-alerta{background:#1a1a12}.counter.kpi-level.level-alerta strong{color:var(--warn)}.counter.kpi-level.level-alarma{background:#22110e}.counter.kpi-level.level-alarma strong{color:var(--alert-soft)}
+.counter-active .dot{background:var(--alert);box-shadow:0 0 8px var(--alert)}.counter-active strong{color:var(--alert-soft)}
+.counter-risk .dot{background:var(--warn)}.counter-risk strong{color:#ffc65c}
+.counter-controlled .dot{background:var(--safe)}.counter-controlled strong{color:#9bdcc4}
 .gis-weather div{display:grid;padding:4px 12px;background:#0a141e}
-.gis-weather strong,.gis-updated strong{font:600 12px var(--meta);color:#dff4fc;font-variant-numeric:tabular-nums}
+.gis-weather strong,.gis-updated strong{font:600 12px var(--meta);color:var(--cyan-ink);font-variant-numeric:tabular-nums}
 .gis-updated{display:grid;text-align:right}
+.gis-duty{min-height:0;padding:0;background:transparent;border:0;gap:10px}
+.gis-duty #connection{font-size:10px}
+.gis-duty .duty-link{font-size:9px;padding:3px 8px}
+.is-busy .gis-duty{background:var(--warn);border:1px solid #ffc65c;padding:4px 10px}.is-busy .gis-duty #connection{font-size:12px}
+.is-replay .gis-duty{background:#171b2e;border:1px solid #5b62a3;padding:4px 10px}
 /* Stage */
 .gis-stage{position:relative;height:clamp(540px,78vh,920px);overflow:hidden;background:var(--gis-sea)}
 .gis-map{position:absolute;inset:0;cursor:grab;touch-action:none}
@@ -30,11 +42,11 @@
 .land{stroke:none}.land-es{fill:#1b2733}.land-other{fill:#0e161e}
 .terrain-tex{mix-blend-mode:screen;opacity:.42;pointer-events:none}
 .contour{fill:none;stroke:#8fc6dc;stroke-opacity:.3;stroke-width:.8;vector-effect:non-scaling-stroke}
-.graticule line{stroke:var(--gis-cyan);stroke-opacity:.07;stroke-width:.6;vector-effect:non-scaling-stroke}
+.graticule line{stroke:var(--cyan);stroke-opacity:.07;stroke-width:.6;vector-effect:non-scaling-stroke}
 .border{fill:none;vector-effect:non-scaling-stroke;stroke-linejoin:round}
 .coast{stroke:#6fc3e3;stroke-opacity:.55;stroke-width:1}
 .border-country{stroke:#9ad4ec;stroke-opacity:.5;stroke-width:1.1;stroke-dasharray:6 3}
-.border-ccaa{stroke:var(--gis-cyan);stroke-opacity:.34;stroke-width:.8}
+.border-ccaa{stroke:var(--cyan);stroke-opacity:.34;stroke-width:.8}
 #lyRisk{mix-blend-mode:screen;pointer-events:none}
 .risk-low{opacity:.15}.risk-moderate{opacity:.16}.risk-high{opacity:.26}.risk-very_high{opacity:.32}.risk-extreme{opacity:.4}
 .road{fill:none;stroke:#b9cfd9;stroke-opacity:.26;stroke-width:1;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round}
@@ -92,8 +104,8 @@
 .gis-layers li{display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid rgba(94,194,230,.08)}
 .gis-layers label{flex:1;display:flex;justify-content:space-between;align-items:center;font-size:11px;cursor:pointer;gap:8px}
 .gis input[type=checkbox][role=switch]{appearance:none;-webkit-appearance:none;width:26px;height:14px;border-radius:7px;background:#243441;position:relative;border:1px solid #3a5566;margin:0;cursor:pointer;flex:none}
-.gis input[type=checkbox][role=switch]::after{content:"";position:absolute;top:1px;left:1px;width:10px;height:10px;border-radius:50%;background:var(--gis-muted);transition:left .15s,background .15s}
-.gis input[type=checkbox][role=switch]:checked{background:#1f6f8f;border-color:var(--gis-cyan)}
+.gis input[type=checkbox][role=switch]::after{content:"";position:absolute;top:1px;left:1px;width:10px;height:10px;border-radius:50%;background:var(--muted);transition:left .15s,background .15s}
+.gis input[type=checkbox][role=switch]:checked{background:#1f6f8f;border-color:var(--cyan)}
 .gis input[type=checkbox][role=switch]:checked::after{left:13px;background:#dff4fc}
 .sw{width:10px;height:10px;flex:none;border-radius:2px}
 .sw-hotspot{border-radius:50%;background:radial-gradient(#fff3c4,#ff5a1f 60%,transparent)}
@@ -110,7 +122,7 @@
 .gis-zoom button:hover{background:rgba(94,194,230,.12)}
 .gis-canarias{left:12px;bottom:36px;width:236px;padding:8px 10px}
 .inset-head{display:flex;justify-content:space-between;align-items:baseline}
-.inset-tag{font:600 8px var(--meta);letter-spacing:1.5px;color:var(--gis-dim)}
+.inset-tag{font:600 8px var(--meta);letter-spacing:1.5px;color:var(--dim)}
 #canariasInset{display:block;width:100%;height:auto;border:1px solid rgba(94,194,230,.14)}
 .inset-sea{fill:var(--gis-sea)}
 .inset-label{font:600 7.5px system-ui,sans-serif;fill:#8ea3b1;letter-spacing:.5px}
@@ -123,10 +135,10 @@
 .incident{padding:6px 6px;border-top:1px solid rgba(94,194,230,.1);border-left:2px solid transparent;cursor:pointer}
 .incident:hover,.incident:focus-visible{background:rgba(94,194,230,.06);outline:none}
 .incident.is-selected{border-left-color:#ffb020;background:rgba(255,176,32,.08)}
-.incident-empty{color:var(--gis-dim);cursor:default;font-style:italic}
+.incident-empty{color:var(--dim);cursor:default;font-style:italic}
 .incident-head{display:flex;justify-content:space-between;gap:8px;align-items:center}
 .incident-head strong{font-size:11.5px;color:#eef5f9;line-height:1.3}
-.incident-meta{display:block;font:10px var(--meta);color:var(--gis-muted);margin-top:2px;overflow-wrap:anywhere}
+.incident-meta{display:block;font:10px var(--meta);color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
 .sev{font:700 8.5px var(--meta);letter-spacing:.8px;padding:2px 5px;border:1px solid;border-radius:2px;white-space:nowrap;flex:none}
 .sev-extreme{color:#ff6b5e;border-color:#ff3b2f;background:rgba(255,59,47,.12)}
 .sev-very_high{color:#ff9a4d;border-color:#ff7a1a;background:rgba(255,122,26,.12)}
@@ -135,7 +147,7 @@
 .sev-live{color:#ffb9a8;border-color:var(--alert);background:rgba(255,157,133,.12)}
 .is-brunete{border-left-color:var(--alert);background:rgba(255,157,133,.06)}
 .is-brunete a{display:block;text-decoration:none;color:inherit}
-.panel-note{font-size:9px;color:var(--gis-dim);margin:6px 0 0;line-height:1.35}
+.panel-note{font-size:9px;color:var(--dim);margin:6px 0 0;line-height:1.35}
 .gis-legend{right:12px;bottom:36px;width:296px;padding:8px 10px;max-height:300px;overflow:auto;scrollbar-width:thin}
 .legend-list{list-style:none;margin:0;padding:0;font-size:10.5px;display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
 .legend-list li{display:flex;align-items:center;gap:9px;padding:3px 0}
@@ -157,11 +169,11 @@
 .lg-brunete{width:7px;height:7px;transform:rotate(45deg);border:1.5px solid #91b9b2;margin:0 3.5px}
 .gis-scale{position:absolute;left:262px;bottom:8px;z-index:2;pointer-events:none}
 .scale-bar{fill:#dbe9f1}.scale-tick{stroke:#dbe9f1;stroke-width:1}.scale-text{font:9px var(--meta);fill:#c4d6e0}
-.gis-credit{position:absolute;right:12px;bottom:8px;z-index:2;font-size:9px;color:var(--gis-dim);max-width:296px;text-align:right;line-height:1.3;pointer-events:none}
-.gis-tooltip{position:absolute;z-index:5;pointer-events:none;background:rgba(7,15,24,.94);border:1px solid rgba(94,194,230,.35);padding:7px 9px;font:10.5px var(--meta);color:var(--gis-text);max-width:250px;line-height:1.45;box-shadow:0 6px 20px #0008}
+.gis-credit{position:absolute;right:12px;bottom:8px;z-index:2;font-size:9px;color:var(--dim);max-width:296px;text-align:right;line-height:1.3;pointer-events:none}
+.gis-tooltip{position:absolute;z-index:5;pointer-events:none;background:rgba(7,15,24,.94);border:1px solid rgba(94,194,230,.35);padding:7px 9px;font:10.5px var(--meta);color:var(--ink);max-width:250px;line-height:1.45;box-shadow:0 6px 20px #0008}
 .tip-title{font-weight:700;color:#fff;margin-bottom:2px}
 /* Timeline */
-.gis-timeline{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:8px 14px;border-top:1px solid var(--gis-line);background:#08111a}
+.gis-timeline{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:8px 14px;border-top:1px solid var(--line);background:#08111a}
 .tl-controls{display:flex;gap:5px;align-items:center}
 .tl-controls button{width:30px;height:30px;padding:0;border-radius:50%;background:#0f1c28;border:1px solid #2a4657;color:#dff4fc;font-size:11px;line-height:1}
 .tl-controls .tl-play{width:36px;height:36px;background:#dff4fc;color:#06101a;border-color:#dff4fc;font-size:13px}
@@ -169,25 +181,28 @@
 .tl-controls select{padding:4px 6px;font:11px var(--meta);background:#0f1c28;border-color:#2a4657}
 .tl-track{flex:1;min-width:220px;position:relative}
 .tl-head{display:flex;justify-content:space-between;font:10.5px var(--meta);color:#c4d6e0;margin-bottom:2px;font-variant-numeric:tabular-nums}
-.tl-phase{color:var(--gis-muted);letter-spacing:1px;font-weight:700}
+.tl-phase{color:var(--muted);letter-spacing:1px;font-weight:700}
 .is-scrubbing .tl-phase{color:var(--warn)}
-#tlRange{width:100%;margin:0;accent-color:var(--gis-cyan);height:18px;display:block}
+#tlRange{width:100%;margin:0;accent-color:var(--cyan);height:18px;display:block}
 .tl-ticks{position:relative;height:12px}
-.tl-ticks span{position:absolute;top:0;transform:translateX(-50%);font:9px var(--meta);color:var(--gis-dim)}
+.tl-ticks span{position:absolute;top:0;transform:translateX(-50%);font:9px var(--meta);color:var(--dim)}
 .tl-ticks span:first-child{transform:none}
 .tl-ticks span:last-child{transform:translateX(-100%)}
-.tl-live{display:flex;align-items:center;gap:6px;font:700 10px var(--meta);letter-spacing:1px;text-transform:uppercase;background:transparent;border-color:#2a4657;color:var(--gis-muted)}
+.tl-live{display:flex;align-items:center;gap:6px;font:700 10px var(--meta);letter-spacing:1px;text-transform:uppercase;background:transparent;border-color:#2a4657;color:var(--muted)}
 .tl-live i{width:7px;height:7px;border-radius:50%;background:#5c6e78}
 .tl-live.is-live{color:#9bdcc4;border-color:#3f7a66}
 .tl-live.is-live i{background:#4ade80;box-shadow:0 0 6px #4ade80}
-.tl-note{font-size:9.5px;color:var(--gis-dim);max-width:170px;line-height:1.3}
-@media(max-width:1500px){.gis-incidents,.gis-legend{width:256px}.gis-layers{width:196px}.gis-canarias{width:210px}.gis-scale{left:236px}}
+.tl-note{font-size:9.5px;color:var(--dim);max-width:170px;line-height:1.3}
+@media(max-width:1500px){.gis-incidents,.gis-legend{width:256px}.gis-layers{width:196px}.gis-canarias{width:210px}.gis-scale{left:236px}.counter-plain small{max-width:130px}}
+@media(max-width:1280px){.counter-plain small{display:none}.gis-national{margin-left:0;flex:1 1 100%}.gis-national .counter{flex:1}}
 @media(max-width:950px){
   .gis-stage{height:auto;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px}
   .gis-map{position:relative;grid-column:1/-1;height:min(70vw,560px)}
   .glass{position:static;width:auto;max-height:none}
   .gis-zoom,.gis-tooltip{display:none}
   .gis-scale,.gis-credit{position:static;grid-column:1/-1;text-align:left;max-width:none}
-  .gis-counters{margin-left:0}
+  .gis-counters,.gis-row-ops .gis-weather{margin-left:0}
+  .gis-national{flex-wrap:wrap}.gis-national .counter{flex:1 1 30%}
+  .gis-updated{text-align:left}
 }
-@media(max-width:600px){.gis-stage{grid-template-columns:1fr}.gis-map{height:80vw}.tl-note{display:none}}
+@media(max-width:600px){.gis-stage{grid-template-columns:1fr}.gis-map{height:80vw}.tl-note{display:none}.gis-national .counter{flex:1 1 45%;min-width:0}.counter{min-width:0;padding-inline:9px}.gis-counters,.gis-weather{flex:1 1 100%}.gis-weather div,.gis-counters .counter{flex:1}}

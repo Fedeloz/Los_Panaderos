@@ -11,11 +11,11 @@ python3 -m simulator.server
 ```
 
 CECOP navigation:
-- `/` (or `/situacion`): national situation desk (CECOP-ES) with a full-width tactical GIS map of Spain (`mapa.js` / `mapa.css`), national KPIs and open/closed case-file cards. The map layers active hotspots, fire perimeters, risk zones, wind streamlines, CCAA boundaries, roads, cities and topography over the schematic basemap, with a Canary Islands inset, layer switches, wheel/drag zoom and a 24 h timeline scrubber. Everything on it except the Brunete marker is a frozen demonstration scenario: perimeters and hotspots are drawn at symbolic scale, and the wind field, risk zones and incident list are fictional. Brunete's marker, its list entry and the ACTIVOS counter follow `/api/state`.
+- `/` (or `/situacion`): national situation desk (CECOP-ES) where the tactical GIS map of Spain (`mapa.js` / `mapa.css`) is the page: national KPIs and the live-room duty chip sit in the map's command header, with open/closed case-file cards as glass panels below. The map layers active hotspots, fire perimeters, risk zones, wind streamlines, CCAA boundaries, roads, cities and topography over the schematic basemap, with a Canary Islands inset, layer switches, wheel/drag zoom and a 24 h timeline scrubber. Everything on it except the Brunete marker is a frozen demonstration scenario: perimeters and hotspots are drawn at symbolic scale, and the wind field, risk zones and incident list are fictional. Brunete's marker, its list entry and the ACTIVOS counter follow `/api/state`.
 - `/incidente` (or `/incidente/brunete`): the Brunete dual-map incident room.
 - `/medios`: national reserve pools (UME, BRIF, regional plans) plus Brunete fleet configuration and live inventory.
 - `/archivo`: closed case files, and start/stop/download/open of Brunete recordings.
-All four pages share one Controller and ES/EN preference; replay and recording-file validation stay in Sala de crisis.
+All four pages share one Controller, ES/EN preference and one design system: the cyan/glass GIS tokens in `style.css` `:root` drive the nav rail, mast, counters, duty strip, panels, tickets and the Incidente map frames (canvas rendering untouched).
 
 Brunete is the only simulated incident. The other dossiers (Sierra de Gata, Verín, Cap de Creus under observation; Sierra Bermeja, Bejís, Tenerife closed) and the reserve pools are a frozen demonstration catalog in `chrome.js`: static cards and map pins with no incident room behind them. National KPIs count watch dossiers always and fold Brunete in only once the room is live; an idle Brunete shows as "Sala preparada". The GIS basemap is a schematic equirectangular map derived from Wikimedia Commons (NordNordWest, CC BY-SA 3.0), not official cartography.
 

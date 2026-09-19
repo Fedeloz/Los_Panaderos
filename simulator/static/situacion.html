@@ -18,30 +18,34 @@
   <div class="brand"><div class="badge">112</div><div><span class="eyebrow" data-i18n="eyebrow">CENTRAL DE OPERACIONES · CECOP</span><h1 data-i18n="nationalTitle">España</h1><p data-i18n="nationalSubhead">PROTECCIÓN CIVIL · CECOP NACIONAL</p></div></div>
   <div class="header-actions"><div class="incident-meta"><span id="incidentCode" data-i18n="nationalCode">CECOP-ES</span><span class="official-time"><span data-i18n="officialTime">Hora oficial</span> <time id="officialClock">--:--:--</time></span></div></div>
 </header>
-<section class="kpis" id="regionalKpis">
-  <div><span class="kpi-label" data-i18n="kOpenIncidents">Incidentes abiertos</span><strong id="openIncidents">—</strong><small class="kpi-detail" id="openDetail"></small></div>
-  <div><span class="kpi-label" data-i18n="kCcaa">CCAA afectadas</span><strong id="ccaaCount">—</strong><small class="kpi-detail" id="ccaaDetail"></small></div>
-  <div><span class="kpi-label" data-i18n="kRiskPeople">Personas en riesgo</span><strong id="riskPeople">—</strong><small class="kpi-detail" id="riskDetail"></small></div>
-  <div><span class="kpi-label" data-i18n="kAssetsCommitted">Medios comprometidos</span><strong id="assetsCommitted">—</strong><small class="kpi-detail" id="assetsDetail"></small></div>
-  <div class="kpi-level" id="levelCell"><span class="kpi-label" data-i18n="kLevel">Nivel</span><strong id="nationalLevel">—</strong><small class="kpi-detail" id="levelDetail"></small></div>
-</section>
-<div class="duty"><p id="connection" role="status" aria-live="polite" aria-atomic="true" data-i18n="connecting">Conectando…</p><a href="/incidente" class="duty-link" data-i18n="openIncident">Abrir sala de crisis</a></div>
 <div id="error" role="alert" hidden></div>
 <main class="lower">
-  <section class="gis" aria-labelledby="gisHeading">
+  <section class="gis gis-hero" aria-labelledby="gisHeading">
     <header class="gis-top">
-      <div class="gis-brand"><h2 id="gisHeading">CECOP</h2><span data-i18n="mapSubtitle">Incendios Forestales — España</span></div>
-      <div class="gis-counters" role="group" aria-label="Contadores operativos">
-        <div class="counter counter-active"><i class="dot"></i><span data-i18n="cActive">Activos</span><strong id="countActive">—</strong></div>
-        <div class="counter counter-risk"><i class="dot"></i><span data-i18n="cRisk">En riesgo</span><strong id="countRisk">—</strong><small data-i18n="cRiskUnit">núcleos</small></div>
-        <div class="counter counter-controlled"><i class="dot"></i><span data-i18n="cControlled">Controlados</span><strong id="countControlled">—</strong></div>
+      <div class="gis-row gis-row-national">
+        <div class="gis-brand"><h2 id="gisHeading">CECOP</h2><span data-i18n="mapSubtitle">Incendios Forestales — España</span></div>
+        <div class="gis-counters gis-national" role="group" data-i18n-aria-label="nationalKpis" aria-label="Situación nacional">
+          <div class="counter counter-plain"><span data-i18n="kOpenIncidents">Incidentes abiertos</span><strong id="openIncidents">—</strong><small id="openDetail"></small></div>
+          <div class="counter counter-plain"><span data-i18n="kCcaa">CCAA afectadas</span><strong id="ccaaCount">—</strong><small id="ccaaDetail"></small></div>
+          <div class="counter counter-plain"><span data-i18n="kRiskPeople">Personas en riesgo</span><strong id="riskPeople">—</strong><small id="riskDetail"></small></div>
+          <div class="counter counter-plain"><span data-i18n="kAssetsCommitted">Medios comprometidos</span><strong id="assetsCommitted">—</strong><small id="assetsDetail"></small></div>
+          <div class="counter counter-plain kpi-level" id="levelCell"><span data-i18n="kLevel">Nivel</span><strong id="nationalLevel">—</strong><small id="levelDetail"></small></div>
+        </div>
+        <div class="gis-updated"><span data-i18n="lastUpdate">Última actualización</span><strong id="updatedAt">—</strong></div>
       </div>
-      <div class="gis-weather" role="group" aria-label="Meteorología">
-        <div><span data-i18n="wxWind">Viento</span><strong id="wxWind">—</strong></div>
-        <div><span data-i18n="wxTemp">Temperatura</span><strong id="wxTemp">—</strong></div>
-        <div><span data-i18n="wxHumidity">Humedad</span><strong id="wxHumidity">—</strong></div>
+      <div class="gis-row gis-row-ops">
+        <div class="duty gis-duty"><p id="connection" role="status" aria-live="polite" aria-atomic="true" data-i18n="connecting">Conectando…</p><a href="/incidente" class="duty-link" data-i18n="openIncident">Abrir sala de crisis</a></div>
+        <div class="gis-counters" role="group" aria-label="Contadores operativos">
+          <div class="counter counter-active"><i class="dot"></i><span data-i18n="cActive">Activos</span><strong id="countActive">—</strong></div>
+          <div class="counter counter-risk"><i class="dot"></i><span data-i18n="cRisk">En riesgo</span><strong id="countRisk">—</strong><small data-i18n="cRiskUnit">núcleos</small></div>
+          <div class="counter counter-controlled"><i class="dot"></i><span data-i18n="cControlled">Controlados</span><strong id="countControlled">—</strong></div>
+        </div>
+        <div class="gis-weather" role="group" aria-label="Meteorología">
+          <div><span data-i18n="wxWind">Viento</span><strong id="wxWind">—</strong></div>
+          <div><span data-i18n="wxTemp">Temperatura</span><strong id="wxTemp">—</strong></div>
+          <div><span data-i18n="wxHumidity">Humedad</span><strong id="wxHumidity">—</strong></div>
+        </div>
       </div>
-      <div class="gis-updated"><span data-i18n="lastUpdate">Última actualización</span><strong id="updatedAt">—</strong></div>
     </header>
     <div class="gis-stage" id="gisStage">
       <div class="gis-map" id="gisMap" aria-label="Mapa de incendios forestales de España"></div>
