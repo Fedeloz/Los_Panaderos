@@ -58,3 +58,13 @@ final result: passed
 User refinement: smaller labels outside the central map, dark background and lighter current sensor coverage. District cards reduced from 236×65 to 176×35 logical pixels and docked along the upper left/right margins. District names remain small inside their polygons. Current shared observations reveal the terrain through an otherwise dark overlay; stale/unseen areas stay dim. This uses each frame's observation timestamps, not hidden fire state. Town centre label offset prevents overlap with the station vehicle labels.
 
 Evidence: `.runtime/compact-ui/compact-map-implemented.png`, `compact-desktop.png`, `compact-mobile.png`. Viewports and canvas density match prior checks. Browser checks cover all five population states and correct refuge arrivals; no runtime errors or mobile horizontal overflow. JS syntax/whitespace checks pass. No physics or workflow changes, so Python tests were not repeated for this visual refinement.
+
+## Neighbourhood layout refinement
+
+final result: passed
+
+User requested housing/street-shaped neighbourhoods instead of North/Centre/South bands. Four irregular, nonoverlapping polygons now represent schematic Casco Histórico, Prado Alto, Prado Nuevo and Valle de los Rosales. Rosales uses the detached residential cluster; other boundaries trace illustrated street turns and housing edges. Four town groups sum to 11,261; farm remains one assumed group of 100. Actual geographical neighbourhood boundaries/positions are not claimed. Metadata map_label positions replace hardcoded label offsets.
+
+Evidence: `.runtime/neighbourhood-ui/neighbourhood-map.png`, `neighbourhood-desktop.png`, `neighbourhood-mobile.png`; same viewport/density as previous iteration. First capture found Rosales' in-map text overlapping its docked card and the town-refuge caption crowding the fourth card. Labels inside the summary dock are now suppressed and the refuge caption is placed below its marker. Revised capture resolves both P2 findings. Compact typography, distinct pastel boundaries, dark unseen terrain and bright current observations remain unchanged; source/copy stays qualified as schematic allocation.
+
+68 Python tests pass, including nonoverlapping polygon interiors and explicit Rosales evacuation. Browser verifies five population states, refuge arrival totals, no runtime errors and no horizontal overflow. JavaScript syntax and whitespace checks pass. No platform calls triggered for these checks. Retained integration IDs for the original groups; current districts payload exposes all five groups and explicitly overrides older enumerations.

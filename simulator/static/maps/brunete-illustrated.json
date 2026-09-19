@@ -1,14 +1,14 @@
 {
   "id": "brunete-illustrated-v1",
-  "name": "Brunete \u00b7 illustrated district scenario",
+  "name": "Brunete · illustrated district scenario",
   "image": "/maps/brunete-illustrated.png",
   "width": 80,
   "height": 56,
   "meters_per_cell_approx": 48,
-  "attribution": "AI-assisted illustration adapted from the approved concept using PNOA imagery as a reference. Original reference: PNOA m\u00e1xima actualidad \u00b7 CC BY 4.0 scne.es; illustration, crop and schematic overlays modified.",
+  "attribution": "AI-assisted illustration adapted from the approved concept using PNOA imagery as a reference. Original reference: PNOA máxima actualidad · CC BY 4.0 scne.es; illustration, crop and schematic overlays modified.",
   "town": [
-    10,
-    35
+    5,
+    33
   ],
   "base": [
     12,
@@ -22,7 +22,7 @@
     76,
     41
   ],
-  "notes": "Illustrated demo geography, not georeferenced aerial imagery. Distance scale is a simulation convention. Official municipal population is allocated across three fictional response districts, not official census boundaries. Farm occupancy is a separate scenario assumption, not a census figure.",
+  "notes": "Illustrated demo geography, not georeferenced aerial imagery. Four neighbourhood-inspired response areas follow the illustrated housing clusters and streets; actual neighbourhood positions and boundaries are not reproduced. Names refer to Brunete areas but population allocations and placements are schematic. Distance scale is a simulation convention. Farm occupancy is assumed.",
   "map_style": "illustrated",
   "refuges": {
     "town": [
@@ -40,24 +40,24 @@
     "reference_year": 2025,
     "source_url": "https://brunete.org/nuestro-pueblo/datos-estadisticos/",
     "cross_check_url": "https://gestiona.comunidad.madrid/desvan/desvan/AccionDatosUnaSerie.icm?codMun=0262&codTema=1929381",
-    "allocation": "Scenario allocation of the whole municipal total into North 25%, Centre 40%, South 35%, rounded with remainder assigned to South. Not observed district counts; the illustrated footprint is schematic. Farm occupants are an additional scenario group and are not added to the official census total.",
+    "allocation": "Scenario allocation of the municipal total across Casco Histórico 3942 (35%), Prado Alto 2815 (25%), Prado Nuevo 3378 (30%), Valle de los Rosales 1126 (10%). Counts and illustrated footprints are estimated demo allocations, not measured neighbourhood census data or official boundaries. Farm occupancy is additional and assumed.",
     "farm_occupancy": {
-      "count": 6,
-      "basis": "Unverified demo occupancy, retained from previous scenario; not permanent population or published capacity.",
+      "count": 100,
+      "basis": "Assumed demo occupancy of visitors and staff; not verified resident population or published capacity.",
       "source_checked": "https://www.granjaelalamo.es/albergue"
     }
   },
   "observation_zones": [
     {
-      "id": "town_north",
+      "id": "town",
       "kind": "town",
-      "name": "Brunete North",
-      "short_name": "NORTH",
-      "population": 2815,
-      "population_basis": "Estimated allocation: 25% of municipal census",
+      "name": "Casco Histórico",
+      "short_name": "CASCO",
+      "population": 3942,
+      "population_basis": "Estimated scenario allocation, not measured neighbourhood population",
       "anchor": [
-        8,
-        27
+        5,
+        33
       ],
       "refuge": [
         5,
@@ -66,49 +66,100 @@
       "polygon": [
         [
           0,
-          22
+          23
         ],
         [
-          5,
+          4,
           24
+        ],
+        [
+          8,
+          29
+        ],
+        [
+          12,
+          35
         ],
         [
           9,
-          22
-        ],
-        [
-          14,
-          24
-        ],
-        [
-          21,
-          28
-        ],
-        [
-          23,
-          32
+          39
         ],
         [
           0,
-          32
+          40
         ]
       ],
-      "population_label": [
-        27,
-        24
+      "map_label": [
+        5,
+        36
       ],
-      "color": "#a7caf2"
+      "color": "#9bc4ef"
     },
     {
-      "id": "town",
+      "id": "town_north",
       "kind": "town",
-      "name": "Brunete Centre",
-      "short_name": "CENTRE",
-      "population": 4504,
-      "population_basis": "Estimated allocation: 40% of municipal census",
+      "name": "Prado Alto",
+      "short_name": "PRADO ALTO",
+      "population": 2815,
+      "population_basis": "Estimated scenario allocation, not measured neighbourhood population",
       "anchor": [
-        10,
-        35
+        15,
+        30
+      ],
+      "refuge": [
+        5,
+        22
+      ],
+      "polygon": [
+        [
+          4,
+          24
+        ],
+        [
+          10,
+          23
+        ],
+        [
+          17,
+          27
+        ],
+        [
+          22,
+          31
+        ],
+        [
+          25,
+          36
+        ],
+        [
+          20,
+          37
+        ],
+        [
+          12,
+          35
+        ],
+        [
+          8,
+          29
+        ]
+      ],
+      "map_label": [
+        17,
+        30
+      ],
+      "color": "#a7caa0"
+    },
+    {
+      "id": "town_south",
+      "kind": "town",
+      "name": "Prado Nuevo",
+      "short_name": "PRADO NUEVO",
+      "population": 3378,
+      "population_basis": "Estimated scenario allocation, not measured neighbourhood population",
+      "anchor": [
+        13,
+        44
       ],
       "refuge": [
         5,
@@ -117,14 +168,22 @@
       "polygon": [
         [
           0,
-          32
+          40
         ],
         [
-          23,
-          32
+          9,
+          39
         ],
         [
-          26,
+          12,
+          35
+        ],
+        [
+          20,
+          37
+        ],
+        [
+          25,
           36
         ],
         [
@@ -132,26 +191,42 @@
           41
         ],
         [
+          22,
+          45
+        ],
+        [
+          13,
+          48
+        ],
+        [
+          9,
+          50
+        ],
+        [
+          4,
+          46
+        ],
+        [
           0,
-          41
+          43
         ]
       ],
-      "population_label": [
-        28,
-        34
-      ],
-      "color": "#7facdf"
-    },
-    {
-      "id": "town_south",
-      "kind": "town",
-      "name": "Brunete South",
-      "short_name": "SOUTH",
-      "population": 3942,
-      "population_basis": "Estimated allocation: remaining 35% of municipal census",
-      "anchor": [
+      "map_label": [
         12,
         45
+      ],
+      "color": "#c4b2df"
+    },
+    {
+      "id": "town_rosales",
+      "kind": "town",
+      "name": "Valle de los Rosales",
+      "short_name": "ROSALES",
+      "population": 1126,
+      "population_basis": "Estimated scenario allocation, not measured neighbourhood population",
+      "anchor": [
+        3,
+        16
       ],
       "refuge": [
         5,
@@ -160,46 +235,46 @@
       "polygon": [
         [
           0,
-          41
+          15
         ],
         [
-          25,
-          41
+          2,
+          13
         ],
         [
-          23,
-          45
+          4,
+          11
         ],
         [
-          15,
-          47
+          6,
+          14
         ],
         [
-          10,
-          50
+          7,
+          16
         ],
         [
           5,
-          47
+          18
         ],
         [
           0,
-          44
+          20
         ]
       ],
-      "population_label": [
-        27,
-        44
+      "map_label": [
+        6,
+        19
       ],
-      "color": "#79b5c4"
+      "color": "#86c9c7"
     },
     {
       "id": "farm",
       "kind": "farm",
-      "name": "El \u00c1lamo Farm",
+      "name": "El Álamo Farm",
       "short_name": "FARM",
-      "population": 6,
-      "population_basis": "Scenario occupancy; not verified population",
+      "population": 100,
+      "population_basis": "Assumed demo occupancy: 100 visitors and staff; not verified population",
       "anchor": [
         73,
         21
@@ -1872,5 +1947,9 @@
     ]
   ],
   "road_source": "Schematic road centre lines registered to the illustrated grid.",
-  "reference_image_source": "https://pnoa.ign.es/pnoa-imagen/ortofotos-pnoa-maxima-actualidad"
+  "reference_image_source": "https://pnoa.ign.es/pnoa-imagen/ortofotos-pnoa-maxima-actualidad",
+  "neighbourhood_sources": [
+    "https://origin-www.bocm.es/boletin/CM_Orden_BOCM/2014/04/16/BOCM-20140416-40.PDF",
+    "https://brunetehistoriayvida.es/tercera-fase/"
+  ]
 }

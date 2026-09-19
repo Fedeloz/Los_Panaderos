@@ -8,10 +8,10 @@ from simulator.terrain import inside_polygon
 class DistrictTests(unittest.TestCase):
     def test_population_allocation_and_single_farm(self):
         s=Simulation();town=[g for g in s.groups.values() if g['kind']=='town']
-        self.assertEqual(len(town),3)
+        self.assertEqual(len(town),4)
         self.assertEqual(sum(g['count'] for g in town),11261)
         self.assertEqual(len([g for g in s.groups.values() if g['kind']=='farm']),1)
-        self.assertEqual(s.groups['farm']['count'],6)
+        self.assertEqual(s.groups['farm']['count'],100)
         for zone in GEOGRAPHY['observation_zones']:
             self.assertTrue(inside_polygon(*zone['anchor'],zone['polygon']),zone['id'])
             self.assertEqual(s.groups[zone['id']]['count'],zone['population'])
@@ -38,7 +38,7 @@ class DistrictTests(unittest.TestCase):
 
     def test_all_districts_warn_independently(self):
         s=Simulation()
-        for key in ('town_north','town','town_south','farm'):
+        for key in ('town_north','town','town_south','town_rosales','farm'):
             g=s.groups[key];x,y=g['home'];s.drone.update(x=x,y=y)
             decision=dict(command='evacuate_farm' if key=='farm' else 'evacuate_town',district_id=key,target_x=x,target_y=y)
             s.apply(decision,key,s.incident_id,s.tick);s.step()
@@ -77,6 +77,17 @@ class DistrictTests(unittest.TestCase):
         s=Simulation();g=s.groups['town_south'];x,y=g['home']
         s.cells[y][x].update(heat=1.,fuel=1.)
         s.update_people_exposure();s.update_people_exposure()
-        self.assertEqual(s.state()['burnt_people'],3942)
+        self.assertEqual(s.state()['burnt_people'],3378)
         self.assertEqual(s.groups['town_north']['status'],'unwarned')
         self.assertEqual(s.groups['town']['status'],'unwarned')
+
+    def test_neighbourhood_boundaries_do_not_overlap(self):
+        zones=[z for z in GEOGRAPHY['observation_zones'] if z['kind']=='town']
+        for y in range(56):
+            for x in range(80):
+                matches=[z['id'] for z in zones if inside_polygon(x+.37,y+.41,z['polygon'])]
+                self.assertLessEqual(len(matches),1,(x,y,matches))
+        s=Simulation();g=s.groups['town_rosales'];x,y=g['home']
+        result=s.apply(dict(command='evacuate_town',district_id='town_rosales',target_x=x,target_y=y),'rosales',s.incident_id,0)
+        self.assertEqual(result['target'],[x,y])
+        self.assertEqual(result['district_id'],'town_rosales')

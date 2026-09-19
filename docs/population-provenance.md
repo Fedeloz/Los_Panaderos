@@ -10,17 +10,20 @@ Verified on 19 September 2026:
 
 | District ID | Display name | Count | Basis |
 |---|---|---:|---|
-| town_north | Brunete North | 2,815 | 25% allocation, rounded |
-| town | Brunete Centre | 4,504 | 40% allocation, rounded |
-| town_south | Brunete South | 3,942 | Remaining municipal total, approximately 35% |
-| farm | El Álamo Farm | 6 | Assumed on-site demo occupancy |
+| town | Casco Histórico | 3,942 | 35% scenario allocation |
+| town_north | Prado Alto | 2,815 | 25% scenario allocation |
+| town_south | Prado Nuevo | 3,378 | 30% scenario allocation |
+| town_rosales | Valle de los Rosales | 1,126 | 10% scenario allocation |
+| farm | El Álamo Farm | 100 | Assumed visitors and staff |
 
-The three town counts sum to **11,261**. District boundaries and names are fictional response sectors; their counts are scenario allocations, not official census-section counts. No verified spatial distribution was found for these invented districts. The whole municipal population is concentrated into the schematic town for the demonstration. Farm occupants are a separate scenario group, not a revision to the official census number; total simulated people are 11,267.
+The four town counts sum to **11,261**. The names are inspired by Brunete neighbourhoods; their placement and street-following polygons belong to the illustration and are not real administrative boundaries. Their counts are scenario allocations, not official census-section counts. No verified population distribution is asserted for these sectors. The whole municipal population is concentrated into the schematic town for the demonstration. Farm occupants are a separate scenario group, not a revision to the official census number; total simulated people are 11,361.
 
-[Granja Escuela El Álamo's own accommodation page](https://www.granjaelalamo.es/albergue) describes group lodging but does not establish current occupancy or permanent population. Six is retained from the existing scenario and is explicitly marked assumed, not presented as a sourced farm population or capacity.
+[Granja Escuela El Álamo's own accommodation page](https://www.granjaelalamo.es/albergue) describes group lodging but does not establish current occupancy or permanent population. The demo uses 100 visitors and staff, explicitly marked assumed, not presented as a sourced farm population or capacity.
 
 ## Map and model
 
 The clean illustrated asset is an image-generation edit of the user-approved map concept. Original aerial reference: PNOA máxima actualidad, CC BY 4.0 scne.es; the image, framing and overlays have been modified. The illustrated map is not georeferenced. Roads, land-cover polygons, population anchors and refuges are registered schematically to the illustration. Each district is a single moving population group in the existing demo physics. House drawings are orientation details, not a household census.
 
 Authoritative local scenario configuration: `simulator/static/maps/brunete-illustrated.json`.
+
+Neighbourhood naming: [BOCM, 16 April 2014, p. 204](https://origin-www.bocm.es/boletin/CM_Orden_BOCM/2014/04/16/BOCM-20140416-40.PDF) lists Brunete's Prado Alto, Prado Nuevo and Valle Los Rosales urbanisations. [Brunete, Historia y Vida](https://brunetehistoriayvida.es/tercera-fase/) describes the casco histórico. These sources establish names, not this illustration's geometry or allocated counts. Original IDs town_north/town_south are retained for existing integration compatibility; human-facing names come from the current district metadata.

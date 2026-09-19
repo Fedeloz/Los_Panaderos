@@ -163,12 +163,12 @@ class PhysicsTests(unittest.TestCase):
             s=Simulation();g=s.groups['farm'];g['status']=status
             s.cells[s.farm[1]][s.farm[0]]['heat']=1
             s.step()
-            self.assertEqual((g['burnt'],g['status']),(6,'burnt'))
+            self.assertEqual((g['burnt'],g['status']),(100,'burnt'))
             frame=s.state()
             s.step(3)
             self.assertEqual((g['x'],g['y']),s.farm)
-            self.assertEqual(s.state()['burnt_people'],6)
-            self.assertEqual(frame['people']['farm']['burnt'],6)
+            self.assertEqual(s.state()['burnt_people'],100)
+            self.assertEqual(frame['people']['farm']['burnt'],100)
             self.assertEqual(sum('people burnt' in e['message'] for e in s.history),1)
         fresh=Simulation()
         self.assertEqual(fresh.state()['burnt_people'],0)
@@ -177,7 +177,7 @@ class PhysicsTests(unittest.TestCase):
         s=Simulation();s.ignite();s.set_wind('west')
         self.assertFalse(any(g['measurements'] for g in s.population_wind_alignment().values()))
         s.farmer_call()
-        for wind,expected in [((-3,0),['town_north','town','town_south']),((0,-3),['farm']),((3,0),[]),((0,0),[])]:
+        for wind,expected in [((-3,0),['town','town_north','town_south','town_rosales']),((0,-3),['farm']),((3,0),[]),((0,0),[])]:
             s.set_wind(x=wind[0],y=wind[1])
             alignment=s.population_wind_alignment()
             self.assertEqual([name for name,g in alignment.items() if g['downwind_sector']],

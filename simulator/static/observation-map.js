@@ -43,6 +43,7 @@ window.ObservationMap = (() => {
     c.save();
     const statusLabels={unwarned:'Unwarned',evacuating:'Evacuating',blocked:'Route blocked',safe:'Safe',burnt:'Burnt'};
     let townIndex=0;
+    const townCount=s.geography.observation_zones.filter(z=>z.kind==='town').length;
     for(const zone of s.geography.observation_zones){
       const g=s.people?.[zone.id||zone.kind];if(!g)continue;
       const color=zone.color||palette[zone.kind],width=176;
@@ -56,9 +57,9 @@ window.ObservationMap = (() => {
       c.fillText(`${g.count.toLocaleString('en-US')} · ${statusLabels[g.status]||g.status}`,x+31,y+27);
       if(zone.anchor){
         c.font='700 9px system-ui';c.fillStyle=color;
-        const labelX=zone.id==='town'?zone.anchor[0]+9:zone.anchor[0];
-        const labelY=zone.id==='town'?zone.anchor[1]+4:zone.anchor[1];
-        c.fillText(zone.short_name||zone.kind.toUpperCase(),labelX*Z+8,labelY*Z-9);
+        const [labelX,labelY]=zone.map_label||zone.anchor;
+        const lx=labelX*Z+8,ly=labelY*Z-9;
+        if(!(lx<236&&lx+100>60&&ly>33&&ly<43+townCount*42))c.fillText(zone.short_name||zone.kind.toUpperCase(),lx,ly);
       }
       // Cards identify the home zone; this marker follows the group on evacuation.
       if(g.status==='evacuating'||g.status==='blocked'){
@@ -81,7 +82,8 @@ window.ObservationMap = (() => {
       const x=r.position[0]*Z+5,y=r.position[1]*Z+5;
       c.strokeStyle=palette.refuge;c.fillStyle='#153c31';c.lineWidth=2.5;
       c.beginPath();c.moveTo(x,y-8);c.lineTo(x+8,y);c.lineTo(x,y+8);c.lineTo(x-8,y);c.closePath();c.fill();c.stroke();
-      tag(c,x+15,y-12,`${r.kind==='town'?'Town':'Farm'} refuge · ${r.arrived.toLocaleString('en-US')} arrived`,palette.refuge);
+      const tagY=r.kind==='town'&&y-24<43+townCount*42?y+22:y-12;
+      tag(c,x+15,tagY,`${r.kind==='town'?'Town':'Farm'} refuge · ${r.arrived.toLocaleString('en-US')} arrived`,palette.refuge);
     }
     c.restore();
   }
