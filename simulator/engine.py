@@ -87,9 +87,9 @@ class Simulation:
         if any(type(n) is not int or not 0<=n<=3 for n in (scouts,extinguishers,trucks)) or scouts+extinguishers+trucks==0:
             raise ValueError('Choose 0–3 of each vehicle, with at least one vehicle overall.')
         self.scouts=[dict(drone_id=f'scout-{i+1}',role='scout',x=float(self.base[0]),y=float(self.base[1]),
-            mode='hold',status='at_station',target=None,waypoints=[],route=[],sensor_radius=16,
+            mode='hold',status='at_station',target=None,waypoints=[],route=[],sensor_radius=self.sensor_radius,
             capabilities=['patrol','report','evacuate_town','evacuate_farm']) for i in range(scouts)]
-        def drone(i):return dict(drone_id=f'drone-{i+1}',role='extinguisher',x=float(self.base[0]),y=float(self.base[1]),status='at_station',target=None,mode='hold')
+        def drone(i):return dict(drone_id=f'drone-{i+1}',name='Squirtle' if i==0 else f'Drone {i+1}',role='extinguisher',x=float(self.base[0]),y=float(self.base[1]),status='at_station',target=None,mode='hold')
         def truck(i):return dict(truck_id=f'engine-{i+1}',role='truck',x=float(self.base[0]),y=float(self.base[1]),status='at_station',target=None,route=[],mobilized_at=None,observed_fire=[],drone_order=None,crew_target=None,crew_due=None)
         self.extinguishers=[drone(i) for i in range(extinguishers)]
         self.trucks=[truck(i) for i in range(trucks)]
@@ -564,7 +564,7 @@ class Simulation:
 
     def observe(self):
         current={}
-        for source,vehicle,radius in [(d['drone_id'],d,self.sensor_radius) for d in self.extinguishers]+[(t['truck_id'],t,self.truck_sensor_radius) for t in self.trucks]+[(d['drone_id'],d,16) for d in self.scouts]:
+        for source,vehicle,radius in [(d['drone_id'],d,self.sensor_radius) for d in self.extinguishers]+[(t['truck_id'],t,self.truck_sensor_radius) for t in self.trucks]+[(d['drone_id'],d,self.sensor_radius) for d in self.scouts]:
             own=[]
             for y in range(max(0,int(vehicle['y'])-radius),min(self.height,int(vehicle['y'])+radius+1)):
                 for x in range(max(0,int(vehicle['x'])-radius),min(self.width,int(vehicle['x'])+radius+1)):
@@ -675,7 +675,7 @@ class Simulation:
             firefighters_eta=max(0,self.crew_due-self.tick) if self.crew_due else None,
             mission=self.mission,last_action_result=self.last_result,
             fleet=[self.telemetry(d) for d in self.extinguishers]+self.scout_telemetry(),fleet_counts=self.fleet_counts(),scout_reports=self.scout_reports,
-            fleet_policy='Use fleet and fire_trucks as the exact available inventory; any role can have zero to three vehicles. Assign every listed ID, never invent absent resources. Scouts patrol agent-selected waypoints, can deliver district evacuation warnings but cannot suppress, and report separate observed fires. Prioritize each observed focus by population exposure and wind, not discovery order. Hidden ignitions are never included.',
+            fleet_policy='RAPID PAIRED RESPONSE: drone-1 is named Squirtle (keep drone_id unchanged in commands). Scouts and extinguishers both observe radius 12; current telemetry overrides older prompt range claims. After a credible smoke/fire warning, when a scout and an extinguisher are available, normally dispatch BOTH in the same response toward safe approaches to the reported focus. Do not hold Squirtle at base waiting for the scout to arrive. Scout reconnoiters and reports; Squirtle approaches alongside on a complementary safe flank, then starts containment at the next decision as soon as confirmed fire and a validated safe containment position exist. For unconfirmed smoke use scout movement for Squirtle, not blind suppression. Urgent district warnings, unsafe approaches, or higher-priority existing missions override pairing; explain any exception. Maintain three-cell clearance and prioritize the downwind front. Use fleet and fire_trucks as the exact available inventory; any role can have zero to three vehicles. Assign every listed ID, never invent absent resources. Scouts patrol agent-selected waypoints, can deliver district evacuation warnings but cannot suppress, and report separate observed fires. Prioritize each observed focus by population exposure and wind, not discovery order. Hidden ignitions are never included.',
             mission_context=self.mission_context(),known_map=self.known_map(),smoke_scout_positions=self.smoke_scout_positions(),
             memory=[e for e in self.history if e['source']!='simulation'][-8:])
         return dict(event_id=str(uuid.uuid4()),event_type=event_type,incident_id=self.incident_id,sim_time=str(self.tick),

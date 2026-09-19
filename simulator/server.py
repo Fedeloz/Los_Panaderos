@@ -250,9 +250,9 @@ def serve(port=8765):
                 self.reply(200,dict(format='los-panaderos-recording-v1',frames=frames))
             elif path == '/api/state':
                 self.reply(200, controller.state())
-            elif path in {'/', '/app.js', '/observation-map.js', '/vendor/bootstrap-icons.js', '/style.css', '/maps/brunete.jpg', '/maps/brunete-illustrated.png'}:
+            elif path in {'/', '/app.js', '/observation-map.js', '/vendor/bootstrap-icons.js', '/style.css', '/flamethrower-cursor.svg', '/maps/brunete.jpg', '/maps/brunete-illustrated.png'}:
                 name = 'index.html' if path == '/' else path[1:]
-                types = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.jpg':'image/jpeg', '.png':'image/png'}
+                types = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.jpg':'image/jpeg', '.png':'image/png', '.svg':'image/svg+xml'}
                 file = static/name
                 self.reply(200, file.read_bytes(), types[file.suffix])
             else:

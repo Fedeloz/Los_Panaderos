@@ -26,3 +26,5 @@
 .run-controls{min-width:0}.control-group{margin:0;padding:12px 0;border-bottom:1px solid var(--line)}.control-group:first-child{padding-top:0}.control-label{flex-basis:100%;font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px}.control-group .quiet{margin-left:0}
 #addFire{border-color:#c98249;background:#fff0df}#addFire[aria-pressed="true"]{background:#a7431d;color:white;border-color:#a7431d}button:focus-visible,select:focus-visible{outline:3px solid #80a990;outline-offset:2px}
 @media(max-width:700px){.control-deck{grid-template-columns:1fr;gap:12px}.control-group{gap:6px}.control-group button{flex-grow:1}}
+
+#truth.fire-placement{cursor:url("/flamethrower-cursor.svg") 5 5,crosshair}

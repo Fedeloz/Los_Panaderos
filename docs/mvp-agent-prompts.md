@@ -151,3 +151,6 @@ Central mission: {{ index . "01a0ba8f-2bf4-7d45-9e64-967795228b75.mission" }}
 Situation: {{ index . "01a0b8eb-f961-7dc3-aa40-fc5563ae8a8e.world_state" }}
 Event: {{ index . "01a0b8eb-f961-7dc3-aa40-fc5563ae8a8e.event_type" }}
 STOP: after the first successful report_scout_plan, end the conversation immediately.
+## Current runtime fleet policy
+
+Central receives a rapid paired-response policy in `world_state.fleet_policy` on every decision: dispatch an available scout and Squirtle together after a credible warning, using complementary safe approaches. Squirtle investigates unconfirmed smoke, then contains confirmed fire from a validated position on the next decision. Urgent evacuation and higher-priority commitments override pairing. Both drone roles now observe radius 12; telemetry overrides older static range descriptions. Squirtle retains command ID `drone-1`.
