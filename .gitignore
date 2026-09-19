@@ -1,0 +1,7 @@
+.cursor/
+*.mcpb
+__pycache__/
+.venv/
+.env
+.runtime/
+*.pyc

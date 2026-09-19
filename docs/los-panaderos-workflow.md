@@ -1,3 +1,5 @@
+> Historical v1 design. For the current nested central/drone demo, see [README](../README.md) and [installed prompts](mvp-agent-prompts.md).
+
 # Los Panaderos — Agentic Fire Response Workflow
 
 **Platform:** [HappyRobot EU](https://platform.eu.happyrobot.ai/hackspainteam9)  
