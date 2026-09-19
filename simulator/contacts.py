@@ -55,9 +55,28 @@ def _zone_chat(key):
     return _env(key) or DEFAULT_ZONE_CHAT_ID
 
 
+# Demo muster points, one per district. Every cell is a road cell (fuel 0) that fire cannot
+# reach in the simulation; `safe_because` is that physical reason in plain Spanish, so the
+# agent can say it out loud instead of only naming a place. Facility names are real Brunete
+# municipal facilities (see docs/population-provenance.md); placing each one in a given
+# district of this illustration is a scenario convention, not a georeferenced location.
 REFUGES = {
-    (5, 22): dict(name='Polideportivo municipal de Brunete', route='Salir hacia el oeste por la Calle Real y la M-600 hasta el polideportivo; evitar los caminos de las eras al este.'),
-    (60, 12): dict(name='Aparcamiento de la carretera M-600 (norte de la granja)', route='Salir de la granja hacia el norte por la pista principal hasta el aparcamiento de la M-600; no cruzar los campos hacia el sur.'),
+    (5, 30): dict(name='Polideportivo Municipal José Ramón de la Morena, en la Calle Estudiantes 1',
+                  route='Salir del casco por la Calle Real hacia la Calle Estudiantes; el polideportivo y el instituto comparten la explanada de acceso. No bajar hacia las eras del este.',
+                  safe_because='Las pistas y el aparcamiento son hormigón y asfalto sin vegetación: el fuego no puede llegar hasta allí.'),
+    (17, 30): dict(name='patio del Colegio Público Ágora, en la Calle Miguel Induráin',
+                   route='Salir de Prado Alto hacia el este por la Calle Murillo hasta el colegio; el patio y el aparcamiento quedan abiertos. No tomar los caminos que bajan al sureste.',
+                   safe_because='El patio del colegio es solado y está separado del campo por la propia calle, así que el fuego no puede alcanzarlo.'),
+    (15, 44): dict(name='Estadio Municipal Los Arcos, en la Calle Arcos esquina con Madrid',
+                   route='Salir de Prado Nuevo por la Calle Arcos hacia el este hasta el estadio; hay sitio de sobra en el campo y en la pista. No cruzar los campos del sur.',
+                   safe_because='El estadio es una superficie abierta y despejada rodeada de calle asfaltada: el fuego no tiene por dónde entrar.'),
+    (6, 16): dict(name='explanada de la carretera del Valle de los Rosales, a la salida de la urbanización',
+                  route='Salir de la urbanización por la carretera del Valle de los Rosales en dirección este hasta la explanada del kilómetro 0,4. No tomar los caminos del norte.',
+                  safe_because='La explanada es firme de tierra y asfalto sin vegetación alrededor, y es la única salida rodada de la urbanización.'),
+    (60, 26): dict(name='Cruce de la Dehesa, la explanada del camino de la M-600 al suroeste de la granja',
+                   route='Salir de la granja por la pista principal hacia el suroeste y seguir el camino unos 700 metros hasta la explanada del cruce; no cruzar los campos hacia el sur ni hacia el este.',
+                   safe_because='El cruce es camino y tierra apisonada, sin vegetación alrededor: el fuego no puede llegar hasta allí.',
+                   rescue='Es el mismo camino por el que sube la dotación desde el parque de bomberos. Espere en la explanada, a la vista del camino y con el grupo reunido, y el camión le recogerá al pasar.'),
 }
 
 CHANNELS = dict(
@@ -96,16 +115,22 @@ def directory(groups=None):
                               population=group.get('count'), status=group.get('status'),
                               chat_id=_zone_chat(channel['env']), channel_name=channel['channel_name'],
                               evacuation_point=refuge.get('name'), evacuation_route=refuge.get('route'),
+                              evacuation_point_is_safe_because=refuge.get('safe_because'), rescue_plan=refuge.get('rescue'),
                               refuge_cell=group.get('refuge')))
     persons = people()
     for person in persons:
         refuge = REFUGES.get(tuple(groups.get(person['district_id'], {}).get('refuge', ())), {})
-        person.update(evacuation_point=refuge.get('name'), evacuation_route=refuge.get('route'))
+        person.update(evacuation_point=refuge.get('name'), evacuation_route=refuge.get('route'),
+                      evacuation_point_is_safe_because=refuge.get('safe_because'), rescue_plan=refuge.get('rescue'))
     missing = [f"{p['contact_id']}.{field}" for p in persons for field in ('phone_number', 'chat_id') if not p[field]]
     return dict(
         people=persons, districts=districts,
         emergency=dict(agency='Centro de coordinación Los Panaderos', contact_phone=_env('contact_phone')),
         policy=('Only call phone_number values listed in people — never invent phones. '
+                'INBOUND CALLS: the demo handset is shared by several personas, so the caller ID proves nothing. '
+                'Ask the caller for their name and the town or neighbourhood they are calling from BEFORE looking '
+                'anything up, and query /lookup with name and district_id. A caller who is not in people is a '
+                'normal unknown resident: answer for their district, never greet them as a listed persona. '
                 'If two people share the same phone_number (demo handset), call once: pick the person whose district is in greater danger. District Telegram channels '
                 'are the DEMO_*_CHAT_ID env values, or the shared demo destination used by Mensajes externos when '
                 'those env vars are empty. Zone alerts (alertar_zona) may always fire: pass the district chat_id, '

@@ -48,11 +48,14 @@ def danger_level(group, measurements, confirmed, wind_strength):
     return level
 
 
-def district_advice(name, level, point, route):
+def district_advice(name, level, point, route, safe_because='', rescue=''):
+    # `safe_because` and `rescue` let the agent say WHY the muster point is safe and that the
+    # engine is coming for them, instead of only naming a place on a map.
+    extra = ' '.join(x for x in (safe_because, rescue) if x)
     if level == 'critical':
-        return f'{name}: peligro inminente por el incendio. Salga ahora hacia {point or "el punto de encuentro indicado"}. {route or ""}'.strip()
+        return f'{name}: peligro inminente por el incendio. Salga ahora hacia {point or "el punto de encuentro indicado"}. {route or ""} {extra}'.strip()
     if level == 'warning':
-        return f'{name}: aviso de evacuacion preventiva. Prepare a su familia y dirijase a {point or "el punto de encuentro"}. {route or ""}'.strip()
+        return f'{name}: aviso de evacuacion preventiva. Prepare a su familia y dirijase a {point or "el punto de encuentro"}. {route or ""} {extra}'.strip()
     if level == 'watch':
         return f'{name}: no hay peligro ahora mismo. Los equipos vigilan la evolucion del fuego; le avisaremos si cambia. Mantenga el telefono cerca.'
     return f'{name}: fuera de la zona afectada. Las autoridades estan trabajando para controlar la situacion; no necesita hacer nada y le contactaremos si algo cambia.'
@@ -74,7 +77,9 @@ def build_state(sim, dispatch=None, communications=None):
         districts.append(dict(district_id=key, name=g['name'], kind=g['kind'], population=g['count'], burnt=g.get('burnt', 0),
                               status=g['status'], auto_danger_level=level, home=list(g['home']), refuge=list(g['refuge']),
                               chat_id=ch.get('chat_id'), evacuation_point=ch.get('evacuation_point'), evacuation_route=ch.get('evacuation_route'),
-                              auto_advice=district_advice(g['name'], level, ch.get('evacuation_point'), ch.get('evacuation_route'))))
+                              evacuation_point_is_safe_because=ch.get('evacuation_point_is_safe_because'), rescue_plan=ch.get('rescue_plan'),
+                              auto_advice=district_advice(g['name'], level, ch.get('evacuation_point'), ch.get('evacuation_route'),
+                                                          ch.get('evacuation_point_is_safe_because') or '', ch.get('rescue_plan') or '')))
     worst = max((d['auto_danger_level'] for d in districts), key=LEVELS.index, default='none')
     burning = [dict(x=c['x'], y=c['y']) for c in sim.observation]
     front = 'Sin fuego confirmado por sensores' if not burning else f'{len(burning)} celdas ardiendo observadas; viento hacia ({sim.wind[0]}, {sim.wind[1]})'

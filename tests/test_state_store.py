@@ -45,7 +45,10 @@ class BuildStateTests(unittest.TestCase):
         self.assertEqual({d['district_id'] for d in state['districts']}, set(s.groups))
         farm = next(d for d in state['districts'] if d['district_id'] == 'farm')
         self.assertEqual(farm['status'], 'evacuating'); self.assertIn(farm['auto_danger_level'], ('warning', 'critical'))
-        self.assertIn('Aparcamiento', farm['auto_advice'])
+        self.assertIn('Cruce de la Dehesa', farm['auto_advice'])
+        self.assertIn('el fuego no puede llegar', farm['auto_advice'])
+        self.assertIn('recogerá al pasar', farm['auto_advice'])
+        self.assertTrue(farm['rescue_plan'])
         town = next(d for d in state['districts'] if d['district_id'] == 'town_rosales')
         self.assertEqual(town['auto_danger_level'], 'watch')  # downwind but ~77 cells away, unconfirmed report
         self.assertIn('fuera de peligro', town['auto_advice'].lower().replace('no hay peligro', 'fuera de peligro'))

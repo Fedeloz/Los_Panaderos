@@ -27,3 +27,29 @@ The clean illustrated asset is an image-generation edit of the user-approved map
 Authoritative local scenario configuration: `simulator/static/maps/brunete-illustrated.json`.
 
 Neighbourhood naming: [BOCM, 16 April 2014, p. 204](https://origin-www.bocm.es/boletin/CM_Orden_BOCM/2014/04/16/BOCM-20140416-40.PDF) lists Brunete's Prado Alto, Prado Nuevo and Valle Los Rosales urbanisations. [Brunete, Historia y Vida](https://brunetehistoriayvida.es/tercera-fase/) describes the casco histórico. These sources establish names, not this illustration's geometry or allocated counts. Original IDs town_north/town_south are retained for existing integration compatibility; human-facing names come from the current district metadata.
+
+## Muster points
+
+One per district, so the four town districts never converge on the same place. The facility
+names are real Brunete municipal facilities, verified on 20 September 2026:
+
+| District | Muster point | Cell | Source |
+|---|---|---|---|
+| town (Casco Histórico) | Polideportivo Municipal José Ramón de la Morena, C/ Estudiantes 1 | (5,30) | [Ayuntamiento de Brunete: teléfonos de interés](https://brunete.org/el-ayuntamiento/telefonos-de-interes/), [Concejalía de Deportes](https://brunete.org/concejalias/deportes/) |
+| town_north (Prado Alto) | Patio del Colegio Público Ágora, C/ Miguel Induráin s/n | (17,30) | [Ayuntamiento de Brunete: teléfonos de interés](https://brunete.org/el-ayuntamiento/telefonos-de-interes/) |
+| town_south (Prado Nuevo) | Estadio Municipal Los Arcos, C/ Arcos esquina con Madrid | (15,44) | [Ayuntamiento de Brunete: teléfonos de interés](https://brunete.org/el-ayuntamiento/telefonos-de-interes/) |
+| town_rosales (Valle de los Rosales) | Explanada de la carretera del Valle de los Rosales | (6,16) | [Concejalía de Deportes](https://brunete.org/concejalias/deportes/) names the Carretera del Valle de los Rosales |
+| farm (El Álamo) | Cruce de la Dehesa, explanada del camino de la M-600 | (60,26) | Invented demo landmark; no real-world claim |
+
+**These are not official evacuation points.** Brunete publishes no municipal evacuation plan
+naming assembly points, so the assignment of a facility to a district — and the cell each one
+occupies on this non-georeferenced illustration — is a scenario convention, exactly like the
+population split above. What *is* verified is that each facility exists at the address given.
+
+The cells are chosen for simulation properties, not for looks: every one is a road cell with
+`fuel` 0, so fire cannot reach it; each sits 2–3 cells from its own district anchor and at
+least 12 cells from every other muster point; and each is reachable from its anchor. The farm
+point additionally lies on the station-to-farm track the engine travels, which is what lets
+the agent promise a pick-up. Before this change all four town districts shared cell (5,22),
+which is `field` terrain with `fuel` 1.0 — 11,261 people were being sent to a cell that could
+itself burn.

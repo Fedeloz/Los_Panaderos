@@ -606,7 +606,7 @@ class CommunicationTests(unittest.TestCase):
         self.assertEqual(farm_district['chat_id'], '5916687836')  # Mensajes externos demo fallback
         self.assertNotIn('farm.chat_id', contacts['missing'])
         carmen = next(c for c in contacts['people'] if c['district_id'] == 'town_north')
-        self.assertEqual(carmen['phone_number'], '+34611'); self.assertEqual(carmen['evacuation_point'], 'Polideportivo municipal de Brunete')
+        self.assertEqual(carmen['phone_number'], '+34611'); self.assertIn('Ágora', carmen['evacuation_point'])  # Carmen vive en Prado Alto
         north = next(d for d in world['districts'] if d['district_id'] == 'town_north')
         self.assertEqual(north['chat_id'], '-100north'); self.assertEqual(north['population'], 2815)
         self.assertIn('never invent phones', contacts['policy'].lower())
@@ -687,6 +687,45 @@ class CommunicationTests(unittest.TestCase):
         self.assertEqual(unknown['effect'], 'no_recipient')
         self.assertEqual(s.groups['town']['status'], 'unwarned')
         self.assertTrue(any('reached NO district' in e['message'] for e in s.history))
+
+    def test_every_district_has_its_own_muster_point_that_cannot_burn(self):
+        s = Simulation()
+        from simulator.contacts import directory
+        contacts = {d['district_id']: d for d in directory(s.groups)['districts']}
+        self.assertEqual(set(contacts), set(s.groups))
+        cells = {}
+        for key, g in s.groups.items():
+            rx, ry = g['refuge']
+            self.assertLessEqual(s.cells[ry][rx]['fuel'], 0, f'{key}: the muster point must be a cell fire cannot reach')
+            self.assertIn((rx, ry), s.roads, f'{key}: the muster point must sit on a road')
+            self.assertIsNotNone(s.route(tuple(int(v) for v in g['home']), (rx, ry), set()), f'{key}: no route to its muster point')
+            self.assertLessEqual(math.dist(g['home'], (rx, ry)), 18, f'{key}: muster point too far from its own district')
+            self.assertTrue(contacts[key]['evacuation_point'], f'{key}: unnamed muster point')
+            self.assertTrue(contacts[key]['evacuation_route'], f'{key}: no route text')
+            self.assertTrue(contacts[key]['evacuation_point_is_safe_because'], f'{key}: unexplained safety')
+            cells[key] = (rx, ry)
+        # One point per district: 11,261 people must not converge on the same place.
+        self.assertEqual(len(set(cells.values())), len(cells), f'shared muster points: {cells}')
+        for a in cells:
+            for b in cells:
+                if a < b:
+                    self.assertGreaterEqual(math.dist(cells[a], cells[b]), 6, f'{a} and {b} muster together')
+
+    def test_farm_muster_point_is_on_the_engine_route_with_a_rescue_plan(self):
+        s = Simulation()
+        rx, ry = s.groups['farm']['refuge']
+        self.assertIn((rx, ry), s.roads, 'the refuge must sit on the road the engine travels')
+        from simulator.contacts import directory
+        contacts = directory(s.groups)
+        farm = next(d for d in contacts['districts'] if d['district_id'] == 'farm')
+        self.assertIn('Cruce de la Dehesa', farm['evacuation_point'])
+        self.assertIn('camión le recogerá', farm['rescue_plan'])
+        paco = next(p for p in contacts['people'] if p['contact_id'] == 'farm-manager')
+        self.assertEqual(paco['evacuation_point'], farm['evacuation_point'])
+        self.assertTrue(paco['rescue_plan'])
+        # Town districts walk to their own point; the pick-up line is specific to the isolated farm.
+        for key in ('town', 'town_north', 'town_south', 'town_rosales'):
+            self.assertIsNone(next(d for d in contacts['districts'] if d['district_id'] == key)['rescue_plan'])
 
     def test_dispatch_summary_logged(self):
         s = Simulation()
