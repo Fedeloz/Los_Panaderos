@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Central de operaciones · Brunete</title>
+<link rel="icon" href="/favicon.png" type="image/png">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body data-page="incidente">
@@ -71,6 +72,7 @@
     <div class="map-stage">
       <div id="globe" hidden></div>
       <canvas id="truth" width="800" height="560"></canvas>
+      <canvas id="truthOverlay" class="map-overlay" width="800" height="560" aria-hidden="true"></canvas>
       <span class="map-paused" data-i18n="mapPaused">RELOJ EN PAUSA</span>
       <span class="map-replay" data-i18n="replay">Reproducción</span>
     </div>
@@ -90,6 +92,7 @@
     <div class="maptitle"><h2 id="beliefTitle" data-i18n="belief">Lo que el sistema ve</h2><span id="beliefTag" data-i18n="beliefTag">SENSORES + SATÉLITE RETARDADO</span></div>
     <div class="map-stage">
       <canvas id="belief" width="800" height="560"></canvas>
+      <div id="beliefToasts" class="belief-toasts" aria-live="polite" aria-atomic="false"></div>
       <span class="map-paused" data-i18n="mapPaused">RELOJ EN PAUSA</span>
       <span class="map-replay" data-i18n="replay">Reproducción</span>
     </div>

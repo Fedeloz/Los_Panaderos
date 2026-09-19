@@ -729,6 +729,53 @@ class ParserTests(unittest.TestCase):
             self.assertEqual(call.call_count, 3)
             self.assertEqual(call.call_args.args[1]['output_id'], output)
 
+    def test_resultado_node_is_used_when_legacy_edge_is_missing(self):
+        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        output = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+        payload = {
+            'mission': 'Scout the smoke',
+            'drone_reason': 'Unconfirmed smoke',
+            'primary_command': 'scout',
+            'primary_district_id': '',
+            'extinguisher_orders': [{'drone_id': 'drone-1', 'command': 'scout', 'target_x': 79, 'target_y': 41, 'district_id': '', 'reason': 'Investigate'}],
+            'scout_orders': [{'drone_id': 'scout-1', 'command': 'hold', 'waypoints': [], 'district_id': '', 'reason': 'Hold'}],
+            'truck_orders': [{'truck_id': 'engine-1', 'command': 'continue', 'target_x': 0, 'target_y': 0, 'reason': 'Wait'}],
+            'truck_reason': 'Wait for confirmation',
+        }
+        answers = [
+            {'content': [{'text': f'Run ID: {run}\nStatus: completed'}]},
+            {'content': [{'text': 'No node outputs found for run.'}]},
+            {'content': [{'text': f'## Resultado\n- Output ID: {output}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:00Z'}]},
+            {'content': [{'text': 'Data: '+json.dumps(payload)}]},
+        ]
+        h = HappyRobot()
+        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=answers) as call:
+            decision, evidence = h.decide({'event_type': 'farmer_call'})
+            self.assertEqual(decision['command'], 'scout')
+            self.assertEqual(decision['target_x'], 79)
+            self.assertEqual(decision['target_y'], 41)
+            self.assertEqual(decision['reason'], 'Unconfirmed smoke')
+            self.assertEqual(call.call_count, 4)
+            self.assertEqual(call.call_args_list[1].args[1]['node_id'], '01a0bad1-9191-7f3d-8200-f4e2e34ba5a1')
+            self.assertEqual(call.call_args_list[2].args[1]['node_id'], '01a0b96a-d5b4-771c-809c-850010ddbb67')
+
+    def test_resultado_payload_normalizes_to_legacy_decision_shape(self):
+        payload = {
+            'mission': 'Investigate smoke',
+            'drone_reason': 'No confirmed fire',
+            'primary_command': 'scout',
+            'primary_district_id': '',
+            'extinguisher_orders': [{'drone_id': 'drone-1', 'command': 'scout', 'target_x': '79', 'target_y': '41', 'district_id': '', 'reason': 'Recon'}],
+            'truck_orders': [{'truck_id': 'engine-1', 'command': 'continue', 'target_x': 0, 'target_y': 0, 'reason': 'Hold sector'}],
+            'truck_reason': 'No observed fire',
+        }
+        choices = HappyRobot.decisions({'content': [{'text': 'Data: '+json.dumps(payload)}]})
+        self.assertEqual(len(choices), 1)
+        self.assertEqual(choices[0]['command'], 'scout')
+        self.assertEqual(choices[0]['target_x'], '79')
+        self.assertEqual(choices[0]['reason'], 'No confirmed fire')
+        self.assertEqual(choices[0]['truck_command'], 'continue')
+
     def test_latest_delegation_selected_independent_of_listing_order(self):
         old = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
         new = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'

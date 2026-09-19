@@ -3,6 +3,7 @@ import argparse
 import atexit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import threading
 import time
@@ -33,6 +34,22 @@ def _env_file():
 def local_host(host_header):
     """Only the loopback interface may read local API keys."""
     return (host_header or '').split(':')[0] in {'127.0.0.1', 'localhost'}
+
+
+def action_origin_allowed(origin, host_header, port):
+    """Same-origin only: localhost, PUBLIC_ORIGIN, or Origin matching Host (Cloudflare tunnel)."""
+    if not origin:
+        return False
+    allowed = {f'http://127.0.0.1:{port}', f'http://localhost:{port}'}
+    public = os.environ.get('PUBLIC_ORIGIN', '').strip().rstrip('/')
+    if public:
+        allowed.add(public)
+    if origin in allowed:
+        return True
+    host = (host_header or '').split(',')[0].strip()
+    if not host:
+        return False
+    return origin in {f'https://{host}', f'http://{host}'}
 
 
 class Controller:
@@ -253,7 +270,8 @@ def serve(port=8765):
     static = Path(__file__).parent/'static'
     pages = {'/': 'situacion.html', '/situacion': 'situacion.html',
              '/incidente': 'incidente.html', '/incidente/brunete': 'incidente.html',
-             '/medios': 'medios.html', '/archivo': 'archivo.html'}
+             '/medios': 'medios.html', '/archivo': 'archivo.html',
+             '/favicon.ico': 'favicon.png'}
 
     class Handler(BaseHTTPRequestHandler):
         def reply(self, code, body, content_type='application/json'):
@@ -284,7 +302,7 @@ def serve(port=8765):
                     cesium_token=env.get('CESIUM_API_KEY') or None,
                     nasa_key=env.get('NASA_KEY') or None,
                     place=dict(PLACE)))
-            elif path in pages or path in {'/app.js', '/ops.js', '/chrome.js', '/situacion.js', '/medios.js', '/archivo.js', '/mapa.js', '/mapa.css', '/observation-map.js', '/vendor/bootstrap-icons.js', '/style.css', '/cursors/flamethrower-hover.svg', '/cursors/flamethrower-active.svg', '/maps/brunete.jpg', '/maps/brunete-illustrated.png', '/maps/spain-location.svg'}:
+            elif path in pages or path in {'/app.js', '/ops.js', '/chrome.js', '/situacion.js', '/medios.js', '/archivo.js', '/mapa.js', '/mapa.css', '/observation-map.js', '/vendor/bootstrap-icons.js', '/style.css', '/favicon.png', '/cursors/flamethrower-hover.svg', '/cursors/flamethrower-active.svg', '/maps/brunete.jpg', '/maps/brunete-illustrated.png', '/maps/spain-location.svg'}:
                 name = pages[path] if path in pages else path[1:]
                 types = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.jpg':'image/jpeg', '.png':'image/png', '.svg':'image/svg+xml'}
                 file = static/name
@@ -294,8 +312,9 @@ def serve(port=8765):
 
         def do_POST(self):
             # Reject cross-origin requests to the local authenticated MCP bridge.
-            allowed = {f'http://127.0.0.1:{port}', f'http://localhost:{port}'}
-            if self.headers.get('Origin') not in allowed or self.headers.get('X-Simulator-Request') != '1':
+            # Cloudflare tunnels are same-origin: Origin matches the public Host header.
+            if self.headers.get('X-Simulator-Request') != '1' or not action_origin_allowed(
+                    self.headers.get('Origin'), self.headers.get('Host'), port):
                 self.reply(403, {'error': 'Use the local simulator interface.'})
                 return
             if self.path != '/api/action':

@@ -313,3 +313,35 @@ test('unknown status and radio-source names do not read inherited dictionary pro
   assert.doesNotThrow(() => h.run('render(input)'));
   assert.equal(h.elements.get('trail').children[0].children[1].textContent, 'CONSTRUCTOR');
 });
+
+test('belief toasts seed silently then show every new trail source', async () => {
+  const h = await harness();
+  const host = h.elements.get('beliefToasts');
+  assert.ok(host);
+  h.put('input', frame({history: []}));
+  h.run('render(input)');
+  assert.equal(host.children.length, 0);
+  h.put('input', frame({history: [
+    {tick: 0, source: 'farmer', message: 'Smoke column at (76, 41).'},
+    {tick: 0, source: 'dispatch', message: 'Truck mobilizing.'},
+    {tick: 0, source: 'simulation', message: 'Fire ignited.'},
+  ]}));
+  h.run('render(input)');
+  assert.equal(host.children.length, 3);
+  assert.match(host.children[0].className, /source-human/);
+  assert.equal(host.children[0].textContent, '01 Smoke at (76, 41)');
+  assert.equal(host.children[1].textContent, '02 Truck mobilizing');
+  assert.equal(host.children[2].textContent, '03 Fire ignited.');
+  h.put('input', frame({history: [
+    {tick: 0, source: 'farmer', message: 'Smoke column at (76, 41).'},
+    {tick: 0, source: 'dispatch', message: 'Truck mobilizing.'},
+    {tick: 0, source: 'simulation', message: 'Fire ignited.'},
+    {tick: 1, source: 'scout-1', message: 'Loudspeaker warning delivered to Prado Alto: 2815 people moving to refuge.'},
+    {tick: 1, source: 'central', message: 'Hold the southern edge. Reassess after the next observation.'},
+  ]}));
+  h.run('render(input)');
+  assert.equal(host.children.length, 3);
+  assert.match(host.children[1].className, /source-drone/);
+  assert.equal(host.children[1].textContent, '04 Prado Alto · 2815 moving');
+  assert.equal(host.children[2].textContent, '05 Hold the southern edge.');
+});

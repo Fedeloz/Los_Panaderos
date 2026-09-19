@@ -13,7 +13,9 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = '01a0b8ea-d9af-71f3-9fb7-8a469f9ac25b'
-EDGE_NODE = '01a0b96a-d5b4-771c-809c-850010ddbb67'
+# Final structured mission node (Resultado de la mision). Legacy Extract kept as fallback.
+EDGE_NODE = '01a0bad1-9191-7f3d-8200-f4e2e34ba5a1'
+LEGACY_EDGE_NODE = '01a0b96a-d5b4-771c-809c-850010ddbb67'
 EDITOR = 'https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/njn4x0maqj9y'
 
 
@@ -114,12 +116,65 @@ class HappyRobot:
         return '\n'.join(c.get('text', '') for c in result.get('content', []))
 
     @staticmethod
+    def _orders_list(value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                return []
+        return value if isinstance(value, list) else []
+
+    @staticmethod
+    def normalize_decision(value):
+        """Map legacy Extract response or Resultado de la mision into apply()'s shape."""
+        if not isinstance(value, dict):
+            return None
+        if {'command', 'target_x', 'target_y', 'reason', 'mission'} <= value.keys():
+            return dict(value)
+        extinguishers = HappyRobot._orders_list(value.get('extinguisher_orders'))
+        trucks = HappyRobot._orders_list(value.get('truck_orders'))
+        scouts = HappyRobot._orders_list(value.get('scout_orders'))
+        if not (value.get('primary_command') or extinguishers or 'drone_reason' in value):
+            return None
+        first = extinguishers[0] if extinguishers else {}
+        truck = trucks[0] if trucks else {}
+        command = value.get('primary_command') or first.get('command') or 'hold'
+        target_x = first.get('target_x', value.get('target_x', 0))
+        target_y = first.get('target_y', value.get('target_y', 0))
+        if command in {'hold', 'evacuate_farm', 'evacuate_town'} and target_x is None:
+            target_x = 0
+        if command in {'hold', 'evacuate_farm', 'evacuate_town'} and target_y is None:
+            target_y = 0
+        decision = dict(value)
+        decision.update(
+            command=command,
+            target_x=target_x,
+            target_y=target_y,
+            reason=value.get('drone_reason') or value.get('reason') or first.get('reason') or '',
+            mission=value.get('mission') or '',
+            district_id=value.get('primary_district_id', first.get('district_id', '')),
+            truck_command=truck.get('command', value.get('truck_command', 'continue')),
+            truck_target_x=truck.get('target_x', value.get('truck_target_x', 0)),
+            truck_target_y=truck.get('target_y', value.get('truck_target_y', 0)),
+            truck_reason=value.get('truck_reason') or truck.get('reason') or '',
+            extinguisher_orders=extinguishers if extinguishers else value.get('extinguisher_orders'),
+            scout_orders=scouts if scouts else value.get('scout_orders'),
+            truck_orders=trucks if trucks else value.get('truck_orders'),
+        )
+        if {'command', 'target_x', 'target_y', 'reason', 'mission'} <= decision.keys():
+            return decision
+        return None
+
+    @staticmethod
     def decisions(value):
         """Extract structured edge output from MCP JSON/text wrappers, never guess."""
         found = []
         if isinstance(value, dict):
-            if {'command', 'target_x', 'target_y', 'reason', 'mission'} <= value.keys():
-                found.append(value)
+            normalized = HappyRobot.normalize_decision(value)
+            if normalized is not None:
+                found.append(normalized)
             else:
                 for v in value.values():
                     found.extend(HappyRobot.decisions(v))
@@ -150,10 +205,15 @@ class HappyRobot:
         if not run_match or not re.search(r'Status:\s*completed\b', text):
             raise RuntimeError('HappyRobot run did not complete. No command applied.')
         run_id = run_match.group(1)
-        # trigger_run returns a status summary. Fetch only the delegated policy's
-        # output, then its full payload; never parse the farmer's echoed input.
-        listing = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, node_id=EDGE_NODE))
-        output_id = self.latest_output(self.text(listing))
+        # trigger_run returns a status summary. Fetch the final mission node, then
+        # its full payload; never parse the farmer's echoed input.
+        listing_text = ''
+        for node_id in (EDGE_NODE, LEGACY_EDGE_NODE):
+            listing = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, node_id=node_id))
+            listing_text = self.text(listing)
+            if 'No node outputs found' not in listing_text:
+                break
+        output_id = self.latest_output(listing_text)
         output = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=output_id))
         evidence = dict(run=result, edge=output)
         text += '\n\n'+self.text(output)

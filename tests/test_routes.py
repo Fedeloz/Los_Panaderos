@@ -46,7 +46,8 @@ class PageRouteTests(unittest.TestCase):
                  'mapa.js': 'text/javascript', 'mapa.css': 'text/css',
                  'app.js': 'text/javascript', 'ops.js': 'text/javascript',
                  'observation-map.js': 'text/javascript', 'vendor/bootstrap-icons.js': 'text/javascript',
-                 'style.css': 'text/css', 'cursors/flamethrower-hover.svg': 'image/svg+xml',
+                 'style.css': 'text/css', 'favicon.png': 'image/png',
+                 'cursors/flamethrower-hover.svg': 'image/svg+xml',
                  'cursors/flamethrower-active.svg': 'image/svg+xml',
                  'maps/brunete.jpg': 'image/jpeg', 'maps/brunete-illustrated.png': 'image/png'}
         for path, expected in paths.items():
@@ -57,6 +58,11 @@ class PageRouteTests(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertEqual(mime, expected)
                 self.assertTrue(body == (self.static / path).read_bytes())
+        handler = self.handler('/favicon.ico')
+        handler.do_GET()
+        self.assertEqual(handler.reply.call_args.args[0], 200)
+        self.assertEqual(handler.reply.call_args.args[2], 'image/png')
+        self.assertTrue(handler.reply.call_args.args[1] == (self.static / 'favicon.png').read_bytes())
 
     def test_unknown_paths_cannot_escape_the_allowlist(self):
         for path in ('/unknown', '/.env', '/../.env', '/maps/../../.env', '/simulator/server.py'):
@@ -86,14 +92,34 @@ class PageRouteTests(unittest.TestCase):
 
     def test_post_origin_is_host_based_not_page_based(self):
         body = json.dumps({'action': 'fleet', 'counts': {'trucks': 2, 'scouts': 0, 'extinguishers': 1}}).encode()
-        for origin, expected in [('http://127.0.0.1:8765', 200),
-                                 ('http://localhost:8765', 200),
-                                 ('http://127.0.0.1:8765/incidente', 403),
-                                 ('http://evil.example', 403)]:
-            with self.subTest(origin=origin):
-                handler = self.handler('/api/action', {'Origin': origin, 'X-Simulator-Request': '1', 'Content-Length': str(len(body))})
+        cases = [
+            ('http://127.0.0.1:8765', '127.0.0.1:8765', 200),
+            ('http://localhost:8765', '127.0.0.1:8765', 200),
+            ('https://demo.trycloudflare.com', 'demo.trycloudflare.com', 200),
+            ('http://127.0.0.1:8765/incidente', '127.0.0.1:8765', 403),
+            ('http://evil.example', '127.0.0.1:8765', 403),
+            ('https://evil.example', 'demo.trycloudflare.com', 403),
+        ]
+        for origin, host, expected in cases:
+            with self.subTest(origin=origin, host=host):
+                handler = self.handler('/api/action', {
+                    'Origin': origin, 'Host': host, 'X-Simulator-Request': '1',
+                    'Content-Length': str(len(body)),
+                })
                 handler.rfile = io.BytesIO(body)
                 handler.do_POST()
                 self.assertEqual(handler.reply.call_args.args[0], expected)
-        self.assertEqual(self.controller.action.call_count, 2)
+        self.assertEqual(self.controller.action.call_count, 3)
         self.controller.action.assert_called_with('fleet', json.loads(body))
+
+    def test_public_origin_env_allows_configured_tunnel_host(self):
+        body = json.dumps({'action': 'play'}).encode()
+        with patch.dict(server.os.environ, {'PUBLIC_ORIGIN': 'https://panaderos.example.com'}):
+            handler = self.handler('/api/action', {
+                'Origin': 'https://panaderos.example.com', 'Host': '127.0.0.1:8765',
+                'X-Simulator-Request': '1', 'Content-Length': str(len(body)),
+            })
+            handler.rfile = io.BytesIO(body)
+            handler.do_POST()
+        self.assertEqual(handler.reply.call_args.args[0], 200)
+        self.controller.action.assert_called_with('play', json.loads(body))

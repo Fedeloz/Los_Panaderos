@@ -427,15 +427,91 @@ async function startReplay(){
 $('replayPlay').onclick=()=>{if(replayTimer||replayStarting){stopReplay();return}return startReplay()};
 
 function pixelMap(canvas,s,belief){window.AerialView.draw(canvas,s,belief)}
+// District cards live on a separate layer above the truth canvas: AerialView repaints
+// its own canvas every animation frame, so anything drawn directly there would flicker.
+function renderTruthOverlay(s){
+  const canvas=$('truthOverlay'),om=window.ObservationMap;
+  if(!canvas||typeof canvas.getContext!=='function'||!om?.districtCards)return;
+  if(canvas.width!==1600){canvas.width=1600;canvas.height=1120}
+  const c=canvas.getContext('2d');if(!c)return;
+  c.setTransform(2,0,0,2,0,0);c.clearRect(0,0,800,560);
+  if(!$('truth').hidden)om.districtCards(c,s);
+}
+function radioKind(source){
+  const vehicleSource=/^(drone|scout|engine)-\d+$/.test(source)||source==='scout agent'||source==='scout → central';
+  const agent=vehicleSource||['central','edge','drone','drone → truck'].includes(source);
+  const kind=vehicleSource?'drone':source==='drone'||source==='edge'||source==='drone → truck'?'drone':['central','system','dispatch','autopilot'].includes(source)?'system':['simulation','weather'].includes(source)?'simulation':'human';
+  return {agent,kind};
+}
+// Transient notifications over the belief map for every new Comunicaciones line.
+// History is a sliding window (last 100), so we anchor on the newest previously seen entry
+// and fall back to the previous length when that anchor has scrolled out.
+const TOAST_MS=5000,TOAST_FADE=1000,TOAST_MAX=3;
+let toastCursor=null;
+const trailKey=e=>`${e.tick}|${e.source}|${e.message}`;
+function firstSentence(text){
+  const raw=String(text||'').replace(/\s+/g,' ').trim();
+  if(!raw)return '';
+  const cut=raw.search(/[.!?](?:\s|$)/);
+  return (cut>=0?raw.slice(0,cut+1):raw).trim();
+}
+function toastHeadline(e){
+  const src=e.source||'',msg=String(e.message||'').replace(/\s+/g,' ').trim();
+  let m;
+  if(/^Fire ignited at the selected location/i.test(msg))return 'Fire ignited';
+  if(/^Additional ignition/i.test(msg)&&(m=msg.match(/\((\d+),\s*(\d+)\)/)))return `Ignition (${m[1]}, ${m[2]})`;
+  if(src==='farmer'&&(m=msg.match(/\((\d+),\s*(\d+)\)/)))return `Smoke at (${m[1]}, ${m[2]})`;
+  if(/^Truck mobilizing/i.test(msg))return 'Truck mobilizing';
+  if(/^Loudspeaker warning delivered/i.test(msg)){
+    const name=(msg.match(/delivered to ([^:]+)/i)||[])[1]?.trim();
+    const count=(msg.match(/(\d[\d,]*)\s+people/i)||[])[1];
+    if(name&&count)return `${name} · ${count} moving`;
+    if(name)return `${name} moving`;
+    return 'Warning delivered';
+  }
+  if((m=msg.match(/^(\S+) at \((\d+),\s*(\d+)\)/)))return `${m[1]} (${m[2]}, ${m[3]})`;
+  if((m=msg.match(/^(\S+): (\d[\d,]*) people reached refuge/)))return `${m[1]} at refuge`;
+  if((m=msg.match(/^(\S+) evacuation route blocked/)))return `${m[1]} route blocked`;
+  if((m=msg.match(/^(\S+): fire reached the group/)))return `${m[1]} exposed`;
+  if(/^Wind vector updated/i.test(msg)&&(m=msg.match(/X=([-\d.]+), Y=([-\d.]+)/)))return `Wind ${m[1]}, ${m[2]}`;
+  if(/^Fire spread factor updated/i.test(msg)&&(m=msg.match(/([\d.]+)×/)))return `Spread ${m[1]}×`;
+  if(/no fire remains/i.test(msg))return 'Fire out · return to station';
+  if(/returned to station/i.test(msg))return 'Vehicles at station';
+  if(/confirms fire through shared sensors/i.test(msg))return 'Scout confirms fire';
+  if(/separate observed fire/i.test(msg)&&(m=msg.match(/at\s+(\[[^\]]+\]|\([^)]+\))/)))return `New fire ${m[1]}`;
+  if(/cannot reach/i.test(msg))return 'Route blocked · new approach';
+  if(/replanned its route/i.test(msg))return 'Drone replanned';
+  return firstSentence(msg);
+}
+function renderToasts(s){
+  const host=$('beliefToasts');if(!host)return;
+  const history=s.history||[];
+  const newest=history.length?trailKey(history[history.length-1]):'';
+  const incident=s.incident_id;
+  // First frame, replay scrubbing and incident resets only seed the cursor: no backlog spam.
+  if(s.replay||!toastCursor||toastCursor.incident!==incident){toastCursor={incident,newest,count:history.length,seq:0};return}
+  if(newest===toastCursor.newest&&history.length===toastCursor.count)return;
+  // Diff by previous length so empty → first farmer/dispatch messages toast.
+  // If the 100-entry window slid, take the newest few instead of a stale index.
+  const start=history.length<toastCursor.count?Math.max(0,history.length-TOAST_MAX):toastCursor.count;
+  toastCursor={incident,newest,count:history.length,seq:toastCursor.seq||0};
+  const fresh=history.slice(start).filter(e=>e&&typeof e==='object').slice(-TOAST_MAX);
+  for(const e of fresh){
+    const source=e.source||'system',{kind}=radioKind(source);
+    toastCursor.seq+=1;
+    const toast=document.createElement('div');toast.className=`toast source-${kind}`;
+    toast.textContent=`${String(toastCursor.seq).padStart(2,'0')} ${toastHeadline(e)}`;
+    host.replaceChildren(...[...host.children,toast].slice(-TOAST_MAX));
+    setTimeout(()=>{toast.classList.add('is-leaving');setTimeout(()=>toast.remove?.(),TOAST_FADE)},TOAST_MS);
+  }
+}
 function renderRadio(s){
   const t=I18N[lang];
   const history=(s.history||[]).slice().reverse();
   let latestAgent=false;
   const rows=history.map(e=>{
     const source=e.source||'system';
-    const vehicleSource=/^(drone|scout|engine)-\d+$/.test(source)||source==='scout agent'||source==='scout → central';
-    const agent=vehicleSource||['central','edge','drone','drone → truck'].includes(source);
-    const kind=vehicleSource?'drone':source==='drone'||source==='edge'||source==='drone → truck'?'drone':['central','system','dispatch','autopilot'].includes(source)?'system':['simulation','weather'].includes(source)?'simulation':'human';
+    const {agent,kind}=radioKind(source);
     const row=document.createElement('div');row.className=`entry source-${kind}`;
     if(agent&&!latestAgent){row.classList.add('latest-agent');latestAgent=true}
     const time=document.createElement('time');time.textContent=`T+${e.tick}`;
@@ -499,7 +575,7 @@ $('beliefstats').textContent=`${s.observation.length} ${t.firesShared} · ${obse
   return el;
 }));renderRadio(s);$('evidence').textContent=s.run_evidence||'';document.querySelectorAll('.toolbar button,.toolbar select').forEach(b=>{if(b.id==='play'||b.id==='addFire')return;b.disabled=s.busy||s.replay});$('resetSim').disabled=!!s.reset_pending;$('resetSim').textContent=s.reset_pending?t.resetQueued:t.reset;renderFleet(s);renderFireControl(s);$('play').disabled=s.replay||s.busy&&!s.running;$('recordRun').disabled=s.busy||s.replay||s.recording;$('stopRecord').disabled=!s.recording;$('downloadRecord').disabled=!s.recorded_frames;$('playRecord').disabled=busy||s.replay||!s.recorded_frames||s.recording;$('openRecording').disabled=s.busy||s.replay;$('recordRun').textContent=s.recording?`${t.recordingLabel} · ${s.recorded_frames} ${t.framesLabel}`:t.recordRun;
 applyMapMode();
-try{pixelMap($('belief'),s,true);if(!$('truth').hidden)pixelMap($('truth'),s,false)}catch(e){console.error('Canvas render failed',e)}}
+try{pixelMap($('belief'),s,true);if(!$('truth').hidden)pixelMap($('truth'),s,false);renderTruthOverlay(s);renderToasts(s)}catch(e){console.error('Canvas render failed',e)}}
 async function poll(){
   const epoch=viewEpoch;
   try{
