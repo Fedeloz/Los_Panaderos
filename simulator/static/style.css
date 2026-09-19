@@ -2,7 +2,7 @@
 
 .wind-panel{display:flex;align-items:center;gap:20px;flex-wrap:wrap;padding:15px 0;border-top:1px solid var(--line)}.wind-panel p{font-size:11px;margin:4px 0}.wind-panel input{width:130px;accent-color:var(--green)}.wind-panel output{min-width:30px;font-variant-numeric:tabular-nums}.wind-panel strong{font-size:13px}
 
-#truth{cursor:url(cursors/flamethrower-hover.svg) 62 22,crosshair}#truth:active{cursor:url(cursors/flamethrower-active.svg) 62 22,crosshair}#windVector{cursor:crosshair;touch-action:none}#setupHint{font-size:12px}#recordRun{background:#ad482f;border-color:#ad482f}
+#truth{cursor:crosshair}#truth.can-ignite{cursor:url(cursors/flamethrower-hover.svg) 62 22,crosshair}#truth.can-ignite:active{cursor:url(cursors/flamethrower-active.svg) 62 22,crosshair}#windVector{cursor:crosshair;touch-action:none}#setupHint{font-size:12px}#recordRun{background:#ad482f;border-color:#ad482f}
 
 .record-import{border:1px solid #c6cfc0;border-radius:6px;padding:9px 12px;background:#fffdf6;cursor:pointer}.record-import input{max-width:170px;font-size:11px}
 
@@ -26,5 +26,3 @@
 .run-controls{min-width:0}.control-group{margin:0;padding:12px 0;border-bottom:1px solid var(--line)}.control-group:first-child{padding-top:0}.control-label{flex-basis:100%;font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px}.control-group .quiet{margin-left:0}
 #addFire{border-color:#c98249;background:#fff0df}#addFire[aria-pressed="true"]{background:#a7431d;color:white;border-color:#a7431d}button:focus-visible,select:focus-visible{outline:3px solid #80a990;outline-offset:2px}
 @media(max-width:700px){.control-deck{grid-template-columns:1fr;gap:12px}.control-group{gap:6px}.control-group button{flex-grow:1}}
-
-#truth.fire-placement{cursor:url("/flamethrower-cursor.svg") 5 5,crosshair}
