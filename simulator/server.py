@@ -9,11 +9,14 @@ import time
 import zlib
 from urllib.parse import urlparse
 
+from .analysis import Analyst
+from .blackbox import BlackBox
 from .engine import Simulation
 from .geo import PLACE
 from .happyrobot import HappyRobot, EDITOR
 
 ROOT = Path(__file__).resolve().parents[1]
+RUNTIME = ROOT / '.runtime'
 
 
 def _env_file():
@@ -57,7 +60,48 @@ class Controller:
         self.cursor = None
         self.next_decision = 0
         self.repair_attempts = 0
+        # Flight recorder + post-mortem pipeline. Lessons persist across incidents.
+        self.box = BlackBox(RUNTIME/'blackbox.sqlite')
+        self.analyst = Analyst(self.box, self.robot, self._set_lessons, self._log)
+        self.last_decision_id = None
+        self.sim.lessons = self.box.active_lessons(5)
         threading.Thread(target=self._clock, daemon=True).start()
+
+    def _set_lessons(self, lessons):
+        with self.lock:
+            self.sim.lessons = list(lessons)
+
+    def _log(self, source, message, **extra):
+        with self.lock:
+            self.sim.log(source, message, **extra)
+
+    def _record(self, payload, decision, status, reason=''):
+        """Freeze the pre-apply world and the decision in the black box; returns the record id."""
+        if self.last_decision_id is not None:
+            self.box.finish_outcome(self.last_decision_id, self.sim)
+        run_id = getattr(self.robot, 'last_run_id', None)
+        self.last_decision_id = self.box.record_decision(self.sim, payload, run_id, self.latency, decision, status, reason)
+        return self.last_decision_id
+
+    def _analyse(self, decision_id, payload):
+        """Schedule the post-mortem pipeline; it never blocks the clock."""
+        run_id = getattr(self.robot, 'last_run_id', None)
+        threading.Thread(target=self.analyst.analyse, args=(decision_id, payload, run_id, getattr(self.robot, 'last_listing', '')), daemon=True).start()
+
+    def _finish_outcome(self):
+        if self.last_decision_id is not None:
+            self.box.finish_outcome(self.last_decision_id, self.sim)
+            self.last_decision_id = None
+
+    def postmortem(self):
+        with self.lock:
+            incident = self.sim.incident_id
+        rows = self.box.list_decisions(incident)
+        for row in rows:
+            for key in ('decision_json', 'outcome_json', 'signals_json', 'result_json', 'diagnosis_json'):
+                raw = row.pop(key, None)
+                row[key[:-5]] = json.loads(raw) if raw else None
+        return dict(incident_id=incident, decisions=rows, lessons=self.box.active_lessons(5), patches=self.box.patches())
 
     def snapshot(self):
         return zlib.compress(json.dumps(self.sim.state()).encode())
@@ -81,6 +125,7 @@ class Controller:
                     self.auto = False
                 if self.sim.phase == 'finished':
                     self.running = False
+                    self._finish_outcome()
                 self.record()
                 if self.sim.phase == 'finished':
                     self.recording = False
@@ -124,13 +169,25 @@ class Controller:
                 self.calls += 1
                 self.latency = round(time.monotonic()-start, 1)
                 self.run_evidence = evidence
-                self.sim.apply(decision,payload['event_id'],payload['incident_id'],tick)
+                decision_id = self._record(payload, decision, 'pending')
+                try:
+                    self.sim.apply(decision,payload['event_id'],payload['incident_id'],tick)
+                except ValueError as exc:
+                    self.box.set_status(decision_id, 'rejected', str(exc)[:500])
+                    self._analyse(decision_id, payload)
+                    raise
+                self.box.set_status(decision_id, 'applied')
+                self._analyse(decision_id, payload)
                 self.next_decision = self.sim.tick + 16
                 self.record()
         except Exception as exc:
             with self.lock:
                 if self.reset_pending:return
                 message = str(exc)[:800]
+                if not isinstance(exc, ValueError):
+                    # The run itself failed: keep the frozen state so the oracle can still grade it.
+                    self.latency = round(time.monotonic()-start, 1)
+                    self.box.record_decision(self.sim, payload, getattr(self.robot,'last_run_id',None), self.latency, {}, 'error', message)
                 if isinstance(exc, ValueError) and self.repair_attempts < 1 and self.cursor is None:
                     self.repair_attempts += 1
                     retry = True
@@ -191,7 +248,9 @@ class Controller:
                 self.pending_fires.clear()
                 self.repair_attempts=0
                 self.cursor = None
+                self._finish_outcome()
                 self.sim = Simulation(fleet_counts=self.sim.fleet_counts())
+                self.sim.lessons = self.box.active_lessons(5)
                 self.recording=False
                 self.error = None
                 self.auto = self.running = False
@@ -272,6 +331,8 @@ def serve(port=8765):
                 self.reply(200,dict(format='los-panaderos-recording-v1',frames=frames))
             elif path == '/api/state':
                 self.reply(200, controller.state())
+            elif path == '/api/postmortem':
+                self.reply(200, controller.postmortem())
             elif path == '/api/config':
                 if not local_host(self.headers.get('Host')):
                     self.reply(403, {'error': 'Local config only.'})
@@ -323,6 +384,7 @@ def serve(port=8765):
     finally:
         controller.stop.set()
         controller.robot.close()
+        controller.box.close()
         server.server_close()
 
 
