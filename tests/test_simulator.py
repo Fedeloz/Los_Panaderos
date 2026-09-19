@@ -611,6 +611,18 @@ class CommunicationTests(unittest.TestCase):
         self.assertEqual(north['chat_id'], '-100north'); self.assertEqual(north['population'], 2815)
         self.assertIn('never invent phones', contacts['policy'].lower())
 
+    def test_shared_demo_handset_populates_both_personas(self):
+        env = dict(DEMO_FARM_PHONE='+34675133317', DEMO_TOWN_PHONE='+34675133317', DEMO_CONTACT_PHONE='+34675133317')
+        with patch.dict('os.environ', env), patch('simulator.contacts.load_env'):
+            from simulator.contacts import directory
+            contacts = directory()
+        phones = {p['contact_id']: p['phone_number'] for p in contacts['people']}
+        self.assertEqual(phones['farm-manager'], '+34675133317')
+        self.assertEqual(phones['brunete-resident'], '+34675133317')
+        self.assertEqual(contacts['emergency']['contact_phone'], '+34675133317')
+        self.assertNotIn('farm-manager.phone_number', contacts['missing'])
+        self.assertIn('share the same phone_number', contacts['policy'])
+
     def test_zone_alert_warns_district_and_call_only_logs(self):
         s = Simulation(); s.ignite(); s.farmer_call()
         applied = s.apply_communications([

@@ -174,11 +174,17 @@ function lookup(state, params) {
   const districtId = (params.get('district_id') || '').trim();
   const name = (params.get('name') || '').trim().toLowerCase();
   const people = state.contacts?.people || [];
-  let person = null;
-  if (phone) person = people.find((p) => normalizePhone(p.phone_number) === phone) || null;
-  if (!person && name) person = people.find((p) => String(p.contact_name || '').toLowerCase() === name) || null;
-  const targetId = districtId || person?.district_id || null;
   const districts = (state.districts || []).map(effective);
+  const rank = (p) => DANGER_ORDER.indexOf((districts.find((d) => d.district_id === p.district_id) || {}).danger_level || 'none');
+  // Shared demo handset: two personas may have the same phone. Prefer the
+  // caller whose district is in greater danger so /lookup is unambiguous.
+  let matches = [];
+  if (phone) matches = people.filter((p) => normalizePhone(p.phone_number) === phone);
+  if (!matches.length && name) matches = people.filter((p) => String(p.contact_name || '').toLowerCase() === name);
+  matches = matches.slice().sort((a, b) => rank(b) - rank(a));
+  let person = matches[0] || null;
+  if (districtId) person = matches.find((p) => p.district_id === districtId) || people.find((p) => p.district_id === districtId) || person;
+  const targetId = districtId || person?.district_id || null;
   const district = targetId ? districts.find((d) => d.district_id === targetId) || null : null;
   const worst = districts.reduce((acc, d) => (DANGER_ORDER.indexOf(d.danger_level || 'none') > DANGER_ORDER.indexOf(acc) ? d.danger_level : acc), 'none');
   const sit = situation(state);
@@ -197,6 +203,7 @@ function lookup(state, params) {
     sim_time: state.sim_time,
     found: Boolean(person || district),
     caller: person ? { contact_name: person.contact_name, district_id: person.district_id, known_location: person.known_location, mobility: person.mobility } : null,
+    candidates: matches.map((p) => ({ contact_name: p.contact_name, district_id: p.district_id, known_location: p.known_location })),
     district: district
       ? { ...district, advice: district.advice || defaultAdvice(district, state), in_danger: inDanger }
       : null,

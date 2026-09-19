@@ -105,7 +105,8 @@ def directory(groups=None):
     return dict(
         people=persons, districts=districts,
         emergency=dict(agency='Centro de coordinación Los Panaderos', contact_phone=_env('contact_phone')),
-        policy=('Only call phone_number values listed in people — never invent phones. District Telegram channels '
+        policy=('Only call phone_number values listed in people — never invent phones. '
+                'If two people share the same phone_number (demo handset), call once: pick the person whose district is in greater danger. District Telegram channels '
                 'are the DEMO_*_CHAT_ID env values, or the shared demo destination used by Mensajes externos when '
                 'those env vars are empty. Zone alerts (alertar_zona) may always fire: pass the district chat_id, '
                 'or leave it empty and Mensajes externos delivers to its default demo channel. Personal Telegram '
