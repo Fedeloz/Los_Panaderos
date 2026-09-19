@@ -19,6 +19,7 @@ class Controller:
         self.sim = Simulation()
         self.robot = HappyRobot()
         self.busy = False
+        self.reset_pending = False
         self.auto = False
         self.running = False
         self.speed = 2
@@ -66,7 +67,7 @@ class Controller:
     def state(self):
         with self.lock:
             frame = self.sim.state() if self.cursor is None else json.loads(zlib.decompress(self.frames[self.cursor]))
-            return dict(frame, busy=self.busy, auto=self.auto,running=self.running,speed=self.speed,
+            return dict(frame, reset_pending=self.reset_pending, busy=self.busy, auto=self.auto,running=self.running,speed=self.speed,
                         frame_index=len(self.frames)-1 if self.cursor is None else self.cursor,
                         recording=self.recording,recorded_frames=len(self.recorded_frames),
                         frame_count=len(self.frames),replay=self.cursor is not None,live_tick=self.sim.tick,
@@ -96,6 +97,7 @@ class Controller:
         try:
             decision, evidence = self.robot.decide(payload)
             with self.lock:
+                if self.reset_pending:return
                 self.calls += 1
                 self.latency = round(time.monotonic()-start, 1)
                 self.run_evidence = evidence
@@ -104,6 +106,7 @@ class Controller:
                 self.record()
         except Exception as exc:
             with self.lock:
+                if self.reset_pending:return
                 message = str(exc)[:800]
                 if isinstance(exc, ValueError) and self.repair_attempts < 1 and self.cursor is None:
                     self.repair_attempts += 1
@@ -119,7 +122,9 @@ class Controller:
         finally:
             with self.lock:
                 self.busy = False
-                if retry:
+                if self.reset_pending:
+                    self.action('reset',{})
+                elif retry:
                     self.request_decision('command_rejected')
 
     def action(self, action, data):
@@ -143,9 +148,15 @@ class Controller:
                 return
             if self.cursor is not None and action != 'reset':
                 raise ValueError('Return to Live to change the simulation. Replay never reruns AI.')
+            if self.busy and action == 'reset':
+                self.reset_pending=True
+                self.running=self.auto=False
+                return
             if self.busy:
                 raise ValueError('HappyRobot is deciding. You can pause or inspect the timeline.')
             if action == 'reset':
+                self.reset_pending=False
+                self.repair_attempts=0
                 self.cursor = None
                 self.sim = Simulation()
                 self.recording=False
@@ -223,9 +234,9 @@ def serve(port=8765):
                 self.reply(200,dict(format='los-panaderos-recording-v1',frames=frames))
             elif path == '/api/state':
                 self.reply(200, controller.state())
-            elif path in {'/', '/app.js', '/style.css'}:
+            elif path in {'/', '/app.js', '/style.css', '/maps/brunete.jpg'}:
                 name = 'index.html' if path == '/' else path[1:]
-                types = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css'}
+                types = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.jpg':'image/jpeg'}
                 file = static/name
                 self.reply(200, file.read_bytes(), types[file.suffix])
             else:

@@ -7,7 +7,25 @@ window.AerialView = (() => {
   function text(c,x,y,label,color='#eff3dc'){
     c.font='600 10px system-ui';const w=c.measureText(label).width;c.fillStyle='#14251de0';c.fillRect(x-5,y-12,w+10,18);c.fillStyle=color;c.fillText(label,x,y);
   }
+  const aerial=new Image();let aerialFailed=false;
+  aerial.onload=()=>{for(const [canvas,belief] of views)if(previous)paint(canvas,previous,belief,performance.now())};
+  aerial.onerror=()=>{aerialFailed=true;for(const [canvas,belief] of views)if(previous)paint(canvas,previous,belief,performance.now())};
+  aerial.src='/maps/brunete.jpg';
   function terrain(s){
+    if(s.geography?.id==='brunete-el-alamo-v1'){
+      if(aerial.complete&&aerial.naturalWidth){
+        if(!s.geography.image_crop)return aerial;
+        const key=JSON.stringify(s.geography.image_crop);
+        if(base&&baseKey===key)return base;
+        baseKey=key;base=document.createElement('canvas');base.width=W*2;base.height=H*2;
+        const [x,y,w,h]=s.geography.image_crop;
+        base.getContext('2d').drawImage(aerial,x*aerial.naturalWidth,y*aerial.naturalHeight,w*aerial.naturalWidth,h*aerial.naturalHeight,0,0,base.width,base.height);
+        return base;
+      }
+      const placeholder=document.createElement('canvas');placeholder.width=W;placeholder.height=H;
+      const c=placeholder.getContext('2d');c.fillStyle='#38443b';c.fillRect(0,0,W,H);
+      text(c,200,260,aerialFailed?'Aerial image unavailable — refresh after server restart':'Loading Brunete aerial image…');return placeholder;
+    }
     const key=JSON.stringify(s.roads||[]);if(base&&key===baseKey)return base;baseKey=key;
     base=document.createElement('canvas');base.width=W*2;base.height=H*2;const c=base.getContext('2d');c.scale(2,2);
     c.fillStyle='#77754f';c.fillRect(0,0,W,H);
@@ -98,27 +116,78 @@ window.AerialView = (() => {
     c.restore();text(c,x-18,y+(drone?-18:27),drone?'DRONE 01':'ENGINE 01');
     for(const [fx,fy] of drone?(v.last_drop?[v.last_drop]:[]):v.last_drops||[]){c.save();c.strokeStyle='#d8f7ffbb';c.lineWidth=drone?1.8:3;c.shadowColor='#8cdaef';c.shadowBlur=4;c.beginPath();c.moveTo(x,y);c.quadraticCurveTo((x+fx*Z)/2,(y+fy*Z)/2-12,fx*Z,fy*Z);c.stroke();c.restore()}
   }
+  function observationZones(c,s){
+    c.save();
+    for(const zone of s.geography?.observation_zones||[]){
+      const color=zone.kind==='town'?'#a9caff':'#f5d285';
+      c.beginPath();zone.polygon.forEach(([x,y],i)=>i?c.lineTo(x*Z,y*Z):c.moveTo(x*Z,y*Z));c.closePath();
+      c.fillStyle=color+'24';c.fill();c.strokeStyle=color+'bb';c.lineWidth=1.5;c.setLineDash([5,4]);c.stroke();
+      text(c,zone.label[0]*Z,zone.label[1]*Z,zone.name,color);
+    }
+    c.restore();
+  }
+  function refugeMarkers(c,s){
+    c.save();
+    for(const [name,group] of Object.entries(s.people||{})){
+      const refuge=group.refuge;if(!refuge)continue;
+      const x=refuge[0]*Z+5,y=refuge[1]*Z+5;
+      c.strokeStyle='#bcebd7';c.fillStyle='#163c32';c.lineWidth=2;
+      c.beginPath();c.moveTo(x,y-8);c.lineTo(x+8,y);c.lineTo(x,y+8);c.lineTo(x-8,y);c.closePath();c.fill();c.stroke();
+      text(c,Math.max(60,Math.min(W-145,x+14)),y+4,name.toUpperCase()+' REFUGE','#bcebd7');
+    }
+    if(s.geography?.observation_zones)text(c,60,48,'ZONES ≈ · ◇ DEMO REFUGES','#cdded5');
+    c.restore();
+  }
+  function distanceAxes(c,s){
+    const metres=s.geography?.meters_per_cell_approx;
+    if(!metres)return;
+    const label=distance=>distance>=1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m';
+    c.save();c.font='10px system-ui';c.fillStyle='#101e19dc';
+    c.fillRect(0,0,W,18);c.fillRect(0,18,52,H-18);
+    c.fillStyle='#e8eee2';c.strokeStyle='#d4e2c599';c.lineWidth=.7;
+    for(let x=0;x<=s.width;x+=10){
+      const px=x/s.width*W;c.beginPath();c.moveTo(px,18);c.lineTo(px,23);c.stroke();
+      c.textAlign=x===0?'left':x===s.width?'right':'center';c.fillText(label(x*metres),Math.min(W-2,Math.max(2,px)),12);
+    }
+    c.textAlign='left';
+    for(let y=10;y<s.height;y+=10){
+      const py=y/s.height*H;c.beginPath();c.moveTo(47,py);c.lineTo(55,py);c.stroke();c.fillText(label(y*metres),3,py-3);
+    }
+    c.restore();
+  }
   function paint(canvas,s,belief,now){
     if(canvas.width!==1600){canvas.width=1600;canvas.height=1120}canvas.style.imageRendering='auto';
     const c=canvas.getContext('2d');c.setTransform(2,0,0,2,0,0);c.clearRect(0,0,W,H);c.drawImage(terrain(s),0,0,W,H);
     const fires=[],seen=new Set(),time=s.replay?s.tick*.4:phase;
-    function fire(x,y,stale=false){const key=x+','+y;if(!seen.has(key)){seen.add(key);fires.push({x,y,stale})}}
+    function fire(x,y,stale=false,intensity=1){const key=x+','+y;if(!seen.has(key)){seen.add(key);fires.push({x,y,stale,intensity})}}
     if(belief){
-      c.fillStyle='#102623a8';c.fillRect(0,0,W,H);
-      for(const o of s.observed_cells||[]){if(o.burning)fire(o.x,o.y,o.observed_at!==s.tick);else{c.fillStyle=o.observed_at===s.tick?'#aecfac0a':'#aecfac04';c.fillRect(o.x*Z,o.y*Z,Z,Z)}}
+      c.fillStyle='#102623a8';c.fillRect(0,0,W,H);observationZones(c,s);
+      for(const o of s.observed_cells||[]){if(o.burning)fire(o.x,o.y,o.observed_at!==s.tick,o.intensity??1);else{c.fillStyle=o.observed_at===s.tick?'#aecfac0a':'#aecfac04';c.fillRect(o.x*Z,o.y*Z,Z,Z)}}
       for(const f of s.truck?.observed_fire||[]){const key=f.x+','+f.y;const old=fires.find(p=>p.x===f.x&&p.y===f.y);if(old)old.stale=false;else fire(f.x,f.y)}
       for(const [x,y] of s.satellite?.blocks||[]){c.fillStyle='#e0ae5b22';c.fillRect(x*Z,y*Z,80,80);c.strokeStyle='#d8b06977';c.strokeRect(x*Z,y*Z,80,80)}
     }else{
       for(let y=0;y<s.height;y++)for(let x=0;x<s.width;x++){
-        const cell=s.cells[y][x];if(!cell.fuel){c.fillStyle=noise(x,y)>.5?'#302e27e8':'#414034ef';c.fillRect(x*Z,y*Z,Z,Z);c.strokeStyle='#87807544';c.beginPath();c.moveTo(x*Z,y*Z+2);c.lineTo(x*Z+7,y*Z+8);c.stroke()}
-        if(cell.heat&&cell.fuel)fire(x,y);
+        const cell=s.cells[y][x];const burned=cell.burned??(!cell.fuel?1:0);
+        if(burned>0){const px=x*Z+5,py=y*Z+5,g=c.createRadialGradient(px,py,1,px,py,10);g.addColorStop(0,`rgba(25,24,20,${Math.min(.85,burned*1.5)})`);g.addColorStop(1,'rgba(25,24,20,0)');c.fillStyle=g;c.fillRect(px-10,py-10,20,20)}
+        if(cell.heat&&cell.fuel)fire(x,y,false,cell.heat);
       }
     }
-    for(const f of fires){const x=f.x*Z+3+noise(f.x,f.y,5)*4,y=f.y*Z+3+noise(f.x,f.y,6)*4,n=noise(f.x,f.y),pulse=.7+Math.sin(time*7+n*20)*.3;
-      if(f.stale){ellipse(c,x,y,4,4,'#b38b58');continue}
-      const g=c.createRadialGradient(x,y,1,x,y,13);g.addColorStop(0,'#ffd369b0');g.addColorStop(.5,'#f7732744');g.addColorStop(1,'#f7732700');c.fillStyle=g;c.fillRect(x-13,y-13,26,26);
-      c.fillStyle='#d84b22';c.beginPath();c.moveTo(x-4,y+4);c.quadraticCurveTo(x-7,y-2,x-2+pulse*3,y-7-pulse*3);c.quadraticCurveTo(x+1,y-1,x+5,y+3);c.fill();ellipse(c,x,y+1,2+ pulse,3+ pulse,'#ffce66');ellipse(c,x,y+2,1.3,2,'#fff4bd');
+    // Overlapping soft fields form a continuous front; the grid remains physics-only.
+    c.save();c.globalCompositeOperation='source-over';
+    for(const f of fires){
+      const intensity=Math.max(.05,Math.min(1,f.intensity)),jitter=noise(f.x,f.y,5);
+      const x=f.x*Z+5+Math.sin(time*1.7+jitter*9)*1.3,y=f.y*Z+5;
+      if(f.stale){ellipse(c,x,y,4,4,'#b38b5877');continue}
+      const radius=8+intensity*6,pulse=.85+.15*Math.sin(time*5+jitter*20);
+      const g=c.createRadialGradient(x,y,0,x,y,radius);
+      g.addColorStop(0,`rgba(255,${Math.round(175+intensity*75)},65,${(.85+intensity*.15)*pulse})`);
+      g.addColorStop(.22,`rgba(255,125,0,${.85*pulse})`);
+      g.addColorStop(.5,`rgba(255,48,0,${(.5+intensity*.4)*pulse})`);
+      g.addColorStop(.75,`rgba(220,25,0,${.25+intensity*.2})`);
+      g.addColorStop(1,'rgba(180,35,5,0)');
+      c.fillStyle=g;c.fillRect(x-radius,y-radius,radius*2,radius*2);
     }
+    c.restore();
     // Cosmetic smoke follows wind; belief smoke is sourced only from current detections.
     const current=fires.filter(f=>!f.stale),stride=Math.max(1,Math.ceil(current.length/65));
     for(let i=0;i<current.length;i+=stride){const f=current[i],seed=noise(f.x,f.y,9);for(let j=0;j<3;j++){
@@ -132,8 +201,16 @@ window.AerialView = (() => {
     if(s.truck)vehicle(c,s.truck,t,false,time);vehicle(c,s.drone,d,true,time);
     if(!s.ignited&&!belief&&s.ignition_point){const [x,y]=s.ignition_point;c.strokeStyle='#fff0bd';c.lineWidth=1.5;c.beginPath();c.arc(x*Z,y*Z,17,0,Math.PI*2);c.moveTo(x*Z-23,y*Z);c.lineTo(x*Z+23,y*Z);c.moveTo(x*Z,y*Z-23);c.lineTo(x*Z,y*Z+23);c.stroke();text(c,x*Z-27,y*Z-27,'IGNITION')}
     if(belief&&s.report){c.strokeStyle='#f4d89a';c.setLineDash([3,4]);c.beginPath();c.arc(s.report[0]*Z,s.report[1]*Z,22,0,Math.PI*2);c.stroke();c.setLineDash([]);text(c,s.report[0]*Z-30,s.report[1]*Z+36,'SMOKE REPORT')}
-    text(c,38,361,'TOWN · CÁRTAMA');text(c,585,39,'FARM');text(c,31,546,'FIRE STATION');text(c,24,28,'N ↑');
-    text(c,549,541,`WIND →  X ${s.wind[0]} · Y ${s.wind[1]}`);text(c,275,28,belief?'OBSERVATION / THERMAL OVERLAY':'AERIAL VIEW · SIMULATED TERRAIN');
+    if(s.geography){
+      text(c,s.town[0]*Z-65,s.town[1]*Z-30,'BRUNETE');
+      text(c,s.farm[0]*Z-50,s.farm[1]*Z-22,'FARM · EL ÁLAMO');
+      text(c,s.base[0]*Z-65,s.base[1]*Z+48,'DEMO RESPONSE BASE');
+      text(c,60,519,'PNOA · CC BY 4.0 scne.es');
+      c.strokeStyle='#ffffff';c.lineWidth=2;c.beginPath();c.moveTo(60,536);c.lineTo(60+1000/(s.geography.meters_per_cell_approx||60)*Z,536);c.stroke();text(c,60,530,`1 km · grid ≈${s.geography.meters_per_cell_approx||60} m/cell`);
+    }else{text(c,38,361,'TOWN · CÁRTAMA');text(c,585,39,'FARM');text(c,31,546,'FIRE STATION')}
+    text(c,60,28,'N ↑');
+    text(c,549,541,`WIND →  X ${s.wind[0]} · Y ${s.wind[1]}`);text(c,275,28,belief?'OBSERVATION / THERMAL OVERLAY':(s.geography?'BRUNETE · REAL AERIAL IMAGE':'AERIAL VIEW · SIMULATED TERRAIN'));
+    if(belief){distanceAxes(c,s);refugeMarkers(c,s);}
   }
   function frame(now){
     requestAnimationFrame(frame);if(now-lastFrame<33||!previous||document.hidden)return;
@@ -158,7 +235,7 @@ $('back').onclick=()=>{stopReplay();act('seek',{index:Math.max(0,state.frame_ind
 function stopReplay(){clearInterval(replayTimer);replayTimer=null;$('replayPlay').textContent='▶ Replay'}
 $('replayPlay').onclick=async()=>{if(replayTimer){stopReplay();return}if(!state.replay||state.frame_index===state.frame_count-1)await act('seek',{index:0});$('replayPlay').textContent='Ⅱ Replay';replayTimer=setInterval(async()=>{if(pending)return;if(state.frame_index>=state.frame_count-1){stopReplay();return}pending=true;await act('seek',{index:state.frame_index+1});pending=false},250)};
 function pixelMap(canvas,s,belief){window.AerialView.draw(canvas,s,belief)}
-function render(s){state=s;$('error').hidden=!s.error;if(s.error)$('error').textContent=s.error;$('workflow').href=s.workflow_url;$('clock').textContent=`T+${s.tick} steps`;$('connection').textContent=s.busy?'HappyRobot deliberating · clock paused':s.replay?'Viewing recorded history':s.running?'Live · simulation running':'Paused';$('crew').textContent=s.truck?`Engine 1 · ${s.truck.status} · (${s.truck.x}, ${s.truck.y})`:'Truck at station';$('runs').textContent=`${s.workflow_calls} HappyRobot runs${s.latency?' · last '+s.latency+'s':''}`;$('play').textContent=s.running?'Ⅱ Pause':'▶ Play';if(!windDirty||s.replay){$('windX').value=s.wind[0];$('windY').value=s.wind[1];windDirty=false}updateWindPreview();for(const id of ['windX','windY','applyWind','calmWind','spreadFactor'])$(id).disabled=s.busy||s.replay;if(!spreadDirty||s.replay){$('spreadFactor').value=s.rules?.spread_factor??1;$('spreadFactorValue').textContent=`${$('spreadFactor').value}×`;}$('speed').value=s.speed;$('mission').textContent=s.mission;$('truthstats').textContent=`${s.burning} burning cells · ${s.extinguished} extinguished by drone · ${s.crew_extinguished} by crew`;$('beliefstats').textContent=`${s.observation.length} fires in shared view · ${s.drone?.observed_fire?.length||0} drone / ${s.truck?.observed_fire?.length||0} truck · satellite ${s.satellite?`age ${s.tick-s.satellite.captured_at} steps, 8×8-cell blocks`:'not yet available'} · teal dots = safe flight positions`;$('timeline').max=s.frame_count-1;$('timeline').value=s.frame_index;$('replayPlay').disabled=s.frame_count<2;$('frame').textContent=s.replay?`Replay ${s.frame_index+1}/${s.frame_count}`:'Live';$('people').replaceChildren(...Object.entries(s.people).map(([name,g])=>{const el=document.createElement('span');el.className='person';el.textContent=`${name.toUpperCase()} · ${g.count} people · ${g.status==='burnt'?'0 unwarned':g.status} · Burnt: ${g.burnt||0}`;return el}));$('trail').replaceChildren(...s.history.slice().reverse().map(e=>{const row=document.createElement('div');row.className='entry';const b=document.createElement('b');b.textContent=`T+${e.tick} ${e.source.toUpperCase()}`;const t=document.createElement('span');t.textContent=e.message;row.append(b,t);return row}));$('evidence').textContent=s.run_evidence||'No platform run yet.';document.querySelectorAll('.toolbar button,.toolbar select').forEach(b=>{b.disabled=(s.busy||s.replay)&&b.id!=='play'});$('resetSim').disabled=s.busy;$('play').disabled=s.replay||s.busy&&!s.running;$('recordRun').disabled=s.busy||s.replay||s.recording;$('stopRecord').disabled=!s.recording;$('downloadRecord').disabled=!s.recorded_frames;$('playRecord').disabled=!s.recorded_frames||s.recording;$('recordRun').textContent=s.recording?`● Recording · ${s.recorded_frames} frames`:'● Run & record';pixelMap($('truth'),s,false);pixelMap($('belief'),s,true)}
+function render(s){state=s;$('error').hidden=!s.error;if(s.error)$('error').textContent=s.error;$('workflow').href=s.workflow_url;$('clock').textContent=`T+${s.tick} steps`;$('connection').textContent=s.reset_pending?'Reset queued · waiting for HappyRobot':s.busy?'HappyRobot deliberating · clock paused':s.replay?'Viewing recorded history':s.running?'Live · simulation running':'Paused';$('crew').textContent=s.truck?`Engine 1 · ${s.truck.status} · (${s.truck.x}, ${s.truck.y})`:'Truck at station';$('runs').textContent=`${s.workflow_calls} HappyRobot runs${s.latency?' · last '+s.latency+'s':''}`;$('play').textContent=s.running?'Ⅱ Pause':'▶ Play';if(!windDirty||s.replay){$('windX').value=s.wind[0];$('windY').value=s.wind[1];windDirty=false}updateWindPreview();for(const id of ['windX','windY','applyWind','calmWind','spreadFactor'])$(id).disabled=s.busy||s.replay;if(!spreadDirty||s.replay){$('spreadFactor').value=s.rules?.spread_factor??1;$('spreadFactorValue').textContent=`${$('spreadFactor').value}×`;}$('speed').value=s.speed;$('mission').textContent=s.mission;$('truthstats').textContent=`${s.burning} burning cells · ${s.extinguished} extinguished by drone · ${s.crew_extinguished} by crew`;$('beliefstats').textContent=`${s.observation.length} fires in shared view · ${s.drone?.observed_fire?.length||0} drone / ${s.truck?.observed_fire?.length||0} truck · satellite ${s.satellite?`age ${s.tick-s.satellite.captured_at} steps, 8×8-cell blocks`:'not yet available'} · teal dots = safe flight positions`;$('timeline').max=s.frame_count-1;$('timeline').value=s.frame_index;$('replayPlay').disabled=s.frame_count<2;$('frame').textContent=s.replay?`Replay ${s.frame_index+1}/${s.frame_count}`:'Live';$('people').replaceChildren(...Object.entries(s.people).map(([name,g])=>{const el=document.createElement('span');el.className='person';el.textContent=`${name.toUpperCase()} · ${g.count} people · ${g.status==='burnt'?'0 unwarned':g.status} · Burnt: ${g.burnt||0}`;return el}));$('trail').replaceChildren(...s.history.slice().reverse().map(e=>{const row=document.createElement('div');row.className='entry';const b=document.createElement('b');b.textContent=`T+${e.tick} ${e.source.toUpperCase()}`;const t=document.createElement('span');t.textContent=e.message;row.append(b,t);return row}));$('evidence').textContent=s.run_evidence||'No platform run yet.';document.querySelectorAll('.toolbar button,.toolbar select').forEach(b=>{b.disabled=(s.busy||s.replay)&&b.id!=='play'});$('resetSim').disabled=!!s.reset_pending;$('resetSim').textContent=s.reset_pending?'↺ Reset queued…':'↺ Reset simulation';$('play').disabled=s.replay||s.busy&&!s.running;$('recordRun').disabled=s.busy||s.replay||s.recording;$('stopRecord').disabled=!s.recording;$('downloadRecord').disabled=!s.recorded_frames;$('playRecord').disabled=!s.recorded_frames||s.recording;$('recordRun').textContent=s.recording?`● Recording · ${s.recorded_frames} frames`:'● Run & record';pixelMap($('truth'),s,false);pixelMap($('belief'),s,true)}
 async function poll(){try{if(recordingPlayback)return;const r=await fetch('/api/state');if(r.ok)render(await r.json())}catch(e){$('connection').textContent='Local server unavailable'}finally{setTimeout(poll,600)}}poll();
 
 function updateWindPreview(){const x=+$('windX').value,y=+$('windY').value;$('windStrength').textContent=`Strength ${Math.hypot(x,y).toFixed(2)}${Math.hypot(x,y)>=2?" · strong":""}`;$('windPending').textContent=windDirty?'Preview · press Apply wind':'Applied wind';const px=43+Math.sign(x)*Math.sqrt(Math.abs(x)/3)*30,py=43+Math.sign(y)*Math.sqrt(Math.abs(y)/3)*30;$('windArrow').setAttribute('d',`M43 43 L${px} ${py}`);$('windTip').setAttribute('cx',px);$('windTip').setAttribute('cy',py)}
@@ -175,7 +252,7 @@ $('recordRun').onclick=async()=>{stopReplay();const ok=await act('record_run',{x
 $('stopRecord').onclick=()=>act('stop_recording');
 $('downloadRecord').onclick=async()=>{try{const r=await fetch('/api/recording');if(!r.ok)throw Error('Download failed');const blob=new Blob([JSON.stringify(await r.json())],{type:'application/json'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='los-panaderos-recording.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){$('error').hidden=false;$('error').textContent=e.message}};
 
-function showRecorded(index){index=Math.max(0,Math.min(recordingPlayback.length-1,index));render({...state,...recordingPlayback[index],busy:false,running:false,replay:true,frame_index:index,frame_count:recordingPlayback.length,run_evidence:'Recorded simulation replay. No new HappyRobot calls.'})}
+function showRecorded(index){index=Math.max(0,Math.min(recordingPlayback.length-1,index));render({...state,...recordingPlayback[index],geography:recordingPlayback[index].geography??null,busy:false,running:false,replay:true,frame_index:index,frame_count:recordingPlayback.length,run_evidence:'Recorded simulation replay. No new HappyRobot calls.'})}
 $('playRecord').onclick=async()=>{stopReplay();await act('pause');const r=await fetch('/api/recording');const recording=await r.json();if(!recording.frames?.length)return;recordingPlayback=recording.frames;showRecorded(0);$('replayPlay').click()};
 
 $('openRecording').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>100000000)throw Error('Recording must be under 100 MB.');const data=JSON.parse(await file.text());if(data.format!=='los-panaderos-recording-v1'||!Array.isArray(data.frames)||!data.frames.length||data.frames.length>1500||data.frames.some(f=>f.width!==80||f.height!==56||!Array.isArray(f.cells)||f.cells.length!==56||f.cells.some(row=>!Array.isArray(row)||row.length!==80)||!f.drone||!f.people||!Array.isArray(f.history)))throw Error('Invalid simulation recording.');stopReplay();await act('pause');recordingPlayback=data.frames;showRecorded(0);$('replayPlay').click()}catch(err){$('error').hidden=false;$('error').textContent=err.message}finally{e.target.value=''}};

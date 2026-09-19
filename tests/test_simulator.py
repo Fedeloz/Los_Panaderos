@@ -17,9 +17,74 @@ def command(action='contain', x=65, y=43):
 
 
 class PhysicsTests(unittest.TestCase):
+    def test_intense_fire_requires_repeated_cooling_and_preserves_fuel(self):
+        s=Simulation();c=s.cells[20][30];c['heat']=1.
+        with patch.object(s.suppression_rng,'random',return_value=0):
+            hits=[s.suppress([(30,20)],1,.4)[0] for _ in range(5)]
+        self.assertEqual([a['extinguished'] for a in hits],[False,False,False,False,True])
+        self.assertEqual(c['heat'],0)
+        self.assertEqual(c['fuel'],1)
+        self.assertEqual(c['wet'],8)
+
+    def test_wet_fire_does_not_regrow_and_dried_fuel_can_reignite(self):
+        s=Simulation();s.set_wind('east');s.set_spread_factor(4)
+        source=s.cells[20][30];target=s.cells[20][31]
+        source['heat']=1;target.update(heat=.1,wet=0)
+        with patch.object(s.suppression_rng,'random',return_value=0):s.suppress([(31,20)],1,.4)
+        with patch.object(s.rng,'random',return_value=0):
+            s.step(7);self.assertEqual(target['heat'],0)
+            s.step(2);self.assertGreater(target['heat'],0)
+
+    def test_noncombustible_cells_block_surface_fire(self):
+        s=Simulation();s.set_spread_factor(4)
+        for row in s.cells:
+            for c in row:c.update(fuel=0,heat=0,terrain='road')
+        s.cells[20][20].update(fuel=1,heat=1,terrain='field')
+        s.cells[21][21].update(fuel=1,heat=0,terrain='field')
+        with patch.object(s.rng,'random',return_value=0):s.step(8)
+        self.assertEqual(s.cells[21][21]['heat'],0) # Cannot cut a blocked corner.
+        self.assertEqual(s.cells[20][21]['heat'],0)
+        with self.assertRaises(ValueError):s.place_fire(30,30)
+
+    def test_woodland_consumes_fuel_slower_than_fields(self):
+        s=Simulation();field=s.cells[20][30];wood=s.cells[20][31]
+        field.update(terrain='field',heat=1);wood.update(terrain='woodland',heat=1)
+        with patch.object(s.rng,'random',return_value=1):s.step(10)
+        self.assertGreater(wood['fuel'],field['fuel'])
+        self.assertGreater(field['burned'],wood['burned'])
+
+    def test_agent_intensity_details_exclude_hidden_fire(self):
+        s=Simulation();s.cells[38][13].update(fuel=1,heat=.7,terrain='scrub')
+        s.cells[2][75].update(fuel=1,heat=.9)
+        w=json.loads(s.payload()['world_state']);details=w['observed_fire_details']
+        seen=next(c for c in details if (c['x'],c['y'])==(13,38))
+        self.assertEqual(seen['intensity'],.7)
+        self.assertEqual(seen['terrain'],'scrub')
+        self.assertFalse(any((c['x'],c['y'])==(75,2) for c in details))
+        self.assertEqual(len(w['terrain_map']['rows']),56)
+
+    def test_aerial_geography_matches_agents_and_grid(self):
+        s=Simulation();world=json.loads(s.payload()['world_state'])
+        self.assertEqual(s.farm,(73,21))
+        self.assertEqual(s.base,(10,35))
+        self.assertEqual(world['farm'],dict(x=73,y=21))
+        self.assertEqual(world['station'],dict(x=10,y=35))
+        self.assertEqual((s.truck['x'],s.truck['y']),s.base)
+        self.assertEqual((s.drone['x'],s.drone['y']),s.base)
+        self.assertEqual((s.groups['farm']['x'],s.groups['farm']['y']),s.farm)
+        self.assertEqual(s.state()['geography']['id'],'brunete-el-alamo-v1')
+        self.assertTrue(all(0<=x<80 and 0<=y<56 for x,y in s.roads))
+        self.assertIn(s.base,s.roads)
+        self.assertIn(s.farm,s.roads)
+        # The farm's surveyed point must land in its displayed grid cell.
+        west,south,east,north=s.state()['geography']['bounds_3857']
+        mx=6378137*math.radians(-3.96242)
+        my=6378137*math.log(math.tan(math.pi/4+math.radians(40.41103)/2))
+        self.assertEqual((int((mx-west)/(east-west)*80),int((north-my)/(north-south)*56)),s.farm)
+
     def test_spread_factor_scales_intervals_and_context(self):
         s=Simulation();s.set_wind('calm')
-        self.assertEqual(s.spread_interval(1,0),10)
+        self.assertEqual(s.spread_interval(1,0),20)
         s.set_spread_factor(2)
         self.assertEqual(s.spread_interval(1,0),5)
         s.set_spread_factor(0.5)
@@ -30,7 +95,7 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(s.spread_interval(1,0),1)
         for invalid in [0,5,True,None,'2',float('nan'),float('inf')]:
             with self.assertRaises(ValueError):s.set_spread_factor(invalid)
-        self.assertEqual(Simulation().rules['spread_factor'],1)
+        self.assertEqual(Simulation().rules['spread_factor'],0.5)
 
     @patch("random.Random.random", return_value=0.0)
     def test_spread_factor_changes_actual_ignition_time(self, _random):
@@ -52,26 +117,26 @@ class PhysicsTests(unittest.TestCase):
 
     @patch("random.Random.random", return_value=0.0)
     def test_fire_attempts_at_advertised_interval(self, _random):
-        s=Simulation();s.ignite();s.step(1)
+        s=Simulation();s.set_spread_factor(1);s.place_fire(65,43);s.ignite();s.step(1)
         self.assertFalse(s.burning(s.cells[43][67]))
         s.step();self.assertTrue(s.burning(s.cells[43][67]))
         self.assertFalse(s.burning(s.cells[42][65]))
 
-    def test_failed_ignition_retries_and_threshold_is_fifty_percent(self):
-        s=Simulation();s.cells[20][20]['heat']=1
-        with patch.object(s.rng,'random',return_value=0.5):
+    def test_failed_ignition_retries_at_terrain_adjusted_threshold(self):
+        s=Simulation();s.set_spread_factor(1);s.cells[20][20]['heat']=1
+        with patch.object(s.rng,'random',return_value=0.575):
             s.step(2)
         self.assertFalse(s.burning(s.cells[20][21]))
-        with patch.object(s.rng,'random',return_value=0.499):
+        with patch.object(s.rng,'random',return_value=0.574):
             s.step(2)
         self.assertTrue(s.burning(s.cells[20][21]))
 
     def test_multiple_neighbors_give_only_one_chance_per_cell(self):
-        s=Simulation();s.set_wind('calm')
+        s=Simulation();s.set_spread_factor(1);s.set_wind('calm')
         s.cells[20][19]['heat']=s.cells[20][21]['heat']=1
         with patch.object(s.rng,'random',return_value=0.9) as draw:
             s.step(10)
-        self.assertEqual(draw.call_count,7)
+        self.assertEqual(draw.call_count,13)
         self.assertFalse(s.burning(s.cells[20][20]))
 
     def test_seed_reproduces_uneven_front(self):
@@ -82,7 +147,8 @@ class PhysicsTests(unittest.TestCase):
 
     @patch("random.Random.random", return_value=0.0)
     def test_containment_extinguishes_one_cell_per_step(self, _random):
-        s=Simulation();s.ignite();s.drone.update(x=61.,y=43.)
+        s=Simulation();s.place_fire(65,43);s.ignite();s.drone.update(x=61.,y=43.)
+        for x,y in s.fire_points():s.cells[y][x]['heat']=.1
         s.observe();pos=s.safe_drone_positions()[0];s.apply(command('contain',pos['x'],pos['y']),'a',s.incident_id,0)
         s.step();self.assertEqual(s.suppressed,1)
         before=s.suppressed;s.step();self.assertEqual(s.suppressed-before,1)
@@ -99,12 +165,12 @@ class PhysicsTests(unittest.TestCase):
     def test_fire_exposure_counts_people_once_and_freezes_group(self):
         for status in ['unwarned','evacuating','blocked','safe']:
             s=Simulation();g=s.groups['farm'];g['status']=status
-            s.cells[10][65]['heat']=1
+            s.cells[s.farm[1]][s.farm[0]]['heat']=1
             s.step()
             self.assertEqual((g['burnt'],g['status']),(6,'burnt'))
             frame=s.state()
             s.step(3)
-            self.assertEqual((g['x'],g['y']),(65,10))
+            self.assertEqual((g['x'],g['y']),s.farm)
             self.assertEqual(s.state()['burnt_people'],6)
             self.assertEqual(frame['people']['farm']['burnt'],6)
             self.assertEqual(sum('people burnt' in e['message'] for e in s.history),1)
@@ -123,7 +189,7 @@ class PhysicsTests(unittest.TestCase):
 
     def test_containment_options_cover_downwind_front_safely(self):
         for wind,pos in [((1,0),(69,43)),((-1,0),(61,43)),((0,-1),(65,39)),((0,1),(65,48)),((1,-1),(69,39))]:
-            s=Simulation();s.ignite();s.set_wind(x=wind[0],y=wind[1])
+            s=Simulation();s.place_fire(65,43);s.ignite();s.set_wind(x=wind[0],y=wind[1])
             s.drone.update(x=pos[0],y=pos[1]);s.observe()
             options=s.safe_drone_positions()
             self.assertTrue(options)
@@ -134,13 +200,13 @@ class PhysicsTests(unittest.TestCase):
         self.assertTrue(all(p['downwind_offset']==0 for p in s.safe_drone_positions()))
 
     def test_burning_targets_rejected_even_when_observed(self):
-        s=Simulation();s.ignite();s.drone.update(x=61.,y=43.)
+        s=Simulation();s.place_fire(65,43);s.ignite();s.drone.update(x=61.,y=43.)
         for action in ['scout','contain']:
             with self.assertRaises(ValueError):s.apply(command(action,65,43),'a',s.incident_id,0)
 
     def test_truck_mobilizes_and_cannot_suppress_remotely(self):
         s=Simulation();s.ignite();s.farmer_call();s.step(7)
-        self.assertEqual(s.truck['x'],12);self.assertEqual(s.crew_extinguished,0)
+        self.assertEqual(s.truck['x'],s.base[0]);self.assertEqual(s.crew_extinguished,0)
         s.step();self.assertNotEqual((s.truck['x'],s.truck['y']),s.base)
         self.assertEqual(s.truck_telemetry()['speed'],2)
         previous=(s.truck['x'],s.truck['y'])
@@ -208,7 +274,7 @@ class PhysicsTests(unittest.TestCase):
         self.assertNotIn('invalid',s.seen_commands)
 
     def test_known_map_hides_unobserved_truth_and_marks_stale_cells(self):
-        s=Simulation();s.ignite()
+        s=Simulation();s.place_fire(65,43);s.ignite()
         w=json.loads(s.payload()['world_state'])
         self.assertEqual(w['known_map']['rows'][43][65],'?')
         self.assertIsNone(w['known_map']['smoke_report'])
@@ -222,7 +288,7 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(s.known_map()['rows'][43][65],'.')
 
     def test_smoke_scout_positions_are_near_report_and_avoid_known_fire(self):
-        s=Simulation();s.ignite()
+        s=Simulation();s.place_fire(65,43);s.ignite()
         self.assertEqual(s.smoke_scout_positions(),[])
         s.farmer_call()
         for p in s.smoke_scout_positions():
@@ -264,7 +330,7 @@ class PhysicsTests(unittest.TestCase):
         s=Simulation();s.drone.update(x=35.,y=20.)
         s.truck.update(x=20.,y=20.,mobilized_at=0,
                        drone_order=dict(command='attack_sector',sector=[30,20]))
-        s.crew_target=[30,20];s.cells[20][30]['heat']=1
+        s.crew_target=[30,20];s.cells[20][30]['heat']=.1
         s.observe()
         self.assertEqual(s.truck['observed_fire'],[])
         self.assertIn(dict(x=30,y=20),s.observation)
@@ -297,7 +363,7 @@ class PhysicsTests(unittest.TestCase):
 
     def test_warning_frees_drone_while_people_keep_moving(self):
         s=Simulation();s.ignite();s.farmer_call()
-        s.drone.update(x=65.,y=10.,mode='evacuate_farm',target=None)
+        s.drone.update(x=float(s.farm[0]),y=float(s.farm[1]),mode='evacuate_farm',target=None)
         s.step()
         self.assertEqual(s.pending_decision_event,'evacuation_warning_delivered')
         self.assertEqual(s.drone['status'],'awaiting_assignment')
@@ -387,12 +453,12 @@ class PhysicsTests(unittest.TestCase):
     @patch("random.Random.random", return_value=0.0)
     def test_larger_suppression_ranges(self, _random):
         s=Simulation();s.drone.update(x=40.,y=20.,mode='contain')
-        s.cells[20][48]['heat']=1;s.cells[20][49]['heat']=1
+        s.cells[20][48]['heat']=.1;s.cells[20][49]['heat']=.1
         s.step()
         self.assertFalse(s.burning(s.cells[20][48]))
         self.assertTrue(s.burning(s.cells[20][49]))
         s=Simulation();s.truck.update(x=40.,y=20.,mobilized_at=0)
-        s.cells[20][50]['heat']=1;s.crew_target=[50,20]
+        s.cells[20][50]['heat']=.1;s.crew_target=[50,20]
         s.update_truck()
         self.assertFalse(s.burning(s.cells[20][50]))
         self.assertEqual(s.truck_telemetry()['hose_range'],10)
@@ -400,7 +466,7 @@ class PhysicsTests(unittest.TestCase):
     @patch("random.Random.random", return_value=0.0)
     def test_crew_five_jets_can_suppress_five_cells(self, _random):
         s=Simulation();s.truck.update(x=60.,y=42.,mobilized_at=0)
-        for x,y in [(65,42),(65,43),(65,44),(66,42),(66,43),(66,44),(67,42)]:s.cells[y][x]['heat']=1
+        for x,y in [(65,42),(65,43),(65,44),(66,42),(66,43),(66,44),(67,42)]:s.cells[y][x]['heat']=.1
         s.crew_target=[65,42];s.update_truck()
         self.assertEqual(s.crew_extinguished,5)
 
@@ -434,18 +500,18 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(w['rules']['truck_jets'],5)
         self.assertEqual(s.telemetry()['jets'],1)
         self.assertEqual(s.truck_telemetry()['suppression_success_probability'],0.6)
-        self.assertEqual(s.telemetry()['expected_extinguished_per_step'],0.4)
-        self.assertEqual(s.truck_telemetry()['expected_extinguished_per_step'],3.0)
+        self.assertEqual(s.telemetry()['expected_successful_jet_hits_per_step'],0.4)
+        self.assertEqual(s.truck_telemetry()['expected_successful_jet_hits_per_step'],3.0)
         self.assertEqual(s.telemetry()['suppression_success_probability'],0.4)
 
     def test_vector_wind_strength_diagonal_and_validation(self):
         s=Simulation();s.set_wind(x=0,y=0)
         self.assertEqual(s.spread_interval(1,0),s.spread_interval(0,-1))
         s.set_wind(x=1,y=-1)
-        self.assertEqual(s.spread_interval(1,0),2)
-        self.assertEqual(s.spread_interval(0,-1),2)
+        self.assertEqual(s.spread_interval(1,0),4)
+        self.assertEqual(s.spread_interval(0,-1),4)
         s.set_wind(x=3,y=-2)
-        self.assertEqual(s.spread_interval(1,0),1)
+        self.assertEqual(s.spread_interval(1,0),2)
         self.assertGreater(s.spread_interval(-1,0),s.spread_interval(1,0))
         self.assertEqual(json.loads(s.payload()['world_state'])['wind']['dy'],-2)
         for x,y in [(4,0),(float('nan'),0),(True,0),(1,None)]:
@@ -454,7 +520,7 @@ class PhysicsTests(unittest.TestCase):
 
     @patch("random.Random.random", return_value=0.0)
     def test_wind_changes_spread(self, _random):
-        s=Simulation();s.ignite();s.set_wind('north');s.step(4)
+        s=Simulation();s.place_fire(65,43);s.ignite();s.set_wind('north');s.step(4)
         self.assertTrue(s.burning(s.cells[42][65]))
         self.assertFalse(s.burning(s.cells[43][67]))
 
@@ -482,8 +548,8 @@ class PhysicsTests(unittest.TestCase):
 
     def test_people_stop_at_burning_route(self):
         s=Simulation();g=s.groups['farm'];g['status']='evacuating'
-        s.cells[10][64]['heat']=1;s.step()
-        self.assertEqual(g['status'],'blocked');self.assertEqual(g['x'],65)
+        s.cells[s.farm[1]-1][s.farm[0]-1]['heat']=1;s.step()
+        self.assertEqual(g['status'],'blocked');self.assertEqual(g['x'],s.farm[0])
 
     def test_invalid_commands_are_side_effect_free(self):
         s=Simulation();s.ignite()
@@ -516,6 +582,36 @@ class PhysicsTests(unittest.TestCase):
 
 
 class ControllerTests(unittest.TestCase):
+    def test_reset_queues_during_decision_and_discards_reply_or_error(self):
+        from simulator.server import Controller
+        for fails in (False,True):
+            c=Controller();entered=threading.Event();release=threading.Event()
+            c.sim.ignite();c.sim.farmer_call();old=c.sim.incident_id
+            def decide(payload):
+                entered.set();release.wait(3)
+                if fails:raise ValueError('Old reply invalid')
+                return command('hold',*c.sim.base),'old evidence'
+            try:
+                with patch.object(c.robot,'decide',side_effect=decide) as call:
+                    c.request_decision();self.assertTrue(entered.wait(2))
+                    c.action('reset',{});c.action('reset',{})
+                    self.assertTrue(c.state()['reset_pending'])
+                    self.assertTrue(c.busy)
+                    self.assertEqual(c.sim.incident_id,old)
+                    release.set()
+                    deadline=time.monotonic()+3
+                    while c.busy and time.monotonic()<deadline:time.sleep(.01)
+                    self.assertFalse(c.busy)
+                    self.assertFalse(c.reset_pending)
+                    self.assertNotEqual(c.sim.incident_id,old)
+                    self.assertEqual(c.sim.tick,0)
+                    self.assertFalse(c.sim.ignited)
+                    self.assertEqual(c.calls,0)
+                    self.assertIsNone(c.error)
+                    self.assertEqual(call.call_count,1)
+            finally:release.set();c.stop.set();c.robot.close()
+
+
     def test_world_frozen_during_decision_and_corrective_retry(self):
         from simulator.server import Controller
         for invalid_first in [False,True]:
