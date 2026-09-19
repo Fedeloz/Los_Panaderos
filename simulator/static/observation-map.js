@@ -12,9 +12,9 @@ window.ObservationMap = (() => {
     c.beginPath();c.roundRect(x,y,w,h,8);c.fill();c.stroke();
   }
   function tag(c,x,y,label,color){
-    c.font='600 11px system-ui';const w=c.measureText(label).width+16;
-    x=Math.max(58,Math.min(W-w-8,x));panel(c,x,y-15,w,23,color);
-    c.fillStyle=color;c.fillText(label,x+8,y);
+    c.font='600 9px system-ui';const w=c.measureText(label).width+12;
+    x=Math.max(58,Math.min(W-w-8,x));panel(c,x,y-12,w,19,color);
+    c.fillStyle=color;c.fillText(label,x+6,y);
   }
   function zones(c,s){
     if(!s.geography?.observation_zones)return;
@@ -27,8 +27,8 @@ window.ObservationMap = (() => {
     }
     for(const zone of s.geography.observation_zones){
       const color=zone.color||palette[zone.kind]||palette.town;
-      polygon(c,zone.polygon);c.fillStyle=color+'35';c.fill();
-      c.strokeStyle=color;c.lineWidth=1.8;c.setLineDash(zone.kind==='farm'?[5,4]:[]);c.stroke();c.setLineDash([]);
+      polygon(c,zone.polygon);c.fillStyle=color+'20';c.fill();
+      c.strokeStyle=color;c.lineWidth=1.2;c.setLineDash(zone.kind==='farm'?[5,4]:[]);c.stroke();c.setLineDash([]);
       c.save();polygon(c,zone.polygon);c.clip();
       for(const [x,y] of zone.homes||[]) {
         icon(c,'house-door-fill',x*Z-1,y*Z+1,14,'#18362b');
@@ -42,18 +42,24 @@ window.ObservationMap = (() => {
     if(!s.geography?.observation_zones)return;
     c.save();
     const statusLabels={unwarned:'Unwarned',evacuating:'Evacuating',blocked:'Route blocked',safe:'Safe',burnt:'Burnt'};
+    let townIndex=0;
     for(const zone of s.geography.observation_zones){
       const g=s.people?.[zone.id||zone.kind];if(!g)continue;
-      const color=zone.color||palette[zone.kind],width=236;
-      const [gx,gy]=zone.population_label||zone.label;
-      const x=Math.max(60,Math.min(W-width-8,gx*Z)),y=gy*Z;
-      if(zone.anchor){c.strokeStyle=color;c.lineWidth=1.2;c.setLineDash([3,3]);c.beginPath();c.moveTo(zone.anchor[0]*Z+5,zone.anchor[1]*Z+5);c.lineTo(x,y+28);c.stroke();c.setLineDash([]);}
-      panel(c,x,y,width,65,color);icon(c,'people-fill',x+12,y+15,28,'#f3f5ee');
-      c.font='750 13px system-ui';c.fillStyle='#f4f6ed';
-      c.fillText((zone.name||'').toUpperCase(),x+50,y+21);
-      c.font='600 11px system-ui';c.fillStyle=g.status==='burnt'?'#ffac99':g.status==='safe'?palette.refuge:'#f2d084';
-      c.fillText(`${g.count.toLocaleString('en-US')} ${zone.kind==='farm'?'people':'residents'} · ${statusLabels[g.status]||g.status}`,x+50,y+41);
-      c.font='9px system-ui';c.fillStyle='#bed0c5';c.fillText(zone.kind==='farm'?'Scenario occupancy · assumed':'Estimated district allocation',x+50,y+56);
+      const color=zone.color||palette[zone.kind],width=176;
+      // Dock summaries in the upper margins; keep the central fire/route area clear.
+      const x=zone.kind==='farm'?W-width-10:60;
+      const y=zone.kind==='farm'?43:43+townIndex++*42;
+      panel(c,x,y,width,35,color);icon(c,'people-fill',x+8,y+10,16,'#f3f5ee');
+      c.font='700 10px system-ui';c.fillStyle='#f4f6ed';
+      c.fillText((zone.name||'').toUpperCase(),x+31,y+13);
+      c.font='600 9px system-ui';c.fillStyle=g.status==='burnt'?'#ffac99':g.status==='safe'?palette.refuge:'#f2d084';
+      c.fillText(`${g.count.toLocaleString('en-US')} · ${statusLabels[g.status]||g.status}`,x+31,y+27);
+      if(zone.anchor){
+        c.font='700 9px system-ui';c.fillStyle=color;
+        const labelX=zone.id==='town'?zone.anchor[0]+9:zone.anchor[0];
+        const labelY=zone.id==='town'?zone.anchor[1]+4:zone.anchor[1];
+        c.fillText(zone.short_name||zone.kind.toUpperCase(),labelX*Z+8,labelY*Z-9);
+      }
       // Cards identify the home zone; this marker follows the group on evacuation.
       if(g.status==='evacuating'||g.status==='blocked'){
         icon(c,'people-fill',g.x*Z-9,g.y*Z-9,18,color);

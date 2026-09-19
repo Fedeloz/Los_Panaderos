@@ -50,3 +50,11 @@ Fidelity surfaces: system typography, dark green cards, cream text, blue distric
 Functional checks: 66 Python tests pass, including independent district warning/evacuation, town total conservation, a single farm district, warning target telemetry, district exposure counters and immutable recorded states. Browser rendering exercised unwarned, evacuating, blocked, safe and burnt statuses; aggregate town refuge arrivals reach 11,261 only when all three groups are safe; farm arrival count is 6. Legacy frames without zone metadata render. Browser runtime exceptions: none; narrow-screen horizontal overflow: false. JS syntax and whitespace checks pass. No external HappyRobot run or real phone call was made during verification.
 
 No remaining actionable P0/P1/P2 findings. Existing P3: phone-sized canvas labels are small; the text population cards and accessible canvas summary provide the same state. Full mobile map zoom remains outside this demo task.
+
+## Compact labels and observation contrast
+
+final result: passed
+
+User refinement: smaller labels outside the central map, dark background and lighter current sensor coverage. District cards reduced from 236×65 to 176×35 logical pixels and docked along the upper left/right margins. District names remain small inside their polygons. Current shared observations reveal the terrain through an otherwise dark overlay; stale/unseen areas stay dim. This uses each frame's observation timestamps, not hidden fire state. Town centre label offset prevents overlap with the station vehicle labels.
+
+Evidence: `.runtime/compact-ui/compact-map-implemented.png`, `compact-desktop.png`, `compact-mobile.png`. Viewports and canvas density match prior checks. Browser checks cover all five population states and correct refuge arrivals; no runtime errors or mobile horizontal overflow. JS syntax/whitespace checks pass. No physics or workflow changes, so Python tests were not repeated for this visual refinement.

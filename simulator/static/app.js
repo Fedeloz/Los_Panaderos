@@ -125,7 +125,7 @@ window.AerialView = (() => {
     if(!metres)return;
     const label=distance=>distance>=1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m';
     c.save();c.font='10px system-ui';c.fillStyle='#101e19dc';
-    c.fillRect(0,0,W,18);c.fillRect(0,18,52,H-18);
+    c.fillRect(0,0,W,18);c.fillRect(0,18,38,H-18);
     c.fillStyle='#e8eee2';c.strokeStyle='#d4e2c599';c.lineWidth=.7;
     for(let x=0;x<=s.width;x+=10){
       const px=x/s.width*W;c.beginPath();c.moveTo(px,18);c.lineTo(px,23);c.stroke();
@@ -133,7 +133,7 @@ window.AerialView = (() => {
     }
     c.textAlign='left';
     for(let y=10;y<s.height;y+=10){
-      const py=y/s.height*H;c.beginPath();c.moveTo(47,py);c.lineTo(55,py);c.stroke();c.fillText(label(y*metres),3,py-3);
+      const py=y/s.height*H;c.beginPath();c.moveTo(34,py);c.lineTo(41,py);c.stroke();c.fillText(label(y*metres),3,py-3);
     }
     c.restore();
   }
@@ -143,7 +143,14 @@ window.AerialView = (() => {
     const fires=[],seen=new Set(),time=s.replay?s.tick*.4:phase;
     function fire(x,y,stale=false,intensity=1){const key=x+','+y;if(!seen.has(key)){seen.add(key);fires.push({x,y,stale,intensity})}}
     if(belief){
-      c.fillStyle=s.geography?.map_style==='illustrated'?'#10262318':'#10262355';c.fillRect(0,0,W,H);ObservationMap.zones(c,s);
+      c.fillStyle='#091b16b3';c.fillRect(0,0,W,H);
+      // Reveal only cells observed this tick, including both vehicles' shared view.
+      // Old sightings stay dark; replay uses its own frame's observation timestamps.
+      c.save();c.beginPath();
+      for(const o of s.observed_cells||[])if(o.observed_at===s.tick)c.rect(o.x*Z,o.y*Z,Z,Z);
+      c.clip();c.drawImage(terrain(s),0,0,W,H);
+      c.fillStyle='#10262324';c.fillRect(0,0,W,H);c.restore();
+      ObservationMap.zones(c,s);
       for(const o of s.observed_cells||[]){if(o.burning)fire(o.x,o.y,o.observed_at!==s.tick,o.intensity??1);else{c.fillStyle=o.observed_at===s.tick?'#aecfac0a':'#aecfac04';c.fillRect(o.x*Z,o.y*Z,Z,Z)}}
       for(const f of s.truck?.observed_fire||[]){const key=f.x+','+f.y;const old=fires.find(p=>p.x===f.x&&p.y===f.y);if(old)old.stale=false;else fire(f.x,f.y)}
       for(const [x,y] of s.satellite?.blocks||[]){c.fillStyle='#e0ae5b22';c.fillRect(x*Z,y*Z,80,80);c.strokeStyle='#d8b06977';c.strokeRect(x*Z,y*Z,80,80)}
