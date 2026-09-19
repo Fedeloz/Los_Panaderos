@@ -229,20 +229,32 @@ class HappyRobot:
     @staticmethod
     def communication(kind, value, contacts, run_id=None):
         """Turn a call/Telegram node payload into a simulator communication record."""
-        payload = next((i for i in HappyRobot.json_values(value) if isinstance(i, dict) and 'information' in i and ('contact_name' in i or 'chat_id' in i or 'phone_number' in i)), None)
-        if not payload:
+        # Call/Telegram nodes are sub-workflow calls: their output is the child's response
+        # (status, audience_label, message_sent, summary...) and may or may not echo the inputs.
+        text_keys = ('information', 'message_sent', 'summary')
+        who_keys = ('contact_name', 'audience_label', 'chat_id', 'phone_number')
+        payload = {}
+        for item in HappyRobot.json_values(value):
+            if isinstance(item, dict) and (any(k in item for k in text_keys) or any(k in item for k in who_keys)):
+                for k, v in item.items():
+                    if k not in payload and v not in (None, ''):
+                        payload[k] = v
+        if not any(k in payload for k in text_keys + who_keys):
             return None
+        if 'call_workflow_data' in payload and str(payload['call_workflow_data'].get('status', '')) == 'failed':
+            payload.setdefault('status', 'failed')
         chat_id = str(payload.get('chat_id') or '')
-        name = str(payload.get('contact_name') or '')
+        name = str(payload.get('contact_name') or payload.get('audience_label') or '')
         phone = str(payload.get('phone_number') or '')
+        information = next((str(payload[k]) for k in text_keys if payload.get(k)), '')
         district = None
         for d in contacts['districts']:
-            if chat_id and d.get('chat_id') == chat_id:
+            if (chat_id and d.get('chat_id') == chat_id) or (name and d.get('name') and d['name'].lower() in name.lower()):
                 district = d['district_id']
         for p in contacts['people']:
-            if (phone and p.get('phone_number') == phone) or (chat_id and p.get('chat_id') == chat_id) or (name and p['contact_name'] == name):
+            if (phone and p.get('phone_number') == phone) or (chat_id and p.get('chat_id') == chat_id) or (name and p['contact_name'].lower() in name.lower()):
                 district = district or p['district_id']
-                name = name or p['contact_name']
+                name = p['contact_name']
         status = 'sent'
         for item in HappyRobot.json_values(value):
             if not isinstance(item, dict):
@@ -252,8 +264,10 @@ class HappyRobot:
                 if isinstance(found, str) and found and found not in {'succeeded', 'completed'}:
                     status = found[:40]
                     break
+        if payload.get('status') == 'no_recipients' or payload.get('recipients_delivered') == 0 and payload.get('recipients_attempted'):
+            status = str(payload.get('status') or 'failed')
         return dict(kind=kind, district_id=district, contact_name=name, criticality=payload.get('criticality'),
-                    information=payload.get('information'), status=status, run_id=run_id)
+                    information=information, status=status, run_id=run_id)
 
     # ---- run orchestration -----------------------------------------------
 

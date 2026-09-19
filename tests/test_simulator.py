@@ -827,6 +827,22 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(kinds['zone_alert']['district_id'], 'town_north'); self.assertEqual(kinds['zone_alert']['criticality'], 'critical')
         self.assertIn('Communications:', evidence)
 
+    def test_telegram_child_response_maps_to_district_by_audience_label(self):
+        contacts = dict(people=[dict(contact_id='x', contact_name='Carmen Ortega', district_id='town_north', phone_number=None, chat_id=None)],
+                        districts=[dict(district_id='town_north', name='Prado Alto', chat_id='-100n'), dict(district_id='farm', name='El Álamo Farm', chat_id=None)], missing=[])
+        delivered = {'status': 'delivered', 'alert_mode': 'group_msg_alert', 'audience_label': 'Residentes de Prado Alto', 'recipients_delivered': 1,
+                     'message_sent': 'Evacuen hacia el polideportivo', 'summary': 'Aviso enviado a 1 destinatario(s) de Residentes de Prado Alto.'}
+        c = HappyRobot.communication('zone_alert', {'content': [{'text': json.dumps(delivered)}]}, contacts)
+        self.assertEqual((c['district_id'], c['status'], c['information']), ('town_north', 'delivered', 'Evacuen hacia el polideportivo'))
+        none = {'status': 'no_recipients', 'audience_label': 'El Álamo Farm', 'recipients_attempted': 0, 'summary': 'No se envio el aviso'}
+        c = HappyRobot.communication('zone_alert', {'content': [{'text': json.dumps(none)}]}, contacts)
+        self.assertEqual((c['district_id'], c['status']), ('farm', 'no_recipients'))
+        failed = {'call_workflow_data': {'status': 'failed', 'error': 'child_workflow_failed'}}
+        self.assertIsNone(HappyRobot.communication('call', {'content': [{'text': json.dumps(failed)}]}, contacts))
+        s = Simulation(); s.ignite(); s.farmer_call()
+        s.apply_communications([dict(kind='zone_alert', district_id='farm', status='no_recipients', information='x')])
+        self.assertEqual(s.groups['farm']['status'], 'unwarned')
+
     def test_dispatch_without_drone_mission_returns_none_but_keeps_decision(self):
         run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'; out = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
         answers = [{'content': [{'text': f'Run ID: {run}\nStatus: completed'}]},
