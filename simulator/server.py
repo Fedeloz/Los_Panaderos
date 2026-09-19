@@ -3,22 +3,38 @@ import argparse
 import atexit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import threading
 import time
 import zlib
 from urllib.parse import urlparse
 
-from .contacts import directory as contact_directory
+from .contacts import directory as contact_directory, load_env
 from .engine import Simulation
 from .happyrobot import HappyRobot, EDITOR
 from .state_store import StateStore, build_state
 
 
+def happyrobot_mode():
+    load_env()
+    return (os.environ.get('HAPPYROBOT_MODE', 'loop') or 'loop').strip().lower()
+
+
+def dispatch_incident_id():
+    load_env()
+    return (os.environ.get('DISPATCH_INCIDENT_ID', 'brunete-demo') or 'brunete-demo').strip() or 'brunete-demo'
+
+
+def loop_mode():
+    return happyrobot_mode() == 'loop'
+
+
 class Controller:
     def __init__(self):
         self.lock = threading.RLock()
-        self.sim = Simulation(drone_count=2)
+        self.loop = loop_mode()
+        self.sim = Simulation(drone_count=2, incident_id=dispatch_incident_id() if self.loop else None)
         self.robot = HappyRobot()
         self.store = StateStore()
         self.busy = False
@@ -44,6 +60,9 @@ class Controller:
         self._cache_key = None
         self._cache_body = b''
         self._cache_etag = ''
+        self._applied_command_id = None
+        self._applied_dispatch = None
+        self._inbox_generation = 0
         threading.Thread(target=self._clock, daemon=True).start()
 
     def snapshot(self):
@@ -54,6 +73,58 @@ class Controller:
         if not self.store.enabled or not self.sim.ignited:
             return False
         return self.store.publish(build_state(self.sim), force=force, events=self.sim.drain_events())
+
+    def inbox_payload(self, event='local_observation'):
+        payload = self.sim.payload(event)
+        payload['source'] = 'los-panaderos-simulator'
+        payload['phase'] = self.sim.phase
+        return payload
+
+    def publish_inbox(self, event='local_observation', force=False):
+        if not self.store.enabled:
+            return False
+        return self.store.publish_inbox(self.inbox_payload(event), force=force)
+
+    def pull_dispatch(self):
+        """Apply fleet orders and dispatch summary the looping Despacho wrote to KV."""
+        if not self.loop or not self.store.enabled or not self.sim.ignited:
+            return
+        try:
+            remote = self.store.get(self.sim.incident_id)
+        except Exception as exc:
+            self.store.last_error = f'State pull failed: {str(exc)[:200]}'
+            return
+        if not isinstance(remote, dict):
+            return
+        dispatch = remote.get('last_dispatch')
+        if isinstance(dispatch, dict) and dispatch != self._applied_dispatch:
+            self.sim.record_dispatch(dispatch)
+            self._applied_dispatch = dict(dispatch)
+        comms = remote.get('communications_sent')
+        if isinstance(comms, list) and comms:
+            known = {(c.get('kind'), c.get('contact_name'), c.get('information'), c.get('tick')) for c in self.sim.communications}
+            fresh = [c for c in comms if isinstance(c, dict) and (c.get('kind'), c.get('contact_name'), c.get('information'), c.get('tick')) not in known]
+            if fresh:
+                self.sim.apply_communications(fresh)
+        command = remote.get('pending_command')
+        if not isinstance(command, dict):
+            return
+        command_id = str(command.get('command_id') or command.get('event_id') or '')
+        if not command_id or command_id == self._applied_command_id:
+            return
+        decision = HappyRobot.normalize(command) or (command if 'command' in command and 'mission' in command else None)
+        if decision is None:
+            return
+        try:
+            self.sim.apply(decision, command_id, self.sim.incident_id, self.sim.tick)
+            self._applied_command_id = command_id
+            self.calls += 1
+            self.run_evidence = json.dumps(dict(source='kv-pull', command_id=command_id, decision=self.sim.dispatch), ensure_ascii=False, indent=2)[:16000]
+        except ValueError as exc:
+            self.sim.last_result = dict(status='rejected', reason=str(exc)[:800],
+                instruction='Choose a new valid command using CURRENT observations.')
+            self.sim.log('system', 'Command from dispatcher loop rejected: '+str(exc)[:200])
+            self._applied_command_id = command_id
 
     def record(self):
         frame=self.snapshot()
@@ -78,7 +149,14 @@ class Controller:
                 self.record()
                 if self.sim.phase == 'finished':
                     self.recording = False
-                if self.auto and not self.busy and self.sim.called and (self.sim.pending_decision_event or self.sim.tick>=self.next_decision):
+                if self.loop:
+                    self.pull_dispatch()
+                    if self.auto and self.sim.called and (self.sim.pending_decision_event or self.sim.tick>=self.next_decision):
+                        event = self.sim.pending_decision_event or 'local_observation'
+                        self.sim.pending_decision_event = None
+                        self.publish_inbox(event, force=True)
+                        self.next_decision = self.sim.tick + 16
+                elif self.auto and not self.busy and self.sim.called and (self.sim.pending_decision_event or self.sim.tick>=self.next_decision):
                     self.request_decision(self.sim.pending_decision_event or 'local_observation')
 
     def state(self):
@@ -91,7 +169,8 @@ class Controller:
                         connected=self.robot.connected, error=self.error, workflow_url=EDITOR,
                         workflow_calls=self.calls, latency=self.latency, run_evidence=self.run_evidence,
                         timings=getattr(self.robot,'last_timings',{}), optimistic=self.optimistic,
-                        state_store=self.store.status())
+                        state_store=self.store.status(), happyrobot_mode='loop' if self.loop else 'push',
+                        dispatcher_loop=self.loop)
 
     def state_bytes(self):
         """Serialized state with an ETag. Re-serializes only when something observable changed,
@@ -110,12 +189,20 @@ class Controller:
     def request_decision(self, event='local_observation'):
         if self.sim.phase != 'active':
             raise ValueError('Fire is out; vehicles are returning or at station.')
+        if self.cursor is not None:
+            raise ValueError('Return to Live before requesting decisions.')
+        if self.loop:
+            if not self.sim.called:
+                raise ValueError('Send the farmer report first.')
+            self.sim.pending_decision_event = None
+            self.error = None
+            self.publish_inbox(event, force=True)
+            self.next_decision = self.sim.tick + 16
+            return
         if self.busy:
             raise ValueError('A decision is already running.')
         if not self.sim.called:
             raise ValueError('Send the farmer report first.')
-        if self.cursor is not None:
-            raise ValueError('Return to Live before requesting decisions.')
         if event != 'command_rejected':
             self.repair_attempts = 0
         payload = self.sim.payload(event)
@@ -216,7 +303,7 @@ class Controller:
                 self.pending_fires.clear()
                 self.repair_attempts=0
                 self.cursor = None
-                self.sim = Simulation(fleet_counts=self.sim.fleet_counts())
+                self.sim = Simulation(fleet_counts=self.sim.fleet_counts(), incident_id=dispatch_incident_id() if self.loop else None)
                 self.recording=False
                 self.error = None
                 self.auto = self.running = False
@@ -225,6 +312,9 @@ class Controller:
                 self.latency = None
                 self.frames = [self.snapshot()]
                 self.next_decision = 0
+                self._applied_command_id = None
+                self._applied_dispatch = None
+                self._inbox_generation = 0
             elif action == 'fleet':
                 self.sim.configure_fleet(data.get('count'),**data.get('counts',{}))
                 self.sim.observe()
@@ -345,7 +435,11 @@ def serve(port=8765):
 
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     print(f'Los Panaderos: http://127.0.0.1:{port}', flush=True)
-    print('HappyRobot development workflow; farmer call is a simulated transcript.', flush=True)
+    mode = 'loop (sim writes KV inbox; click Run on Despacho in HappyRobot development)' if loop_mode() else 'push (each tick starts a Despacho run)'
+    print(f'HappyRobot mode={happyrobot_mode()}: {mode}', flush=True)
+    if loop_mode():
+        print(f'Dispatcher session key: {dispatch_incident_id()} — click Run on Despacho Central (development).', flush=True)
+    print('Farmer call is a simulated transcript.', flush=True)
     missing = contact_directory().get('missing', [])
     if missing:
         print('Demo contacts without phone/Telegram IDs (set DEMO_* in .env): '+', '.join(missing), flush=True)

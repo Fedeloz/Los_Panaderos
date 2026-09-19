@@ -36,8 +36,8 @@ class Simulation:
                  truck_jets=5, hose_range=10,
                  drone_standoff_cells=3, drone_suppression_range=8)
 
-    def __init__(self, seed=9, drone_count=1, fleet_counts=None):
-        self.incident_id = str(uuid.uuid4())
+    def __init__(self, seed=9, drone_count=1, fleet_counts=None, incident_id=None):
+        self.incident_id = incident_id or str(uuid.uuid4())
         self.rng = random.Random(seed)
         self.suppression_rng = random.Random(seed+1)
         self.phase = "active"

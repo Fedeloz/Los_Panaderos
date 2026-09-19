@@ -22,13 +22,13 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGETS = dict(
     dispatch=dict(
         workflow='01a0baad-da0f-7939-aafa-7d587f577741',
-        editor='https://platform.eu.happyrobot.ai/hackspainteam9/workflows/zqtnabjy5loj/editor/9rqly4dk156p',
-        # Persistent node IDs inside Despacho Central.
-        drone_node='01a0bad2-2579-7bb7-bce4-259a366d6b51',      # Ejecutar mision de dron (sub-workflow response)
-        dispatch_node='01a0bab2-a0c9-7e18-87ad-1a7b572e3c71',   # Decision de Despacho (structured summary)
-        comm_nodes={'01a0bacc-e16d-7a6e-8aad-c5b6ee9beaa0': 'call',            # Llamar a esta persona
-                    '01a0bacd-68a6-7dd3-8b5c-ed0c6f0fa4a8': 'zone_alert',      # Enviar alerta de zona
-                    '01a0bacd-e362-7c86-8327-be89915480f8': 'personal_message'}),  # Enviar informacion personal
+        editor='https://platform.eu.happyrobot.ai/hackspainteam9/workflows/zqtnabjy5loj/editor/xcc9z0mzg57n',
+        # Persistent node IDs inside Despacho Central v14 (always-on self-continue).
+        drone_node='01a0bbe3-38e6-7a83-9808-7ec1dc5454da',      # Ejecutar mision de dron
+        dispatch_node='01a0bbd6-ef9b-749f-9263-793e99247690',   # Decision de Despacho
+        comm_nodes={'01a0bbe3-889c-73ca-89a2-e5a6ba3dc31f': 'call',            # Llamar a esta persona
+                    '01a0bbe3-38fa-785f-864c-d38947351bcc': 'zone_alert',      # Enviar alerta de zona
+                    '01a0bbe3-38f0-74a3-9b9b-bf25a7a27684': 'personal_message'}),  # Enviar informacion personal
     drone=dict(
         workflow='01a0b8ea-d9af-71f3-9fb7-8a469f9ac25b',
         editor='https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/lq3pyryjou20',

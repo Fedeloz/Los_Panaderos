@@ -735,6 +735,13 @@ class CommunicationTests(unittest.TestCase):
 
 
 class ControllerTests(unittest.TestCase):
+    def setUp(self):
+        self._mode = patch.dict(os.environ, {'HAPPYROBOT_MODE': 'push'})
+        self._mode.start()
+
+    def tearDown(self):
+        self._mode.stop()
+
     def test_state_bytes_cached_until_something_changes(self):
         from simulator.server import Controller
         c=Controller();c.stop.set()
@@ -1066,6 +1073,50 @@ class ParserTests(unittest.TestCase):
 
     def test_no_fabricated_fallback(self):
         self.assertEqual(HappyRobot.decisions({'content': [{'text': 'No result.'}]}), [])
+
+
+class DispatcherLoopTests(unittest.TestCase):
+    def setUp(self):
+        self._mode = patch.dict(os.environ, {'HAPPYROBOT_MODE': 'loop', 'DISPATCH_INCIDENT_ID': 'brunete-demo'})
+        self._mode.start()
+
+    def tearDown(self):
+        self._mode.stop()
+
+    def test_loop_mode_reuses_session_key_and_does_not_start_a_run(self):
+        from simulator.server import Controller
+        c=Controller();c.stop.set()
+        try:
+            self.assertTrue(c.loop)
+            self.assertEqual(c.sim.incident_id, 'brunete-demo')
+            c.sim.ignite(); c.sim.farmer_call()
+            with patch.object(c.robot, 'decide') as decide, patch.object(c, 'publish_inbox') as inbox:
+                c.request_decision('farmer_call')
+                decide.assert_not_called()
+                inbox.assert_called_once()
+                self.assertFalse(c.busy)
+            c.action('reset', {})
+            self.assertEqual(c.sim.incident_id, 'brunete-demo')
+        finally:
+            c.robot.close()
+
+    def test_loop_mode_applies_pending_command_from_kv(self):
+        from simulator.server import Controller
+        c=Controller();c.stop.set();c.sim.ignite();c.sim.farmer_call()
+        try:
+            remote=dict(pending_command=dict(command_id='cmd-1', command='hold', target_x=12, target_y=32, reason='stand by', mission='hold station',
+                                             extinguisher_orders=[dict(drone_id='drone-1', command='hold', target_x=12, target_y=32, reason='stand by')]),
+                        last_dispatch=dict(decision='verificar', justificacion='scout first', criticidad='medium'))
+            with patch.object(c.store, 'get', return_value=remote):
+                c.store.url='http://example'; c.store.token='x'
+                c.pull_dispatch()
+            self.assertEqual(c._applied_command_id, 'cmd-1')
+            self.assertEqual(c.sim.dispatch['decision'], 'verificar')
+            with patch.object(c.store, 'get', return_value=remote), patch.object(c.sim, 'apply') as apply:
+                c.pull_dispatch()
+                apply.assert_not_called()
+        finally:
+            c.robot.close()
 
 
 if __name__ == '__main__':

@@ -7,6 +7,8 @@
  *   PUT   /state/:incident_id          full replace
  *   PATCH /state/:incident_id          shallow merge; `districts` merged by district_id;
  *                                      `communications_sent` appended
+ *   DELETE /state/:incident_id         session reset: empty envelope + wipe events/inbox
+ *   PUT/GET /inbox/:incident_id        dispatcher pull inbox (world payload + generation)
  *   GET   /lookup?incident_id=..&phone=..|district_id=..|name=..
  *         caller-oriented view: district, danger_level, advice, evacuation point/route
  *   GET   /incidents                    list known incident ids (latest first)
@@ -98,7 +100,54 @@ function situation(state) {
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 
-const reply = (status, body) => new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+const reply = (status, body, extra = {}) => new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...extra } });
+
+function emptyEvents() {
+  return { events: [], vehicles: {}, fire_detections: [], updated_at: new Date().toISOString() };
+}
+
+function truthyFlag(value) {
+  if (value === true || value === 1) return true;
+  const s = String(value ?? '').trim().toLowerCase();
+  return s === 'true' || s === '1' || s === 'yes' || s === 'on';
+}
+
+function emptyEnvelope(id, extra = {}) {
+  const now = new Date().toISOString();
+  const sessionId = extra.session_id || extra.dispatcher_run_id || null;
+  return {
+    incident_id: id,
+    session_id: sessionId,
+    session_started_at: extra.session_started_at || now,
+    loop_generation: extra.loop_generation || 1,
+    loop_seen_generation: 0,
+    dispatcher_live: extra.dispatcher_live !== false,
+    dispatcher_stop: Boolean(extra.dispatcher_stop),
+    dispatcher_run_id: extra.dispatcher_run_id || sessionId,
+    advice_source: 'reset',
+    public_message: '',
+    districts: [],
+    communications_sent: [],
+    last_dispatch: null,
+    pending_command: null,
+    fire: { confirmed: false, detections: [], burning_cells: 0, report: null, front: 'Sesion reiniciada' },
+    vehicles: {},
+    events: [],
+    source: 'despacho_reset',
+    updated_at: now,
+  };
+}
+
+async function resetSession(env, id, extra = {}) {
+  const envelope = emptyEnvelope(id, extra);
+  await Promise.all([
+    env.STATE.put(`incident:${id}`, JSON.stringify(envelope)),
+    env.STATE.put(`events:${id}`, JSON.stringify(emptyEvents())),
+    env.STATE.delete(`inbox:${id}`),
+    env.STATE.put('current', id),
+  ]);
+  return envelope;
+}
 
 const DANGER_ORDER = ['none', 'watch', 'warning', 'critical'];
 
@@ -261,7 +310,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, '') || '/';
-    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type', 'access-control-allow-methods': 'GET,POST,PUT,PATCH,OPTIONS' } });
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type,if-none-match', 'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS', 'access-control-expose-headers': 'etag' } });
     if (path === '/health') return reply(200, { ok: true, service: 'los-panaderos-state' });
     if (!authorized(request, env)) return reply(401, { error: 'Unauthorized' });
 
@@ -286,12 +335,69 @@ export default {
       return reply(200, { accepted: valid.length, vehicles: next.vehicles, fire_confirmed: next.fire_detections.length > 0, detections: next.fire_detections.length, events: next.events.length });
     }
 
+    const inboxMatch = path.match(/^\/inbox\/([A-Za-z0-9._-]{1,80})$/);
+    if (inboxMatch) {
+      const id = inboxMatch[1];
+      if (request.method === 'GET') {
+        const [rawInbox, rawState] = await Promise.all([env.STATE.get(`inbox:${id}`), env.STATE.get(`incident:${id}`)]);
+        if (!rawInbox) return reply(404, { error: 'No inbox', has_work: false, incident_id: id, generation: 0 });
+        const inbox = JSON.parse(rawInbox);
+        const state = rawState ? JSON.parse(rawState) : {};
+        const generation = Number(inbox.generation) || 0;
+        const seen = Number(state.loop_seen_generation) || 0;
+        const has_work = generation > seen;
+        const etag = `"${generation}"`;
+        if (request.headers.get('If-None-Match') === etag && !has_work) {
+          return new Response(null, { status: 304, headers: { ...JSON_HEADERS, etag } });
+        }
+        return reply(200, { ...inbox, has_work, incident_id: id, generation }, { etag });
+      }
+      if (request.method !== 'PUT' && request.method !== 'PATCH') return reply(405, { error: 'Method not allowed' });
+      let body;
+      try { body = await request.json(); } catch { return reply(400, { error: 'Invalid JSON body' }); }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return reply(400, { error: 'Expected JSON object' });
+      const current = JSON.parse((await env.STATE.get(`inbox:${id}`)) || 'null') || { generation: 0 };
+      const generation = (Number(current.generation) || 0) + 1;
+      const next = { ...body, incident_id: id, generation, updated_at: new Date().toISOString() };
+      await env.STATE.put(`inbox:${id}`, JSON.stringify(next));
+      if (!(await env.STATE.get('current'))) await env.STATE.put('current', id);
+      return reply(200, { ...next, has_work: true }, { etag: `"${generation}"` });
+    }
+
     const stateMatch = path.match(/^\/state\/([A-Za-z0-9._-]{1,80})$/);
     if (stateMatch) {
       const id = stateMatch[1];
       if (request.method === 'GET') {
         const merged = await loadMerged(env, id);
         return merged ? reply(200, merged) : reply(404, { error: 'Unknown incident' });
+      }
+      if (request.method === 'DELETE') {
+        let extra = {};
+        try {
+          const text = await request.text();
+          if (text) extra = JSON.parse(text);
+        } catch { extra = {}; }
+        if (!extra || typeof extra !== 'object' || Array.isArray(extra)) extra = {};
+        extra.session_id = extra.session_id || url.searchParams.get('session_id') || '';
+        extra.continue = extra.continue ?? url.searchParams.get('continue');
+        const continuing = truthyFlag(extra.continue);
+        const current = JSON.parse((await env.STATE.get(`incident:${id}`)) || 'null') || {};
+        const session = current.session_id || '';
+        const incoming = String(extra.session_id || '').trim();
+        if (continuing) {
+          const stop = Boolean(current.dispatcher_stop);
+          const live = Boolean(current.dispatcher_live);
+          const mismatch = Boolean(incoming && session && incoming !== session);
+          const skip = stop || !current.incident_id || mismatch;
+          const reason = stop ? 'stopped' : mismatch ? 'session_mismatch' : current.incident_id ? 'continue' : 'not_running';
+          return reply(200, {
+            ok: true, reset: false, skip_loop: skip, already_running: false, reason,
+            incident_id: id, session_id: session || incoming || null,
+            dispatcher_live: live && !stop, dispatcher_stop: stop,
+          });
+        }
+        const envelope = await resetSession(env, id, { ...extra, dispatcher_live: true, dispatcher_stop: false });
+        return reply(200, { ok: true, reset: true, skip_loop: false, already_running: false, reason: 'reset', ...envelope });
       }
       if (request.method === 'PUT' || request.method === 'PATCH') {
         let body;

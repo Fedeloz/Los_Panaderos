@@ -127,6 +127,11 @@ class StateStore:
         self._pending_events = []
         self._timer = None
         self.events_sent = 0
+        self._inbox_signature = None
+        self._inbox_pending = None
+        self._inbox_timer = None
+        self._inbox_sent_at = 0.0
+        self.inbox_published = 0
 
     @property
     def enabled(self):
@@ -155,6 +160,17 @@ class StateStore:
         """Batch-append field events (fire_detected, deployed, ...). One POST per flush, separate KV key server-side."""
         events = [events] if isinstance(events, dict) else list(events)
         return self._request('POST', f'/state/{incident_id}/events', dict(events=events, source='los-panaderos-simulator'))
+
+    def delete(self, incident_id, extra=None):
+        """Wipe incident+events+inbox for a dispatcher session restart. Worker PUT-empty + DELETE inbox."""
+        return self._request('DELETE', f'/state/{incident_id}', extra or {})
+
+    def put_inbox(self, incident_id, payload):
+        """Replace the dispatcher pull-inbox (separate KV key from incident state)."""
+        return self._request('PUT', f'/inbox/{incident_id}', payload)
+
+    def get_inbox(self, incident_id):
+        return self._request('GET', f'/inbox/{incident_id}')
 
     def publish(self, state, force=False, wait=False, events=None):
         """PATCH the state if it changed since the last publish (plus any queued events). Returns True when scheduled.
@@ -216,7 +232,52 @@ class StateStore:
                 if events:  # keep unsent events for the next flush
                     self._pending_events = list(events)+self._pending_events
 
+    def publish_inbox(self, payload, force=False, wait=False):
+        """PUT the dispatcher inbox if the payload changed. Coalesced like state (1 write/s per key)."""
+        if not self.enabled:
+            return False
+        incident = payload.get('incident_id')
+        if not incident:
+            return False
+        signature = json.dumps({k: v for k, v in payload.items() if k not in ('updated_at', 'event_id')}, sort_keys=True, default=str)
+        with self.lock:
+            if signature == self._inbox_signature and not force:
+                return False
+            self._inbox_signature = signature
+            now = time.monotonic()
+            if not force and not wait and now - self._inbox_sent_at < self.min_interval:
+                self._inbox_pending = payload
+                if self._inbox_timer is None:
+                    self._inbox_timer = threading.Timer(self.min_interval - (now - self._inbox_sent_at), self._flush_inbox)
+                    self._inbox_timer.daemon = True
+                    self._inbox_timer.start()
+                return True
+            self._inbox_sent_at = now
+            self._inbox_pending = None
+        if wait:
+            self._send_inbox(payload)
+        else:
+            threading.Thread(target=self._send_inbox, args=(payload,), daemon=True).start()
+        return True
+
+    def _flush_inbox(self):
+        with self.lock:
+            payload, self._inbox_pending, self._inbox_timer = self._inbox_pending, None, None
+            self._inbox_sent_at = time.monotonic()
+        if payload is not None:
+            self._send_inbox(payload)
+
+    def _send_inbox(self, payload):
+        try:
+            self.put_inbox(payload['incident_id'], payload)
+            with self.lock:
+                self.inbox_published += 1
+                self.last_error = None
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            with self.lock:
+                self.last_error = f'Inbox publish failed: {str(exc)[:200]}'
+
     def status(self):
         with self.lock:
             return dict(enabled=self.enabled, url=self.url or None, published=self.published, events_sent=self.events_sent,
-                        last_published=self.last_published, error=self.last_error)
+                        inbox_published=self.inbox_published, last_published=self.last_published, error=self.last_error)

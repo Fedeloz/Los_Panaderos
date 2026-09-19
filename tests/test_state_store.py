@@ -127,6 +127,14 @@ class FakeApi(BaseHTTPRequestHandler):
         FakeApi.store.setdefault('events', []).extend(body.get('events', []))
         self._send(200, {'accepted': len(body.get('events', []))})
 
+    def do_DELETE(self):
+        FakeApi.calls.append(('DELETE', self.path, self.headers.get('Authorization')))
+        if self.headers.get('Content-Length'):
+            self.rfile.read(int(self.headers['Content-Length']))
+        FakeApi.store.pop(self.path.rsplit('/', 1)[1], None)
+        FakeApi.store['events'] = []
+        self._send(200, {'ok': True, 'reset': True})
+
     def do_PUT(self):
         FakeApi.calls.append((self.command, self.path, self.headers.get('Authorization')))
         if self.headers.get('Authorization') != 'Bearer secret':
@@ -205,6 +213,15 @@ class StateStoreClientTests(unittest.TestCase):
         store.publish(state, wait=True)
         self.assertTrue(store.publish(state, wait=True, events=[dict(kind='arrived', source='engine-1', incident_id='abc')]))
         self.assertEqual(FakeApi.store['events'][0]['kind'], 'arrived')
+
+    def test_delete_and_inbox_put(self):
+        store = StateStore(self.url, 'secret')
+        store.publish({'incident_id': 'abc', 'sim_time': 1}, wait=True)
+        self.assertTrue(store.publish_inbox({'incident_id': 'abc', 'event_type': 'farmer_call', 'world_state': '{}'}, wait=True))
+        self.assertEqual(FakeApi.store['abc']['event_type'], 'farmer_call')
+        self.assertEqual(store.status()['inbox_published'], 1)
+        self.assertTrue(store.delete('abc')['ok'])
+        self.assertIn(('DELETE', '/state/abc', 'Bearer secret'), FakeApi.calls)
 
 
 class ControllerPublishTests(unittest.TestCase):
