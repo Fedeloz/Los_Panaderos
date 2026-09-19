@@ -81,10 +81,22 @@ class FleetTests(unittest.TestCase):
         for bad in (None,'missing','farm'):
             with self.assertRaises(ValueError):s.validate_scout_orders([order(1,bad),order(2,'town_north')])
         orders=[order(1,'town'),order(2,'town')]
-        with self.assertRaises(ValueError):s.apply(self.decision(s,orders),'duplicate',s.incident_id,0)
+        s.apply(self.decision(s,orders),'duplicate',s.incident_id,0)
+        self.assertEqual(s.scouts[0]['mode'],'evacuate_town')
+        self.assertEqual(s.scouts[1]['mode'],'hold')
+        self.assertEqual(s.pending_decision_event,'coordination_conflict')
         orders=[order(1,'town'),dict(drone_id='scout-2',command='hold',reason='hold')]
         d=self.decision(s,orders);d.update(command='evacuate_town',district_id='town')
-        with self.assertRaises(ValueError):s.apply(d,'duplicate2',s.incident_id,0)
+        d.update(target_x=s.groups['town']['home'][0],target_y=s.groups['town']['home'][1])
+        s.apply(d,'duplicate2',s.incident_id,0)
+        self.assertEqual(s.drone['mode'],'hold')
+        self.assertEqual(s.scouts[0]['mode'],'evacuate_town')
+        continued=self.decision(s,[dict(drone_id='scout-1',command='continue',reason='Finish warning'),dict(drone_id='scout-2',command='hold',reason='Wait')])
+        continued.update(command='evacuate_town',district_id='town',target_x=s.groups['town']['home'][0],target_y=s.groups['town']['home'][1])
+        s.apply(continued,'duplicate-continue',s.incident_id,0)
+        self.assertEqual(s.drone['mode'],'hold')
+        self.assertEqual(s.scouts[0]['mode'],'evacuate_town')
+        self.assertTrue(s.last_result['coordination_adjustments'])
         s.groups['town']['status']='safe'
         with self.assertRaises(ValueError):s.validate_scout_orders(orders)
 

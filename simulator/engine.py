@@ -675,7 +675,7 @@ class Simulation:
             firefighters_eta=max(0,self.crew_due-self.tick) if self.crew_due else None,
             mission=self.mission,last_action_result=self.last_result,
             fleet=[self.telemetry(d) for d in self.extinguishers]+self.scout_telemetry(),fleet_counts=self.fleet_counts(),scout_reports=self.scout_reports,
-            fleet_policy='RAPID PAIRED RESPONSE: drone-1 is named Squirtle (keep drone_id unchanged in commands). Scouts and extinguishers both observe radius 12; current telemetry overrides older prompt range claims. After a credible smoke/fire warning, when a scout and an extinguisher are available, normally dispatch BOTH in the same response toward safe approaches to the reported focus. Do not hold Squirtle at base waiting for the scout to arrive. Scout reconnoiters and reports; Squirtle approaches alongside on a complementary safe flank, then starts containment at the next decision as soon as confirmed fire and a validated safe containment position exist. For unconfirmed smoke use scout movement for Squirtle, not blind suppression. Urgent district warnings, unsafe approaches, or higher-priority existing missions override pairing; explain any exception. Maintain three-cell clearance and prioritize the downwind front. Use fleet and fire_trucks as the exact available inventory; any role can have zero to three vehicles. Assign every listed ID, never invent absent resources. Scouts patrol agent-selected waypoints, can deliver district evacuation warnings but cannot suppress, and report separate observed fires. Prioritize each observed focus by population exposure and wind, not discovery order. Hidden ignitions are never included.',
+            fleet_policy='DISTRICT RESERVATIONS: Scout orders returned by delegate_scout reserve their evacuation districts, including continue on an active warning. Never assign an extinguisher or another scout to the same district. On coordination_conflict, read last_result and assign held vehicles useful nonduplicate work. RAPID PAIRED RESPONSE: drone-1 is named Squirtle (keep drone_id unchanged in commands). Scouts and extinguishers both observe radius 12; current telemetry overrides older prompt range claims. After a credible smoke/fire warning, when a scout and an extinguisher are available, normally dispatch BOTH in the same response toward safe approaches to the reported focus. Do not hold Squirtle at base waiting for the scout to arrive. Scout reconnoiters and reports; Squirtle approaches alongside on a complementary safe flank, then starts containment at the next decision as soon as confirmed fire and a validated safe containment position exist. For unconfirmed smoke use scout movement for Squirtle, not blind suppression. Urgent district warnings, unsafe approaches, or higher-priority existing missions override pairing; explain any exception. Maintain three-cell clearance and prioritize the downwind front. Use fleet and fire_trucks as the exact available inventory; any role can have zero to three vehicles. Assign every listed ID, never invent absent resources. Scouts patrol agent-selected waypoints, can deliver district evacuation warnings but cannot suppress, and report separate observed fires. Prioritize each observed focus by population exposure and wind, not discovery order. Hidden ignitions are never included.',
             mission_context=self.mission_context(),known_map=self.known_map(),smoke_scout_positions=self.smoke_scout_positions(),
             memory=[e for e in self.history if e['source']!='simulation'][-8:])
         return dict(event_id=str(uuid.uuid4()),event_type=event_type,incident_id=self.incident_id,sim_time=str(self.tick),
@@ -738,20 +738,17 @@ class Simulation:
         scout_orders=self.validate_scout_orders(decision.get('scout_orders'))
         legacy_truck=dict(command=decision.get('truck_command','continue'),target_x=decision.get('truck_target_x'),target_y=decision.get('truck_target_y'),reason=decision.get('truck_reason',''))
         truck_orders=self.order_array(decision.get('truck_orders'),self.trucks,'truck_id',legacy_truck)
-        planned=[];assigned=set()
+        planned=[];reservations={};adjustments=[]
         for order in drone_orders:
             drone=next(d for d in self.extinguishers if d['drone_id']==order['drone_id'])
             command,x,y,district=self.validate_drone_order(order,drone)
-            if district:
-                if district in assigned:raise ValueError('Assign only one drone to warn each district.')
-                assigned.add(district)
+            if district:reservations.setdefault(district,[]).append((drone,order,len(planned)))
             planned.append((drone,command,x,y,district))
         for order in scout_orders:
             scout=next(d for d in self.scouts if d['drone_id']==order['drone_id'])
             district=order.get('district_id') if order['command'].startswith('evacuate_') else scout.get('evacuation_group') if order['command']=='continue' and scout['mode'].startswith('evacuate_') else None
             if district and self.groups[district]['status']=='unwarned':
-                if district in assigned:raise ValueError('Assign only one drone to warn each district.')
-                assigned.add(district)
+                reservations.setdefault(district,[]).append((scout,order,None))
         for order in truck_orders:
             if order.get('command') not in {'attack_sector','continue','hold'}:raise ValueError('Truck command must be attack_sector, continue or hold.')
             if order['command']=='attack_sector':
@@ -759,6 +756,23 @@ class Simulation:
                 if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or int(v)!=v for v in (tx,ty)):raise ValueError('Truck sector requires integer coordinates.')
                 if not (0<=tx<self.width and 0<=ty<self.height):raise ValueError('Truck sector outside map.')
                 if not isinstance(order.get('reason'),str) or not order['reason'].strip():raise ValueError('Truck order requires an explanation.')
+        # Resolve only duplicate reservations; do not invent new strategic destinations.
+        for district,entries in reservations.items():
+            if len(entries)<2:continue
+            winner=min(entries,key=lambda e:(not (e[0].get('evacuation_group')==district and e[0]['mode'].startswith('evacuate_')),e[0]['role']!='scout',e[0]['drone_id']))
+            for vehicle,order,index in entries:
+                if vehicle is winner[0]:continue
+                reason=f"Duplicate warning for {district}: retained {winner[0]['drone_id']}; {vehicle['drone_id']} held for reassignment."
+                adjustments.append(reason)
+                order.update(command='hold',district_id='',reason=reason)
+                if index is None:order['waypoints']=[]
+                else:
+                    x,y=int(vehicle['x']),int(vehicle['y'])
+                    order.update(target_x=x,target_y=y)
+                    planned[index]=(vehicle,'hold',x,y,None)
+        decision=copy.deepcopy(decision)
+        decision.update(extinguisher_orders=drone_orders,scout_orders=scout_orders,truck_orders=truck_orders)
+        if adjustments:decision['coordination_adjustments']=adjustments
         if self.mission_records:self.mission_records[-1]=self.mission_context()[-1]
         # Commit only after all vehicle orders and shared district reservations validate.
         for order in truck_orders:
@@ -788,6 +802,10 @@ class Simulation:
         self.mission=str(decision.get('mission',''))[:500]
         first=planned[0] if planned else (None,'hold',0,0,None)
         self.last_result=dict(command=first[1],target=list(first[2:4]),district_id=first[4],accepted_at=self.tick,command_id=command_id)
+        if adjustments:
+            self.last_result['coordination_adjustments']=adjustments
+            self.pending_decision_event='coordination_conflict'
+            for message in adjustments:self.log('system',message)
         self.log('central',self.mission)
         self.log('edge',str(decision.get('reason',''))[:1000],decision=decision)
         return self.last_result
