@@ -77,11 +77,13 @@ class PhysicsTests(unittest.TestCase):
     def test_truck_moves_on_roads_and_cannot_suppress_remotely(self):
         s=Simulation();s.ignite();s.farmer_call();s.step(7)
         self.assertEqual(s.truck['x'],12);self.assertEqual(s.crew_extinguished,0)
+        s.step();self.assertEqual((s.truck['x'],s.truck['y']),(12,42))
+        self.assertEqual(s.truck_telemetry()['speed'],2)
         previous=(s.truck['x'],s.truck['y'])
         for _ in range(80):
             s.step();now=(s.truck['x'],s.truck['y'])
             self.assertIn(now,s.roads)
-            self.assertLessEqual(abs(now[0]-previous[0])+abs(now[1]-previous[1]),1)
+            self.assertLessEqual(abs(now[0]-previous[0])+abs(now[1]-previous[1]),2)
             previous=now
         self.assertGreater(s.crew_extinguished,0)
         world=json.loads(s.payload()['world_state'])

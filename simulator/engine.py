@@ -19,7 +19,7 @@ class Simulation:
                  drone_cells_per_step=3,
                  drone_extinguishes_per_step=1, satellite_delay_steps=12,
                  satellite_interval_steps=12, satellite_block_size=8,
-                 truck_cells_per_step=1, truck_mobilization_steps=8,
+                 truck_cells_per_step=2, truck_mobilization_steps=8,
                  firefighter_extinguishes_per_step=6, hose_range=8,
                  drone_standoff_cells=3, drone_suppression_range=6)
 
@@ -85,7 +85,7 @@ class Simulation:
         self.truck["status"] = "mobilizing"
         self.crew_target = list(self.report)
         self.log('farmer', self.call_text)
-        self.log('dispatch', 'Truck mobilizing for 8 steps, then travelling on roads at 1 cell/step. Drone scouts ahead.')
+        self.log('dispatch', 'Truck mobilizing for 8 steps, then travelling on roads at 2 cells/step. Drone scouts ahead.')
 
     def set_wind(self, name=None, x=None, y=None):
         if x is None and y is None:
@@ -239,7 +239,7 @@ class Simulation:
             for _,__,p in options:
                 if (t['x'],t['y'])==p or self.route((t['x'],t['y']),p,blocked,self.roads):
                     t['target']=list(p);break
-        self.move_safely(t,1,self.roads)
+        self.move_safely(t,self.rules['truck_cells_per_step'],self.roads)
         local=[(x,y) for x,y in self.fire_points() if math.hypot(x-t['x'],y-t['y'])<=8]
         if local and t['status']!='trapped':
             for x,y in sorted(local,key=lambda p:math.hypot(p[0]-t['x'],p[1]-t['y']))[:6]:
@@ -247,11 +247,11 @@ class Simulation:
                 t['last_drops'].append([x,y])
             t['status']='suppressing'
         distance=len(self.route((t['x'],t['y']),t['target'],set(),self.roads)) if t['target'] else 0
-        self.crew_due=self.tick+distance if t['status'] not in {'blocked','trapped'} else None
+        self.crew_due=self.tick+math.ceil(distance/self.rules['truck_cells_per_step']) if t['status'] not in {'blocked','trapped'} else None
         t['observed_fire']=[dict(x=x,y=y) for x,y in self.fire_points() if math.hypot(x-t['x'],y-t['y'])<=10]
 
     def truck_telemetry(self):
-        return dict(self.truck,truck_id='engine-1',speed=1,hose_range=8,extinguishes_per_step=6,
+        return dict(self.truck,truck_id='engine-1',speed=self.rules['truck_cells_per_step'],hose_range=8,extinguishes_per_step=6,
                     position_reported_at=self.tick,arrival_estimate_steps=max(0,self.crew_due-self.tick) if self.crew_due else None)
 
     def observe(self):
