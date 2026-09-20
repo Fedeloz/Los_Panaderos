@@ -1143,11 +1143,27 @@ class ParserTests(unittest.TestCase):
 
 class DispatcherLoopTests(unittest.TestCase):
     def setUp(self):
-        self._mode = patch.dict(os.environ, {'HAPPYROBOT_MODE': 'loop', 'DISPATCH_INCIDENT_ID': 'brunete-demo'})
+        self._mode = patch.dict(os.environ, {'HAPPYROBOT_MODE': 'loop', 'DISPATCH_INCIDENT_ID': 'brunete-demo',
+                                             'STATE_API_URL': '', 'STATE_API_TOKEN': ''})
         self._mode.start()
+        # These build a real Controller on the fixed demo incident id. Without a disabled
+        # store they reach the deployed Worker, and action('reset') now wipes the shared
+        # session there: running the suite emptied the live brunete-demo document.
+        self._env = patch('simulator.state_store.load_env')
+        self._env.start()
 
     def tearDown(self):
+        self._env.stop()
         self._mode.stop()
+
+    def test_the_suite_never_reaches_the_deployed_worker(self):
+        from simulator.server import Controller
+        c = Controller(); c.stop.set()
+        try:
+            self.assertFalse(c.store.enabled, 'these tests must not touch the live state API')
+            self.assertFalse(c.wipe_shared_session(c.sim.incident_id))
+        finally:
+            c.robot.close()
 
     def test_loop_mode_reuses_session_key_and_does_not_start_a_run(self):
         from simulator.server import Controller
