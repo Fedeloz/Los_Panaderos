@@ -1,0 +1,13 @@
+# ESA WorldCover 2021 class -> Scott & Burgan fuel model. REVIEWABLE.
+worldcover_code,class_name,fuel_model
+10,tree_cover,TU3
+20,shrubland,SH2
+30,grassland,GR2
+40,cropland,GR1
+50,built_up,NB1
+60,bare_sparse,NB1
+70,snow_ice,NB1
+80,water,NB1
+90,herbaceous_wetland,TL1
+95,mangrove,NB1
+100,moss_lichen,NB1

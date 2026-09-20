@@ -1,0 +1,23 @@
+# Scott & Burgan 40 fuel models — subset used for WorldCover reclass.
+# Loads in tons/acre: w1h,w10h,w100h,wherb,wwoody | SAV 1/ft: sav1h,savherb,savwoody
+# depth in ft | mx_dead = dead extinction moisture % | heat = Btu/lb
+# Values are the published standard table values; REVIEWABLE, edit as needed.
+model,name,w1h,w10h,w100h,wherb,wwoody,sav1h,savherb,savwoody,depth_ft,mx_dead,heat_btu_lb
+NB1,urban/bare,0,0,0,0,0,0,0,0,0.1,0,8000
+GR1,short sparse dry grass,0.10,0,0,0.30,0,2000,1500,0,0.4,15,8000
+GR2,low load dry grass,0.10,0,0,1.00,0,2000,1500,0,1.0,15,8000
+GR4,moderate load dry grass,0.25,0,0,2.00,0,2000,1500,0,2.0,15,8000
+GR7,high load dry grass-shrub,1.00,0,0,1.50,0,2000,1500,0,3.0,15,8000
+GS1,low load grass-shrub,0.20,0,0,0.50,0.65,2000,1500,1800,0.9,15,8000
+GS2,moderate load grass-shrub,0.50,0.50,0,0.60,1.00,2000,1500,1800,1.5,15,8000
+SH1,low load dry climate shrub,0.25,0.25,0,0.15,1.30,2000,1500,1600,1.0,15,8000
+SH2,moderate load dry shrub,1.35,2.40,0.75,0,3.85,2000,0,1600,1.0,15,8000
+SH5,high load dry shrub,3.50,7.10,2.00,0,2.90,750,0,1600,6.0,15,8000
+TU1,light load timber-grass-shrub,0.20,0.90,1.50,0.20,1.00,2000,1500,1600,0.6,20,8000
+TU3,moderate load timber-shrub,1.10,1.15,2.20,0.65,2.50,2000,1500,1800,1.3,30,8000
+TU5,heavy load timber litter,1.00,2.20,2.90,0,1.50,2000,0,1500,1.0,25,8000
+TL1,low load compact litter,1.00,2.20,3.60,0,0,2000,0,0,0.2,30,8000
+TL3,moderate load litter,0.50,2.20,2.80,0,0,2000,0,0,0.3,35,8000
+TL6,moderate load broadleaf,1.50,2.50,2.00,0,0,2000,0,0,0.4,25,8000
+TL8,long needle litter,5.80,1.40,4.20,0,0,1800,0,0,0.3,35,8000
+SB1,low load activity fuel,1.50,3.00,11.00,0,0,2000,0,0,1.0,25,8000
