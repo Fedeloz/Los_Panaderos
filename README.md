@@ -9,7 +9,7 @@
 <p align="center">
   <a href="#cómo-funciona">Cómo funciona</a> ·
   <a href="#explorar-la-demo">Probar la demo</a> ·
-  <a href="#adaptación-y-aprendizaje">Adaptación y aprendizaje</a> ·
+  <a href="#próximos-pasos">Próximos pasos</a> ·
   <a href="#documentación">Documentación</a>
 </p>
 
@@ -40,32 +40,15 @@ permanece oculto para los agentes hasta que sus sensores lo descubren.
 
 ```mermaid
 flowchart LR
-    SIM["Simulador<br/>fuego, viento y sensores"]
-    KV["Estado compartido<br/>API + Cloudflare KV"]
-    DC["Despacho Central<br/>prioridades y coordinación"]
-    LP["Los Panaderos<br/>misión de flota"]
-    COM["Llamadas y Telegram<br/>avisos a la población"]
-    MAR["Marina<br/>consultas de residentes"]
-
-    SIM -->|"Avisos y observaciones"| KV
-    KV -->|"Buzón de incidentes"| DC
-    DC -->|"Misión"| LP
-    LP -->|"Órdenes propuestas"| DC
-    DC -->|"Órdenes y registro de avisos"| KV
-    KV -->|"Órdenes para ejecutar"| SIM
-    DC --> COM
-    KV -->|"Estado público: /lookup"| MAR
-
-    classDef agent fill:#153f46,stroke:#71aaa5,color:#ffffff;
-    classDef local fill:#293441,stroke:#94a3b8,color:#ffffff;
-    class DC,LP,MAR agent;
-    class SIM,KV local;
+    INFO["Recibir información"] --> PRIORIDAD["Priorizar"]
+    PRIORIDAD --> ACTUAR["Dar órdenes y avisar"]
+    ACTUAR --> OBSERVAR["Observar qué cambia"]
+    OBSERVAR -->|"Volver a decidir"| INFO
 ```
 
-**HappyRobot decide la estrategia; el simulador ejecuta el movimiento.**
-Los vehículos resuelven rutas, distancias de seguridad y extinción localmente.
-Las órdenes se validan antes de aplicarse: coordenadas fuera del mapa,
-distritos inexistentes o razones vacías producen un rechazo visible.
+**HappyRobot decide las prioridades y las órdenes.** El simulador valida y
+ejecuta esas órdenes, recoge nuevas observaciones y devuelve la información
+para revisar la respuesta.
 
 | Quién | Responsabilidad |
 |:---|:---|
@@ -144,39 +127,6 @@ un proxy MCP local autenticado; sus variables están en `.env.example`.
 
 </details>
 
-## Adaptación y aprendizaje
-
-**En `main`:** los cambios de viento y las nuevas observaciones generan eventos
-para revisar la respuesta durante el incidente.
-
-**En la ampliación de [PR #1](https://github.com/jucamohedano/Los_Panaderos/pull/1):**
-pronósticos de futuros posibles, detección de divergencias y memoria de
-experiencias en SQLite. Esta ampliación todavía no forma parte de `main`.
-
-```text
-Antes de decidir       Durante el incidente       Después de decidir
-─────────────────      ──────────────────────      ───────────────────
-Recuperar casos        Ejecutar órdenes            Comparar alternativas
-y lecciones            y observar                  con el evaluador
-        ↓                       ↓                          ↓
-Preparar un brief      Comparar observaciones      Post-mortem explica
-y simular futuros      con el pronóstico           y propone lecciones
-        ↓                       ↓                          ↓
-HappyRobot decide      Pedir una nueva decisión    Guardar en SQLite
-                       si cambia la situación      para futuras decisiones
-```
-
-- **Obtener experiencia:** workflow opcional que selecciona la evidencia útil
-  del brief; sigue sin publicar y cuenta con un resumen determinista de respaldo.
-- **Post-mortem:** analiza decisiones pasadas; complementa el razonamiento previo
-  de Despacho con evaluación retrospectiva.
-- **Jev:** integración opcional en sombra para comparar recomendaciones; nunca
-  aplica órdenes.
-
-Aprender aquí significa **recuperar experiencia relevante como contexto**,
-sin reentrenar el modelo. La mejora de las decisiones de HappyRobot con esa
-memoria aún debe demostrarse en una evaluación en vivo.
-
 ## Documentación
 
 | Quiero entender… | Referencia |
@@ -185,8 +135,6 @@ memoria aún debe demostrarse en una evaluación en vivo.
 | La integración actual con HappyRobot | [Cambios de workflows](docs/happyrobot-workflow-changes.md) |
 | Qué se ha probado con agentes reales | [Validación de escenarios](docs/demo-validation.md) |
 | La procedencia de población, mapa y refugios | [Datos del escenario](docs/population-provenance.md) |
-| El bucle de aprendizaje de la ampliación | [Diseño y diagramas en PR #1](https://github.com/jucamohedano/Los_Panaderos/blob/devin/1789865844-possible-worlds/docs/self-healing-loop.md) |
-| Los resultados y límites de esa evaluación | [Evaluación de adaptación en PR #1](https://github.com/jucamohedano/Los_Panaderos/blob/devin/1789865844-possible-worlds/docs/adaptation-evaluation.md) |
 
 <details>
 <summary><strong>Comprobaciones locales para desarrollo</strong></summary>
@@ -200,6 +148,27 @@ node --test state-api/src/*.test.js
 ```
 
 </details>
+
+## Próximos pasos
+
+Estas capacidades **todavía no están en `main`**. La ampliación de
+[PR #1](https://github.com/jucamohedano/Los_Panaderos/pull/1) sirve como base para
+los siguientes pasos de integración y validación:
+
+| Paso | Objetivo |
+|:---|:---|
+| **Anticipar** | Integrar pronósticos de futuros posibles y pedir una nueva decisión cuando las observaciones contradigan el pronóstico. |
+| **Recordar** | Recuperar casos y lecciones de SQLite para preparar un breve contexto antes de decidir. |
+| **Revisar** | Conectar la evaluación de alternativas y Post-mortem para explicar resultados y guardar lecciones después de actuar. |
+| **Seleccionar experiencia** | Integrar el workflow opcional **Obtener experiencia**, aún sin publicar, con un resumen determinista de respaldo. |
+| **Comparar recomendaciones** | Incorporar **Jev** como observador opcional en sombra, sin capacidad para aplicar órdenes. |
+| **Validar la mejora** | Evaluar con HappyRobot en vivo si la experiencia recuperada mejora las decisiones. |
+
+El objetivo es aprender mediante **experiencia relevante en el contexto**,
+sin reentrenar el modelo.
+
+Diseño en desarrollo: [bucle y diagramas](https://github.com/jucamohedano/Los_Panaderos/blob/devin/1789865844-possible-worlds/docs/self-healing-loop.md)
+· [evaluación y límites](https://github.com/jucamohedano/Los_Panaderos/blob/devin/1789865844-possible-worlds/docs/adaptation-evaluation.md).
 
 ---
 
