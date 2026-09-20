@@ -2,6 +2,9 @@
 
 No tokens are read, copied, or served to the browser. No inbound tunnel needed.
 
+Workflow and node ids come from .env (see .env.example); the literals below are the
+last known good values. HappyRobot regenerates node ids on every workflow edit.
+
 Targets (HAPPYROBOT_TARGET):
   dispatch (default)  Despacho Central: decides who to call/alert (phone + Telegram)
                       and delegates the drone mission to the Los Panaderos sub-workflow.
@@ -15,9 +18,15 @@ import subprocess
 import threading
 import time
 
-from .contacts import directory as contact_directory
+from .contacts import directory as contact_directory, load_env
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# HappyRobot rewrites every node id whenever the workflow is edited, so all of them are
+# overridable from .env and the values below are only the last known good defaults.
+# load_env() has to run BEFORE the os.environ reads underneath: without it a .env entry
+# is read after the fact and silently ignored.
+load_env()
 
 TARGETS = dict(
     dispatch=dict(
@@ -39,7 +48,20 @@ TARGET = TARGETS.get(os.environ.get('HAPPYROBOT_TARGET', 'dispatch'), TARGETS['d
 WORKFLOW = os.environ.get('HAPPYROBOT_WORKFLOW_ID', TARGET['workflow'])
 EDGE_NODE = os.environ.get('HAPPYROBOT_DRONE_NODE', TARGET['drone_node'])
 DISPATCH_NODE = os.environ.get('HAPPYROBOT_DISPATCH_NODE', TARGET['dispatch_node'])
-COMM_NODES = TARGET['comm_nodes']
+COMM_NODE_ENV = dict(call='HAPPYROBOT_CALL_NODE',
+                     zone_alert='HAPPYROBOT_ZONE_ALERT_NODE',
+                     personal_message='HAPPYROBOT_PERSONAL_MESSAGE_NODE')
+
+
+def comm_nodes(defaults):
+    """node id -> kind. A kind set in .env replaces its default id; the rest stay."""
+    chosen = {kind: os.environ.get(key, '').strip() for kind, key in COMM_NODE_ENV.items()}
+    nodes = {node: kind for node, kind in defaults.items() if not chosen.get(kind)}
+    nodes.update({node: kind for kind, node in chosen.items() if node})
+    return nodes
+
+
+COMM_NODES = comm_nodes(TARGET['comm_nodes'])
 EDITOR = TARGET['editor']
 
 DECISION_KEYS = {'command', 'target_x', 'target_y', 'reason', 'mission'}
