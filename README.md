@@ -1,8 +1,6 @@
 # Los Panaderos
 
-HackSpain 2026 · Team 9 · Un incendio en Brunete que cambia mientras corre.
-
-HappyRobot decide. El simulador mueve el mundo, valida las órdenes y enseña al operador qué sabe el sistema — y qué no.
+HackSpain 2026. Team 9. Incendio forestal en Brunete.
 
 <!--
   Short demo video: simulation (maps, fleet, wind) + HappyRobot in action
@@ -14,35 +12,57 @@ HappyRobot decide. El simulador mueve el mundo, valida las órdenes y enseña al
 
 
 
-## 1. Cómo decide
+## El problema
 
-Brunete no le enseña el fuego entero. Hay dos mapas: lo que ocurre y lo que los sensores han visto. El satélite llega tarde. Un foco pintado en el mapa sigue oculto hasta que un scout o un dron lo pisa.
+En un incendio rural el humo llega antes que la confirmación. El viento cambia. Hay más frentes que medios. Hay que decidir ya qué información cuenta, a quién se avisa y dónde va cada recurso. Mandar el camión a un sector es dejar el otro esperando.
 
-Llegan muchas señales; pocas cambian el plan. El buzón del **Despacho Central** recibe el aviso de humo de la granja (`farmer_call`, transcripción simulada) y, más tarde, un `scout_fire_report` si el explorador confirma un foco distinto. Despacho elige **avisar, no avisar o verificar**, con criticidad y destinatarios. La misión de flota la ejecuta el flujo **Los Panaderos**: Scout, luego Dron, con órdenes por vehículo (`scout-1`, `drone-1`, `engine-1`).
+El cuello de botella no es solo el fuego. Es la centralita: filtrar avisos, priorizar población y coordinar a la vez la flota y las comunicaciones. Un protocolo fijo se queda atrás en el primer cambio de frente.
 
-Qué va primero no es una lista fija. Con viento fuerte hacia un distrito sin aviso, la prioridad es avisar a esa gente, no apagar la celda más cercana. Mandar el camión al sector A es dejar el B esperando: cada orden nombra un recurso y un sitio. El simulador rechaza coordenadas fuera de mapa, distritos inventados o un `reason` vacío; no inventa un plan de recambio.
+## La solución
 
-Cuando el viento gira o el scout confirma fuego, no se sigue el plan de hace veinte minutos: hay un evento nuevo y HappyRobot vuelve a decidir.
+Un sistema multiagente en HappyRobot. Una centralita, Despacho Central, decide a partir de lo que recibe: aviso de humo, telemetría y reportes del scout. Debajo, agentes heterogéneos ejecutan: scout y dron de extinción (Los Panaderos), camión de bomberos, y canales de aviso (llamada y Telegram).
+
+Drones autónomos vigilan el entorno para detectar pronto. Patrullan, reducen la incertidumbre y solo entonces se desvía la extinción o se alerta a un distrito. En el simulador cada vehículo tiene autonomía táctica: planificador de ruta, distancia de seguridad al fuego y sistema de extinción. HappyRobot no pilota cada celda.
+
+## 1. Cómo decide la centralita
+
+Brunete no enseña el incendio entero. Hay dos mapas: el terreno y lo que los sensores han visto. El satélite llega tarde. Un foco pintado sigue oculto hasta que un scout o un extinguisher lo observa.
+
+El buzón recibe `farmer_call` (transcripción simulada) y, si el explorador confirma un foco distinto, `scout_fire_report`. Despacho elige avisar, no avisar o verificar, con criticidad y destinatarios. La misión de flota la cierra Los Panaderos: Scout, luego Dron, con una orden por id (`scout-1`, `drone-1`, `engine-1`).
+
+A quién se avisa y cuándo depende del riesgo: viento hacia un distrito sin aviso, tiempo de preaviso y si el fuego está confirmado. No se evacúa Brunete entero. Se avisa el distrito amenazado, o se informa sin mover a la población. El simulador rechaza coordenadas fuera de mapa, distritos inventados o un `reason` vacío.
+
+Si el viento gira o el scout confirma fuego, hay un evento nuevo y la centralita vuelve a decidir.
 
 ## 2. Cómo actúa
 
-No basta con decir qué haría. El sistema mueve flota y avisa a personas.
+**Recursos**
 
-- **Flota.** Drones exploran o contienen; el camión ataca un sector. La gente de un distrito solo se pone en marcha cuando llega un aviso de evacuación a *ese* distrito, no a Brunete entero.
-- **Fuera del simulador.** Despacho dispara alerta de zona (Telegram), llamada a un contacto, o un mensaje personal. `action` en la alerta de zona debe ser `evacuate` o `inform`: un mensaje de calma con criticidad alta no debería sacar a 11.261 personas a la carretera.
-- **La llamada del vecino** no pasa por el buzón. Marina (Gestor info incendios) pregunta nombre y barrio y consulta el estado público (`GET /lookup`). Identificado, vecino desconocido, o ambiguo.
+| Medio | Papel |
+|---|---|
+| Dron scout | Patrulla, confirmación temprana, megafonía de aviso |
+| Dron extinguisher | Reconocimiento cercano y contención. No vuela a una celda en llamas |
+| Camión de bomberos | Ataque al sector (`attack_sector`). Medio principal de extinción |
 
-El operador ve la sala CECOP (`/` situación nacional, `/incidente` Brunete), puede pausar, pedir otra decisión o cambiar el viento. El reloj se para mientras HappyRobot delibera, para que la latencia no mueva el fuego a escondidas.
+Un camión en el sector A no está en el B.
 
-## 3. Cómo se supervisa — y lo que aprende
+**Población y comunicaciones.** Agentes de razonamiento abren el canal: alerta de zona (`evacuate` o `inform`), llamada a un contacto, Telegram personal. Un mensaje de calma no debe salir como evacuación.
 
-La interfaz enseña la misión en curso, el ticket de órdenes, la gente por distrito y el registro de comunicaciones. Si una orden no es válida, se ve el rechazo; no se aplica en silencio.
+La llamada del vecino no pasa por el buzón. Marina pregunta nombre y barrio y lee el estado público (`GET /lookup`).
 
-El bonus del reto —aprender de ejecuciones anteriores— está en el bucle de adaptación (SQLite local, no Twin): casos parecidos y lecciones entran en un brief corto *antes* de la siguiente decisión; un post-mortem (oráculo + flujo **Post-mortem Los Panaderos**) escribe *después*. **Obtener experiencia** cura precedentes y sigue sin publicar. Jev puede puntuar en sombra; no aplica órdenes. Falta aún demostrar, en un run en vivo, que esa memoria mejora la decisión de HappyRobot.
+El operador ve la sala CECOP, puede pausar o cambiar el viento. El reloj se para mientras HappyRobot delibera.
+
+Más adelante: cruce con bases gubernamentales de residentes en zona, y cámaras térmicas en los drones. Hoy el aviso usa el directorio de demo y sensores simulados.
+
+## 3. Cómo se supervisa
+
+La interfaz muestra misión, órdenes, estado de cada distrito y el registro de comunicaciones. Una orden inválida se rechaza a la vista. El sistema no la sustituye en silencio.
+
+De ejecuciones anteriores, un bucle local (SQLite) mete casos y lecciones en un brief antes de la siguiente decisión. El post-mortem escribe después. **Obtener experiencia** aún no está publicado. Jev puede puntuar en sombra. No manda flota.
 
 ## Arrancar
 
-Hace falta un **Run de Despacho Central** abierto en development *antes* de ignición y aviso de humo. El ↺ Reiniciar no borra la KV (`brunete-demo`).
+Run de **Despacho Central** abierto en development antes de ignición y aviso de humo. El ↺ Reiniciar no borra la KV (`brunete-demo`).
 
 ```sh
 python3 -m simulator.server
@@ -52,4 +72,4 @@ python3 -m simulator.server
 
 Flujos: [Despacho Central](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/zqtnabjy5loj/editor/wm9viy0rm87v) · [Los Panaderos](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/ol9kqyjzgq0m) · [Gestor / Marina](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/8angdc9uc7nz/editor/m3cs7r55sfuv)
 
-Padrón municipal de Brunete 11.261 (2025); el reparto por barrios y los 100 de la granja son escenario, no censo oficial. El mapa no está georreferenciado. Detalle de física, prompts y casos grabados: `docs/`.
+Padrón municipal de Brunete 11.261 (2025). El reparto por barrios y los 100 de la granja son escenario. El mapa no está georreferenciado. Detalle: `docs/`.
