@@ -1,6 +1,6 @@
 # Los Panaderos
 
-HackSpain 2026. Team 9. Incendio forestal en Brunete.
+Sistema multiagente para coordinación de incendios
 
 <!--
   Short demo video: simulation (maps, fleet, wind) + HappyRobot in action
@@ -14,7 +14,7 @@ HackSpain 2026. Team 9. Incendio forestal en Brunete.
 
 ## El problema
 
-En un incendio rural el humo llega antes que la confirmación. El viento cambia. Hay más frentes que medios.
+En un incendio el humo llega antes que la confirmación. El viento cambia. Hay más frentes que medios.
 
 Hay que decidir ya qué información cuenta, a quién se avisa y dónde va cada recurso. Mandar el camión a un sector es dejar el otro esperando.
 
@@ -36,13 +36,13 @@ El simulador escribe en el buzón. HappyRobot lee y decide. El motor aplica la o
 
 ## Cómo decide la centralita
 
-Brunete no enseña el incendio entero. Hay dos mapas: el terreno y lo que los sensores han visto. El satélite llega tarde. Un foco pintado sigue oculto hasta que un scout o un extinguisher lo observa.
+El mapa no enseña el incendio entero. Hay dos capas: el terreno y lo que los sensores han visto. El satélite llega tarde. Un foco pintado sigue oculto hasta que un scout o un extinguisher lo observa.
 
 El buzón recibe el aviso de humo (`farmer_call`) y, si el explorador confirma un foco distinto, el reporte del scout (`scout_fire_report`).
 
 Despacho elige avisar, no avisar o verificar. Fija criticidad y destinatarios. La misión de flota la cierra Los Panaderos: primero Scout, luego Dron. Una orden por id (`scout-1`, `drone-1`, `engine-1`).
 
-A quién se avisa y cuándo depende del riesgo: viento hacia un distrito sin aviso, tiempo de preaviso y si el fuego está confirmado. No se evacúa Brunete entero. Se avisa el distrito amenazado, o se informa sin mover a la población.
+A quién se avisa y cuándo depende del riesgo: viento hacia un distrito sin aviso, tiempo de preaviso y si el fuego está confirmado. No se evacúa el municipio entero. Se avisa el distrito amenazado, o se informa sin mover a la población.
 
 El simulador rechaza coordenadas fuera de mapa, distritos inventados o un `reason` vacío.
 
@@ -78,4 +78,4 @@ python3 -m simulator.server
 
 Flujos: [Despacho Central](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/zqtnabjy5loj/editor/wm9viy0rm87v) · [Los Panaderos](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/ol9kqyjzgq0m) · [Gestor / Marina](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/8angdc9uc7nz/editor/m3cs7r55sfuv)
 
-Padrón municipal de Brunete 11.261 (2025). El reparto por barrios y los 100 de la granja son escenario. El mapa no está georreferenciado. Detalle: `docs/`.
+El escenario de demo es Brunete. El padrón municipal es 11.261 (2025). El reparto por barrios y los 100 de la granja son escenario. El mapa no está georreferenciado. Detalle: `docs/`.
