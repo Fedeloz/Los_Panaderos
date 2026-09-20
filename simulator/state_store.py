@@ -161,6 +161,24 @@ class StateStore:
         events = [events] if isinstance(events, dict) else list(events)
         return self._request('POST', f'/state/{incident_id}/events', dict(events=events, source='los-panaderos-simulator'))
 
+    def cancel_pending(self):
+        """Drop everything coalesced but not yet sent, for both the state and the inbox.
+
+        publish() holds a state back for min_interval and flushes it on a timer. On a
+        session reset that queued flush lands *after* the wipe and recreates the incident
+        that was just cleared, so the reset has to cancel it first.
+        """
+        with self.lock:
+            timers = [self._timer, self._inbox_timer]
+            self._timer = self._inbox_timer = None
+            self._pending = self._inbox_pending = None
+            self._pending_events = []
+            self._signature = self._inbox_signature = None
+        for timer in timers:
+            if timer is not None:
+                timer.cancel()
+        return True
+
     def delete(self, incident_id, extra=None):
         """Wipe incident+events+inbox for a dispatcher session restart. Worker PUT-empty + DELETE inbox."""
         return self._request('DELETE', f'/state/{incident_id}', extra or {})

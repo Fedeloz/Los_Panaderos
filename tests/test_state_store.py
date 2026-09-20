@@ -1,5 +1,6 @@
 ﻿import json
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
@@ -151,6 +152,66 @@ class FakeApi(BaseHTTPRequestHandler):
 
     def log_message(self, *_):
         pass
+
+
+class SessionResetTests(unittest.TestCase):
+    """Reset has to clear KV too, or the next incident inherits the last one."""
+
+    def setUp(self):
+        FakeApi.store.clear(); FakeApi.calls.clear()
+        self.server = ThreadingHTTPServer(('127.0.0.1', 0), FakeApi)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f'http://127.0.0.1:{self.server.server_address[1]}'
+
+    def tearDown(self):
+        self.server.shutdown(); self.server.server_close()
+
+    def controller(self):
+        from simulator.server import Controller
+        with patch('simulator.server.StateStore', lambda *a, **k: StateStore(self.url, 'token')):
+            return Controller()
+
+    def test_reset_wipes_the_shared_incident(self):
+        c = self.controller()
+        try:
+            self.assertTrue(c.store.enabled)
+            incident = c.sim.incident_id
+            c.action('place_fire', dict(x=76, y=41))
+            c.action('ignite', {})
+            c.action('reset', {})
+            for _ in range(50):
+                if any(m == 'DELETE' for m, *_ in FakeApi.calls):
+                    break
+                time.sleep(0.05)
+            deletes = [path for method, path, *_ in FakeApi.calls if method == 'DELETE']
+            self.assertEqual(deletes, [f'/state/{incident}'],
+                             'Reset must wipe the incident it abandons')
+        finally:
+            c.stop.set()
+
+    def test_reset_cancels_a_queued_publish_so_the_wipe_sticks(self):
+        """A coalesced flush from the dead incident must not recreate it."""
+        store = StateStore(self.url, 'token', min_interval=30)
+        store.publish(dict(incident_id='inc', sim_time=1), wait=True)
+        store.publish(dict(incident_id='inc', sim_time=2))   # queda en cola tras el timer
+        self.assertIsNotNone(store._pending)
+        store.cancel_pending()
+        self.assertIsNone(store._pending)
+        self.assertIsNone(store._timer)
+        time.sleep(0.4)
+        sent = [path for method, path, *_ in FakeApi.calls if method in ('PUT', 'PATCH')]
+        self.assertEqual(len(sent), 1, 'la publicacion en cola no debe salir tras el reset')
+
+    def test_reset_without_a_state_api_is_a_no_op(self):
+        from simulator.server import Controller
+        with patch.dict('os.environ', {'STATE_API_URL': '', 'STATE_API_TOKEN': ''}),              patch('simulator.state_store.load_env'):
+            c = Controller()
+        try:
+            self.assertFalse(c.wipe_shared_session(c.sim.incident_id))
+            c.action('reset', {})
+            self.assertEqual(FakeApi.calls, [])
+        finally:
+            c.stop.set()
 
 
 class StateStoreClientTests(unittest.TestCase):

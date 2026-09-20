@@ -164,6 +164,34 @@ class Controller:
             self.sim.log('system', 'Command from dispatcher loop rejected: '+str(exc)[:200])
             self._applied_command_id = command_id
 
+    def wipe_shared_session(self, incident_id):
+        """Clear the shared incident, its events and the dispatcher inbox on Reset.
+
+        Without this a Reset only rebuilt the local simulation. The KV document kept the
+        finished fire, so an inbound caller was still told about it, and the stored
+        loop_seen_generation stayed ahead of the fresh inbox, which silently swallowed the
+        next event the dispatcher should have picked up. StateStore.delete and the Worker
+        route already existed; nothing called them.
+
+        Runs off-thread: the controller lock is held here and the browser poll must not
+        wait on the network. A failure is reported through the store status, never raised,
+        so Reset always resets the simulation.
+        """
+        if not self.store.enabled or not incident_id:
+            return False
+        # Drop queued publishes first: a coalesced flush from the incident that just ended
+        # would land after the wipe and put it straight back.
+        self.store.cancel_pending()
+
+        def wipe():
+            try:
+                self.store.delete(incident_id)
+            except Exception as exc:
+                self.store.last_error = f'Session reset failed: {str(exc)[:200]}'
+
+        threading.Thread(target=wipe, daemon=True).start()
+        return True
+
     def record(self):
         frame=self.snapshot()
         self.frames.append(frame)
@@ -337,6 +365,7 @@ class Controller:
             if self.busy:
                 raise ValueError('HappyRobot is deciding. You can pause or inspect the timeline.')
             if action == 'reset':
+                self.wipe_shared_session(self.sim.incident_id)
                 self.reset_pending=False
                 self.pending_fires.clear()
                 self.repair_attempts=0
