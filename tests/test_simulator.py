@@ -1,6 +1,7 @@
 import copy
 import json
 import math
+import os
 import unittest
 import threading
 import time
@@ -10,6 +11,7 @@ from pathlib import Path
 
 from simulator.engine import Simulation
 from simulator.happyrobot import HappyRobot
+from simulator import happyrobot as hr
 
 
 def command(action='contain', x=65, y=43):
@@ -588,7 +590,212 @@ class PhysicsTests(unittest.TestCase):
         finally:c.stop.set();c.robot.close()
 
 
+class CommunicationTests(unittest.TestCase):
+    def test_payload_carries_contact_directory_without_inventing_ids(self):
+        env = {k: '' for k in ('DEMO_FARM_PHONE','DEMO_FARM_CHAT_ID','DEMO_TOWN_NORTH_CHAT_ID')}
+        env.update(DEMO_TOWN_PHONE='+34611', DEMO_TOWN_NORTH_CHAT_ID='-100north')
+        with patch.dict('os.environ', env), patch('simulator.contacts.load_env'):
+            s = Simulation(); s.ignite(); s.farmer_call()
+            p = s.payload('farmer_call')
+            contacts = json.loads(p['contacts']); world = json.loads(p['world_state'])
+        names = {c['contact_name'] for c in contacts['people']}
+        self.assertEqual(names, {'Paco Herranz', 'Carmen Ortega'})
+        farm = next(c for c in contacts['people'] if c['district_id'] == 'farm')
+        self.assertIsNone(farm['phone_number']); self.assertIn('farm-manager.phone_number', contacts['missing'])
+        farm_district = next(d for d in contacts['districts'] if d['district_id'] == 'farm')
+        self.assertEqual(farm_district['chat_id'], '5916687836')  # Mensajes externos demo fallback
+        self.assertNotIn('farm.chat_id', contacts['missing'])
+        carmen = next(c for c in contacts['people'] if c['district_id'] == 'town_north')
+        self.assertEqual(carmen['phone_number'], '+34611'); self.assertIn('Ágora', carmen['evacuation_point'])  # Carmen vive en Prado Alto
+        north = next(d for d in world['districts'] if d['district_id'] == 'town_north')
+        self.assertEqual(north['chat_id'], '-100north'); self.assertEqual(north['population'], 2815)
+        self.assertIn('never invent phones', contacts['policy'].lower())
+
+    def test_shared_demo_handset_populates_both_personas(self):
+        env = dict(DEMO_FARM_PHONE='+34675133317', DEMO_TOWN_PHONE='+34675133317', DEMO_CONTACT_PHONE='+34675133317')
+        with patch.dict('os.environ', env), patch('simulator.contacts.load_env'):
+            from simulator.contacts import directory
+            contacts = directory()
+        phones = {p['contact_id']: p['phone_number'] for p in contacts['people']}
+        self.assertEqual(phones['farm-manager'], '+34675133317')
+        self.assertEqual(phones['brunete-resident'], '+34675133317')
+        self.assertEqual(contacts['emergency']['contact_phone'], '+34675133317')
+        self.assertNotIn('farm-manager.phone_number', contacts['missing'])
+        self.assertIn('share the same phone_number', contacts['policy'])
+
+    def test_zone_alert_warns_district_and_call_only_logs(self):
+        s = Simulation(); s.ignite(); s.farmer_call()
+        applied = s.apply_communications([
+            dict(kind='zone_alert', district_id='town_north', criticality='critical', information='Leave now', status='sent'),
+            dict(kind='call', district_id='farm', contact_name='Paco Herranz', criticality='high', information='Gather visitors', status='answered'),
+            dict(kind='bogus', district_id='town')])
+        self.assertEqual([a['effect'] for a in applied], ['district_warned', 'person_called'])
+        self.assertEqual(s.groups['town_north']['status'], 'evacuating')
+        self.assertEqual(s.groups['farm']['status'], 'unwarned')
+        self.assertEqual(s.pending_decision_event, 'evacuation_warning_delivered')
+        self.assertNotIn('town_north', [t['district_id'] for t in json.loads(s.payload()['world_state'])['evacuation_targets']])
+        sources = [e['source'] for e in s.history]
+        self.assertIn('central → telegram', sources); self.assertIn('central → phone', sources)
+        self.assertEqual(applied[0]['action'], 'evacuate')
+        self.assertEqual(applied[0]['action_source'], 'inferred_from_criticality')
+        # Second alert to the same district carries no action: it informs, it does not re-evacuate.
+        again = s.apply_communications([dict(kind='zone_alert', district_id='town_north', information='again')])
+        self.assertEqual(again[0]['effect'], 'district_informed')
+        self.assertEqual(s.groups['town_north']['status'], 'evacuating')
+        state = s.state()
+        self.assertEqual(len(state['communications']), 3)
+        self.assertTrue(all(len(str(p['phone_number'] or '')) <= 4 for p in state['contacts']['people']))
+
+    def test_information_broadcast_never_evacuates_a_district(self):
+        """The demo's "todo bien, les mantendremos informados" message to Brunete."""
+        s = Simulation(); s.ignite(); s.farmer_call()
+        towns = ['town', 'town_north', 'town_south', 'town_rosales']
+        applied = s.apply_communications([
+            dict(kind='zone_alert', district_id=d, action='inform', criticality='informativa', status='sent',
+                 information='Brunete no corre peligro; les mantendremos informados.') for d in towns])
+        self.assertEqual({a['effect'] for a in applied}, {'district_informed'})
+        self.assertEqual({a['action_source'] for a in applied}, {'explicit'})
+        self.assertEqual([s.groups[d]['status'] for d in towns], ['unwarned']*4)
+        self.assertEqual(sum(s.groups[d]['count'] for d in towns if s.groups[d]['status'] != 'unwarned'), 0)
+        self.assertIsNone(s.pending_decision_event)
+        # Informed districts are still valid evacuation targets for a later decision.
+        targets = [t['district_id'] for t in json.loads(s.payload()['world_state'])['evacuation_targets']]
+        self.assertTrue(set(towns) <= set(targets))
+
+    def test_explicit_evacuation_order_moves_the_district(self):
+        s = Simulation(); s.ignite(); s.farmer_call()
+        applied = s.apply_communications([dict(kind='zone_alert', district_id='town_south', action='evacuate',
+                                               criticality='informativa', status='sent', information='Salgan ahora.')])
+        self.assertEqual(applied[0]['effect'], 'district_warned')
+        self.assertEqual(applied[0]['action_source'], 'explicit')
+        self.assertEqual(s.groups['town_south']['status'], 'evacuating')
+        self.assertEqual(s.pending_decision_event, 'evacuation_warning_delivered')
+
+    def test_unlabelled_alert_informs_and_flags_the_ambiguity(self):
+        s = Simulation(); s.ignite(); s.farmer_call()
+        applied = s.apply_communications([dict(kind='zone_alert', district_id='town', status='sent', information='x')])
+        self.assertEqual((applied[0]['action'], applied[0]['action_source']), ('inform', 'default'))
+        self.assertEqual(s.groups['town']['status'], 'unwarned')
+        self.assertTrue(any('no explicit action' in e['message'] for e in s.history if e['source'] == 'system'))
+
+    def test_failed_and_undeliverable_alerts_report_their_effect(self):
+        s = Simulation(); s.ignite(); s.farmer_call()
+        failed, unknown = s.apply_communications([
+            dict(kind='zone_alert', district_id='town', action='evacuate', status='failed', information='x'),
+            dict(kind='zone_alert', district_id='no_existe', action='evacuate', status='sent', information='x')])
+        self.assertEqual(failed['effect'], 'no_change')
+        self.assertEqual(unknown['effect'], 'no_recipient')
+        self.assertEqual(s.groups['town']['status'], 'unwarned')
+        self.assertTrue(any('reached NO district' in e['message'] for e in s.history))
+
+    def test_every_district_has_its_own_muster_point_that_cannot_burn(self):
+        s = Simulation()
+        from simulator.contacts import directory
+        contacts = {d['district_id']: d for d in directory(s.groups)['districts']}
+        self.assertEqual(set(contacts), set(s.groups))
+        cells = {}
+        for key, g in s.groups.items():
+            rx, ry = g['refuge']
+            self.assertLessEqual(s.cells[ry][rx]['fuel'], 0, f'{key}: the muster point must be a cell fire cannot reach')
+            self.assertIn((rx, ry), s.roads, f'{key}: the muster point must sit on a road')
+            self.assertIsNotNone(s.route(tuple(int(v) for v in g['home']), (rx, ry), set()), f'{key}: no route to its muster point')
+            self.assertLessEqual(math.dist(g['home'], (rx, ry)), 18, f'{key}: muster point too far from its own district')
+            self.assertTrue(contacts[key]['evacuation_point'], f'{key}: unnamed muster point')
+            self.assertTrue(contacts[key]['evacuation_route'], f'{key}: no route text')
+            self.assertTrue(contacts[key]['evacuation_point_is_safe_because'], f'{key}: unexplained safety')
+            cells[key] = (rx, ry)
+        # One point per district: 11,261 people must not converge on the same place.
+        self.assertEqual(len(set(cells.values())), len(cells), f'shared muster points: {cells}')
+        for a in cells:
+            for b in cells:
+                if a < b:
+                    self.assertGreaterEqual(math.dist(cells[a], cells[b]), 6, f'{a} and {b} muster together')
+
+    def test_farm_muster_point_is_on_the_engine_route_with_a_rescue_plan(self):
+        s = Simulation()
+        rx, ry = s.groups['farm']['refuge']
+        self.assertIn((rx, ry), s.roads, 'the refuge must sit on the road the engine travels')
+        from simulator.contacts import directory
+        contacts = directory(s.groups)
+        farm = next(d for d in contacts['districts'] if d['district_id'] == 'farm')
+        self.assertIn('Cruce de la Dehesa', farm['evacuation_point'])
+        self.assertIn('camión le recogerá', farm['rescue_plan'])
+        paco = next(p for p in contacts['people'] if p['contact_id'] == 'farm-manager')
+        self.assertEqual(paco['evacuation_point'], farm['evacuation_point'])
+        self.assertTrue(paco['rescue_plan'])
+        # Town districts walk to their own point; the pick-up line is specific to the isolated farm.
+        for key in ('town', 'town_north', 'town_south', 'town_rosales'):
+            self.assertIsNone(next(d for d in contacts['districts'] if d['district_id'] == key)['rescue_plan'])
+
+    def test_dispatch_summary_logged(self):
+        s = Simulation()
+        s.record_dispatch(dict(decision='avisar', justificacion='Wind', criticidad='high', destinatarios='Carmen Ortega', datos_faltantes='farm chat_id', ignored='x'))
+        self.assertEqual(s.dispatch['decision'], 'avisar'); self.assertNotIn('ignored', s.dispatch)
+        self.assertIn('missing: farm chat_id', s.history[-1]['message'])
+
+
 class ControllerTests(unittest.TestCase):
+    def setUp(self):
+        self._mode = patch.dict(os.environ, {'HAPPYROBOT_MODE': 'push'})
+        self._mode.start()
+
+    def tearDown(self):
+        self._mode.stop()
+
+    def test_state_bytes_cached_until_something_changes(self):
+        from simulator.server import Controller
+        c=Controller();c.stop.set()
+        try:
+            etag,body=c.state_bytes()
+            self.assertEqual(c.state_bytes(),(etag,body))
+            self.assertIs(c.state_bytes()[1],body)  # same buffer: no re-serialization while idle
+            c.busy=True
+            etag2,body2=c.state_bytes()
+            self.assertNotEqual(etag,etag2);self.assertTrue(json.loads(body2)['busy'])
+            c.busy=False;c.action('ignite',{})
+            self.assertNotEqual(c.state_bytes()[0],etag2)
+        finally:c.stop.set();c.robot.close()
+
+    def test_optimistic_clock_keeps_ticking_and_applies_to_live_tick(self):
+        from simulator.server import Controller
+        c=Controller();c.sim.ignite();c.sim.farmer_call()
+        entered=threading.Event();release=threading.Event()
+        def slow_decision(payload):
+            entered.set()
+            if not release.wait(3):raise RuntimeError('release timed out')
+            return dict(command('hold',12,44),scout_orders=[dict(drone_id='scout-1',command='hold',waypoints=[],reason='wait')]),'valid output'
+        try:
+            c.action('optimistic',{'enabled':True})
+            with patch.object(c.robot,'decide',side_effect=slow_decision):
+                c.speed=8;c.running=True
+                with c.lock:c.request_decision()
+                self.assertTrue(entered.wait(2))
+                start_tick=c.sim.tick
+                time.sleep(.8)
+                self.assertGreater(c.sim.tick,start_tick)  # world kept moving during deliberation
+                release.set()
+                deadline=time.monotonic()+2
+                while c.state()['busy'] and time.monotonic()<deadline:time.sleep(.01)
+                self.assertFalse(c.busy);self.assertIsNone(c.error)
+                self.assertTrue(any('Optimistic clock' in e['message'] for e in c.sim.history))
+                self.assertEqual(c.sim.last_result['command'],'hold')
+        finally:release.set();c.stop.set();c.robot.close()
+
+    def test_dispatch_without_drone_mission_keeps_vehicle_orders(self):
+        from simulator.server import Controller
+        c=Controller();c.stop.set();c.sim.ignite();c.sim.farmer_call()
+        try:
+            c.robot.last_dispatch=dict(decision='avisar',justificacion='j',criticidad='high')
+            c.robot.last_communications=[dict(kind='zone_alert',district_id='farm',criticality='high',information='Go north',status='sent')]
+            with patch.object(c.robot,'decide',return_value=(None,'evidence')), patch.object(c.sim,'apply') as apply:
+                c.busy=True;c._decide(c.sim.payload('farmer_call'),c.sim.tick)
+            apply.assert_not_called()
+            self.assertIsNone(c.error)
+            self.assertEqual(c.sim.groups['farm']['status'],'evacuating')
+            self.assertEqual(c.state()['dispatch']['decision'],'avisar')
+            self.assertEqual(c.calls,1)
+        finally:c.stop.set();c.robot.close()
+
     def test_fire_queues_while_deciding_and_reset_clears_it(self):
         from simulator.server import Controller
         c=Controller();c.stop.set();c.sim.ignite();c.sim.farmer_call()
@@ -719,7 +926,7 @@ class ParserTests(unittest.TestCase):
         c = command('scout'); c.update(target_x='12', target_y='10')
         answers = [
             {'content': [{'text': f'Run ID: {run}\nStatus: completed'}]},
-            {'content': [{'text': f'## Drone\nOutput ID: {output}\nStatus: succeeded\nTimestamp: 2026-09-19T12:00:00Z'}]},
+            {'content': [{'text': f'## Drone\n- Output ID: {output}\n- Node Persistent ID: {hr.EDGE_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:00Z'}]},
             {'content': [{'text': 'Data: '+json.dumps({'response': c})}]}]
         h = HappyRobot()
         with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=answers) as call:
@@ -728,8 +935,131 @@ class ParserTests(unittest.TestCase):
             self.assertEqual(decision['target_y'], 10)
             self.assertEqual(call.call_count, 3)
             self.assertEqual(call.call_args.args[1]['output_id'], output)
+            self.assertIsNone(h.last_dispatch); self.assertEqual(h.last_communications, [])
 
-    def test_resultado_node_is_used_when_legacy_edge_is_missing(self):
+    def test_dispatch_run_collects_calls_alerts_and_nested_drone_mission(self):
+        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        ids = {k: f'{k*8}-{k*4}-{k*4}-{k*4}-{k*12}' for k in 'bcde'}
+        call_node, alert_node = [n for n, kind in hr.COMM_NODES.items() if kind == 'call'][0], [n for n, kind in hr.COMM_NODES.items() if kind == 'zone_alert'][0]
+        listing = '\n'.join([
+            f'## Decision de Despacho\n- Output ID: {ids["b"]}\n- Node Persistent ID: {hr.DISPATCH_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:04Z',
+            f'## Llamar a esta persona\n- Output ID: {ids["c"]}\n- Node Persistent ID: {call_node}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:01Z',
+            f'## Enviar alerta de zona\n- Output ID: {ids["d"]}\n- Node Persistent ID: {alert_node}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:02Z',
+            f'## Ejecutar mision de dron\n- Output ID: {ids["e"]}\n- Node Persistent ID: {hr.EDGE_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:03Z'])
+        mission = dict(mission='Protect Prado Alto', primary_command='scout', primary_district_id='', drone_reason='Smoke unconfirmed',
+                       truck_reason='', scout_orders=[], truck_orders=[], warned_districts=['town_north'],
+                       extinguisher_orders=[dict(drone_id='drone-1', command='scout', target_x=60, target_y=30, reason='approach', district_id='')])
+        payloads = {
+            ids['b']: {'response': dict(incident_id='i', decision='avisar', justificacion='Wind toward Prado Alto', criticidad='high', avisos_lanzados=1, destinatarios='Carmen Ortega', datos_faltantes='')},
+            ids['c']: {'data': dict(phone_number='+34000', contact_name='Carmen Ortega', criticality='high', information='Fire approaching, leave now'), 'response': dict(call_status='answered')},
+            ids['d']: {'data': dict(chat_id='chan-north', contact_name='Residentes de Prado Alto', criticality='critical', information='Evacuate to the sports centre')},
+            ids['e']: {'response': mission}}
+        def tool(name, args, timeout=60):
+            if name == 'trigger_run': return {'content': [{'text': f'Run ID: {run}\nStatus: completed'}]}
+            if 'output_id' in args: return {'content': [{'text': json.dumps(payloads[args['output_id']])}]}
+            return {'content': [{'text': listing}]}
+        h = HappyRobot()
+        contacts = dict(people=[dict(contact_id='x', contact_name='Carmen Ortega', district_id='town_north', phone_number='+34000', chat_id=None)],
+                        districts=[dict(district_id='town_north', chat_id='chan-north')], missing=[])
+        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch('simulator.happyrobot.contact_directory', return_value=contacts), patch.object(h, 'tool', side_effect=tool):
+            decision, evidence = h.decide({'event_type': 'farmer_call'})
+        self.assertEqual(decision['command'], 'scout'); self.assertEqual(decision['reason'], 'Smoke unconfirmed')
+        self.assertEqual((decision['target_x'], decision['target_y']), (60, 30))
+        self.assertEqual(decision['extinguisher_orders'], mission['extinguisher_orders'])
+        self.assertEqual(h.last_dispatch['decision'], 'avisar'); self.assertEqual(h.last_dispatch['destinatarios'], 'Carmen Ortega')
+        kinds = {c['kind']: c for c in h.last_communications}
+        self.assertEqual(kinds['call']['district_id'], 'town_north'); self.assertEqual(kinds['call']['status'], 'answered')
+        self.assertEqual(kinds['zone_alert']['district_id'], 'town_north'); self.assertEqual(kinds['zone_alert']['criticality'], 'critical')
+        self.assertIn('Communications:', evidence)
+
+    def test_telegram_child_response_maps_to_district_by_audience_label(self):
+        contacts = dict(people=[dict(contact_id='x', contact_name='Carmen Ortega', district_id='town_north', phone_number=None, chat_id=None)],
+                        districts=[dict(district_id='town_north', name='Prado Alto', chat_id='-100n'), dict(district_id='farm', name='El Álamo Farm', chat_id=None)], missing=[])
+        delivered = {'status': 'delivered', 'alert_mode': 'group_msg_alert', 'audience_label': 'Residentes de Prado Alto', 'recipients_delivered': 1,
+                     'message_sent': 'Evacuen hacia el polideportivo', 'summary': 'Aviso enviado a 1 destinatario(s) de Residentes de Prado Alto.'}
+        c = HappyRobot.communication('zone_alert', {'content': [{'text': json.dumps(delivered)}]}, contacts)
+        self.assertEqual((c['district_id'], c['status'], c['information']), ('town_north', 'delivered', 'Evacuen hacia el polideportivo'))
+        none = {'status': 'no_recipients', 'audience_label': 'El Álamo Farm', 'recipients_attempted': 0, 'summary': 'No se envio el aviso'}
+        c = HappyRobot.communication('zone_alert', {'content': [{'text': json.dumps(none)}]}, contacts)
+        self.assertEqual((c['district_id'], c['status']), ('farm', 'no_recipients'))
+        failed = {'call_workflow_data': {'status': 'failed', 'error': 'child_workflow_failed'}}
+        self.assertIsNone(HappyRobot.communication('call', {'content': [{'text': json.dumps(failed)}]}, contacts))
+        s = Simulation(); s.ignite(); s.farmer_call()
+        s.apply_communications([dict(kind='zone_alert', district_id='farm', status='no_recipients', information='x')])
+        self.assertEqual(s.groups['farm']['status'], 'unwarned')
+
+    def test_dispatch_without_drone_mission_returns_none_but_keeps_decision(self):
+        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'; out = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+        answers = [{'content': [{'text': f'Run ID: {run}\nStatus: completed'}]},
+                   {'content': [{'text': f'## Decision de Despacho\n- Output ID: {out}\n- Node Persistent ID: {hr.DISPATCH_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:00Z'}]},
+                   {'content': [{'text': json.dumps(dict(decision='verificar', justificacion='Unconfirmed smoke, low confidence'))}]}]
+        h = HappyRobot()
+        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=answers):
+            decision, evidence = h.decide({'event_type': 'farmer_call'})
+        self.assertIsNone(decision); self.assertEqual(h.last_dispatch['decision'], 'verificar')
+
+    def test_output_fetches_run_concurrently_over_one_transport(self):
+        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        ids = {k: f'{k*8}-{k*4}-{k*4}-{k*4}-{k*12}' for k in 'bcd'}
+        call_node = [n for n, kind in hr.COMM_NODES.items() if kind == 'call'][0]
+        listing = '\n'.join([
+            f'## Decision de Despacho\n- Output ID: {ids["b"]}\n- Node Persistent ID: {hr.DISPATCH_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:04Z',
+            f'## Llamar a esta persona\n- Output ID: {ids["c"]}\n- Node Persistent ID: {call_node}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:01Z',
+            f'## Ejecutar mision de dron\n- Output ID: {ids["d"]}\n- Node Persistent ID: {hr.EDGE_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:03Z'])
+        payloads = {ids['b']: {'response': dict(decision='avisar', justificacion='j')},
+                    ids['c']: {'data': dict(contact_name='Carmen Ortega', information='leave')},
+                    ids['d']: {'response': dict(mission='m', primary_command='hold', drone_reason='r', extinguisher_orders=[], scout_orders=[], truck_orders=[])}}
+        in_flight, peak, gate = [0], [0], threading.Lock()
+        def tool(name, args, timeout=60):
+            if name == 'trigger_run':
+                # wait=True already embeds the node listing: no separate listing call expected.
+                return {'content': [{'text': f'Run ID: {run}\nStatus: completed\n\n'+listing}]}
+            with gate:in_flight[0]+=1;peak[0]=max(peak[0],in_flight[0])
+            time.sleep(.15)
+            with gate:in_flight[0]-=1
+            return {'content': [{'text': json.dumps(payloads[args['output_id']])}]}
+        h = HappyRobot()
+        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=tool) as call:
+            t = time.monotonic(); decision, evidence = h.decide({'event_type': 'farmer_call'}); elapsed = time.monotonic()-t
+        self.assertEqual(call.call_count, 4)  # trigger + 3 outputs, no listing round-trip
+        self.assertGreaterEqual(peak[0], 2)
+        self.assertLess(elapsed, .4)  # 3 × 150 ms sequential would be ≥ 450 ms
+        self.assertEqual(decision['command'], 'hold'); self.assertEqual(h.last_dispatch['decision'], 'avisar')
+        self.assertEqual(h.last_timings['fetched'], 3); self.assertIn('Timing:', evidence)
+
+    def test_transport_matches_interleaved_responses_by_id(self):
+        import io
+        h = HappyRobot()
+        r, w = os.pipe()
+        stdout = io.TextIOWrapper(io.FileIO(r, 'r'), encoding='utf-8')
+        writer = io.TextIOWrapper(io.FileIO(w, 'w'), encoding='utf-8', write_through=True)
+        class P: pass
+        h.process = P(); h.process.stdin = io.StringIO(); h.process.stdout = stdout
+        threading.Thread(target=h._read, args=(h.process, h.pending, h.closed), daemon=True).start()
+        results = {}
+        def ask(i):results[i] = h._request('tools/call', dict(n=i), timeout=2)
+        threads = [threading.Thread(target=ask, args=(i,)) for i in range(3)]
+        for th in threads: th.start()
+        time.sleep(.1)
+        # Server answers out of order, with a keepalive ping interleaved.
+        for rid in (3, 1):
+            writer.write(json.dumps(dict(jsonrpc='2.0', id=rid, result=dict(got=rid)))+'\n')
+        writer.write(json.dumps(dict(jsonrpc='2.0', id='srv-1', method='ping'))+'\n')
+        writer.write(json.dumps(dict(jsonrpc='2.0', id=2, result=dict(got=2)))+'\n')
+        for th in threads: th.join(2)
+        self.assertEqual(sorted(v['got'] for v in results.values()), [1, 2, 3])
+        self.assertIn('"id": "srv-1"', h.process.stdin.getvalue())  # ping answered
+        writer.close(); h.closed.wait(2)
+        with self.assertRaises(RuntimeError):h._request('tools/call', {}, timeout=.2)
+
+    def test_normalize_requires_mission_shape(self):
+        self.assertIsNone(HappyRobot.normalize(dict(mission='x', primary_command='hold')))
+        self.assertIsNone(HappyRobot.normalize(dict(decision='avisar', justificacion='...')))
+        d = HappyRobot.normalize(dict(mission='m', primary_command='hold', drone_reason='r', extinguisher_orders='[]'))
+        self.assertEqual((d['command'], d['reason'], d['target_x'], d['target_y']), ('hold', 'r', 0, 0))
+
+    def test_mission_falls_back_to_the_legacy_node_when_the_current_one_is_empty(self):
+        """A workflow edit that moves the mission node degrades to the previous one."""
         run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
         output = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
         payload = {
@@ -740,24 +1070,42 @@ class ParserTests(unittest.TestCase):
             'extinguisher_orders': [{'drone_id': 'drone-1', 'command': 'scout', 'target_x': 79, 'target_y': 41, 'district_id': '', 'reason': 'Investigate'}],
             'scout_orders': [{'drone_id': 'scout-1', 'command': 'hold', 'waypoints': [], 'district_id': '', 'reason': 'Hold'}],
             'truck_orders': [{'truck_id': 'engine-1', 'command': 'continue', 'target_x': 0, 'target_y': 0, 'reason': 'Wait'}],
-            'truck_reason': 'Wait for confirmation',
         }
+        # The listing carries an output for the legacy node only; the configured one is silent.
+        listing = ('## Resultado\n- Output ID: %s\n- Node Persistent ID: %s\n- Status: succeeded\n'
+                   '- Timestamp: 2026-09-19T12:00:00Z' % (output, hr.LEGACY_EDGE_NODE))
         answers = [
             {'content': [{'text': f'Run ID: {run}\nStatus: completed'}]},
-            {'content': [{'text': 'No node outputs found for run.'}]},
-            {'content': [{'text': f'## Resultado\n- Output ID: {output}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:00Z'}]},
+            {'content': [{'text': listing}]},
             {'content': [{'text': 'Data: '+json.dumps(payload)}]},
         ]
         h = HappyRobot()
         with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=answers) as call:
             decision, evidence = h.decide({'event_type': 'farmer_call'})
-            self.assertEqual(decision['command'], 'scout')
-            self.assertEqual(decision['target_x'], 79)
-            self.assertEqual(decision['target_y'], 41)
-            self.assertEqual(decision['reason'], 'Unconfirmed smoke')
-            self.assertEqual(call.call_count, 4)
-            self.assertEqual(call.call_args_list[1].args[1]['node_id'], '01a0bad1-9191-7f3d-8200-f4e2e34ba5a1')
-            self.assertEqual(call.call_args_list[2].args[1]['node_id'], '01a0b96a-d5b4-771c-809c-850010ddbb67')
+        self.assertEqual(decision['command'], 'scout')
+        self.assertEqual((decision['target_x'], decision['target_y']), (79, 41))
+        self.assertEqual(decision['reason'], 'Unconfirmed smoke')
+        self.assertIn('legacy node', evidence)
+        self.assertEqual(call.call_args_list[-1].args[1]['output_id'], output)
+
+    def test_mission_uses_the_configured_node_when_both_are_present(self):
+        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        current, stale = 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+        payload = {'mission': 'm', 'drone_reason': 'r', 'primary_command': 'hold', 'extinguisher_orders': '[]'}
+        listing = ('## Actual\n- Output ID: %s\n- Node Persistent ID: %s\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:01Z\n'
+                   '## Viejo\n- Output ID: %s\n- Node Persistent ID: %s\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:00Z'
+                   % (current, hr.EDGE_NODE, stale, hr.LEGACY_EDGE_NODE))
+        answers = [
+            {'content': [{'text': f'Run ID: {run}\nStatus: completed'}]},
+            {'content': [{'text': listing}]},
+            {'content': [{'text': 'Data: '+json.dumps(payload)}]},
+        ]
+        h = HappyRobot()
+        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=answers) as call:
+            decision, evidence = h.decide({'event_type': 'farmer_call'})
+        self.assertEqual(decision['command'], 'hold')
+        self.assertNotIn('legacy node', evidence)
+        self.assertEqual(call.call_args_list[-1].args[1]['output_id'], current)
 
     def test_resultado_payload_normalizes_to_legacy_decision_shape(self):
         payload = {
@@ -791,6 +1139,66 @@ class ParserTests(unittest.TestCase):
 
     def test_no_fabricated_fallback(self):
         self.assertEqual(HappyRobot.decisions({'content': [{'text': 'No result.'}]}), [])
+
+
+class DispatcherLoopTests(unittest.TestCase):
+    def setUp(self):
+        self._mode = patch.dict(os.environ, {'HAPPYROBOT_MODE': 'loop', 'DISPATCH_INCIDENT_ID': 'brunete-demo',
+                                             'STATE_API_URL': '', 'STATE_API_TOKEN': ''})
+        self._mode.start()
+        # These build a real Controller on the fixed demo incident id. Without a disabled
+        # store they reach the deployed Worker, and action('reset') now wipes the shared
+        # session there: running the suite emptied the live brunete-demo document.
+        self._env = patch('simulator.state_store.load_env')
+        self._env.start()
+
+    def tearDown(self):
+        self._env.stop()
+        self._mode.stop()
+
+    def test_the_suite_never_reaches_the_deployed_worker(self):
+        from simulator.server import Controller
+        c = Controller(); c.stop.set()
+        try:
+            self.assertFalse(c.store.enabled, 'these tests must not touch the live state API')
+            self.assertFalse(c.wipe_shared_session(c.sim.incident_id))
+        finally:
+            c.robot.close()
+
+    def test_loop_mode_reuses_session_key_and_does_not_start_a_run(self):
+        from simulator.server import Controller
+        c=Controller();c.stop.set()
+        try:
+            self.assertTrue(c.loop)
+            self.assertEqual(c.sim.incident_id, 'brunete-demo')
+            c.sim.ignite(); c.sim.farmer_call()
+            with patch.object(c.robot, 'decide') as decide, patch.object(c, 'publish_inbox') as inbox:
+                c.request_decision('farmer_call')
+                decide.assert_not_called()
+                inbox.assert_called_once()
+                self.assertFalse(c.busy)
+            c.action('reset', {})
+            self.assertEqual(c.sim.incident_id, 'brunete-demo')
+        finally:
+            c.robot.close()
+
+    def test_loop_mode_applies_pending_command_from_kv(self):
+        from simulator.server import Controller
+        c=Controller();c.stop.set();c.sim.ignite();c.sim.farmer_call()
+        try:
+            remote=dict(pending_command=dict(command_id='cmd-1', command='hold', target_x=12, target_y=32, reason='stand by', mission='hold station',
+                                             extinguisher_orders=[dict(drone_id='drone-1', command='hold', target_x=12, target_y=32, reason='stand by')]),
+                        last_dispatch=dict(decision='verificar', justificacion='scout first', criticidad='medium'))
+            with patch.object(c.store, 'get', return_value=remote):
+                c.store.url='http://example'; c.store.token='x'
+                c.pull_dispatch()
+            self.assertEqual(c._applied_command_id, 'cmd-1')
+            self.assertEqual(c.sim.dispatch['decision'], 'verificar')
+            with patch.object(c.store, 'get', return_value=remote), patch.object(c.sim, 'apply') as apply:
+                c.pull_dispatch()
+                apply.assert_not_called()
+        finally:
+            c.robot.close()
 
 
 if __name__ == '__main__':

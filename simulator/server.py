@@ -7,12 +7,29 @@ import os
 from pathlib import Path
 import threading
 import time
+import uuid
 import zlib
 from urllib.parse import urlparse
 
+from .contacts import directory as contact_directory, load_env
 from .engine import Simulation
 from .geo import PLACE
 from .happyrobot import HappyRobot, EDITOR
+from .state_store import StateStore, build_state
+
+
+def happyrobot_mode():
+    load_env()
+    return (os.environ.get('HAPPYROBOT_MODE', 'loop') or 'loop').strip().lower()
+
+
+def dispatch_incident_id():
+    load_env()
+    return (os.environ.get('DISPATCH_INCIDENT_ID', 'brunete-demo') or 'brunete-demo').strip() or 'brunete-demo'
+
+
+def loop_mode():
+    return happyrobot_mode() == 'loop'
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -55,8 +72,10 @@ def action_origin_allowed(origin, host_header, port):
 class Controller:
     def __init__(self):
         self.lock = threading.RLock()
-        self.sim = Simulation(drone_count=2)
+        self.loop = loop_mode()
+        self.sim = Simulation(drone_count=2, incident_id=dispatch_incident_id() if self.loop else None)
         self.robot = HappyRobot()
+        self.store = StateStore()
         self.busy = False
         self.pending_fires = []
         self.reset_pending = False
@@ -74,14 +93,168 @@ class Controller:
         self.cursor = None
         self.next_decision = 0
         self.repair_attempts = 0
+        # Optimistic clock: keep simulating while HappyRobot deliberates and apply the
+        # decision to the live tick on arrival (validation still rejects unsafe stale orders).
+        self.optimistic = False
+        self._cache_key = None
+        self._cache_body = b''
+        self._cache_etag = ''
+        self._applied_command_id = None
+        self._applied_dispatch = None
+        self._inbox_generation = 0
+        self._shared = None
+        self._shared_at = 0.0
         threading.Thread(target=self._clock, daemon=True).start()
 
     def snapshot(self):
         return zlib.compress(json.dumps(self.sim.state()).encode())
 
+    def publish_state(self, force=False):
+        """Push the shared incident state (districts, danger levels, contacts, comms) to the state API."""
+        if not self.store.enabled or not self.sim.ignited:
+            return False
+        return self.store.publish(build_state(self.sim), force=force, events=self.sim.drain_events())
+
+    def inbox_payload(self, event='local_observation'):
+        payload = self.sim.payload(event)
+        payload['source'] = 'los-panaderos-simulator'
+        payload['phase'] = self.sim.phase
+        return payload
+
+    def publish_inbox(self, event='local_observation', force=False):
+        if not self.store.enabled:
+            return False
+        return self.store.publish_inbox(self.inbox_payload(event), force=force)
+
+    def pull_dispatch(self):
+        """Apply fleet orders and dispatch summary the looping Despacho wrote to KV."""
+        if not self.loop or not self.store.enabled or not self.sim.ignited:
+            return
+        try:
+            remote = self.store.get(self.sim.incident_id)
+        except Exception as exc:
+            self.store.last_error = f'State pull failed: {str(exc)[:200]}'
+            return
+        if not isinstance(remote, dict):
+            return
+        dispatch = remote.get('last_dispatch')
+        if isinstance(dispatch, dict) and dispatch != self._applied_dispatch:
+            self.sim.record_dispatch(dispatch)
+            self._applied_dispatch = dict(dispatch)
+        comms = remote.get('communications_sent')
+        if isinstance(comms, list) and comms:
+            known = {(c.get('kind'), c.get('contact_name'), c.get('information'), c.get('tick')) for c in self.sim.communications}
+            fresh = [c for c in comms if isinstance(c, dict) and (c.get('kind'), c.get('contact_name'), c.get('information'), c.get('tick')) not in known]
+            if fresh:
+                self.sim.apply_communications(fresh)
+        command = remote.get('pending_command')
+        if not isinstance(command, dict):
+            return
+        command_id = str(command.get('command_id') or command.get('event_id') or '')
+        if not command_id or command_id == self._applied_command_id:
+            return
+        decision = HappyRobot.normalize(command) or (command if 'command' in command and 'mission' in command else None)
+        if decision is None:
+            return
+        try:
+            self.sim.apply(decision, command_id, self.sim.incident_id, self.sim.tick)
+            self._applied_command_id = command_id
+            self.calls += 1
+            self.run_evidence = json.dumps(dict(source='kv-pull', command_id=command_id, decision=self.sim.dispatch), ensure_ascii=False, indent=2)[:16000]
+        except ValueError as exc:
+            self.sim.last_result = dict(status='rejected', reason=str(exc)[:800],
+                instruction='Choose a new valid command using CURRENT observations.')
+            self.sim.log('system', 'Command from dispatcher loop rejected: '+str(exc)[:200])
+            self._applied_command_id = command_id
+
+    # Fields the archive screen reads. observed_cells alone can be 200 entries and the
+    # page never draws them, so the document is trimmed before it crosses the wire.
+    SHARED_FIELDS = ('incident_id', 'sim_time', 'phase', 'updated_at', 'incident_danger_level',
+                     'mission', 'wind', 'auto_public_message', 'public_message', 'last_dispatch')
+    SHARED_DISTRICT_FIELDS = ('district_id', 'name', 'kind', 'population', 'status', 'burnt',
+                              'danger_level', 'auto_danger_level', 'advice', 'auto_advice',
+                              'evacuation_point', 'advice_updated_at')
+    SHARED_TTL = 2.0
+
+    @classmethod
+    def trim_shared(cls, doc):
+        if not isinstance(doc, dict):
+            return None
+        fire = doc.get('fire') or {}
+        return dict({k: doc.get(k) for k in cls.SHARED_FIELDS},
+                    fire=dict(confirmed=fire.get('confirmed'), burning_cells=fire.get('burning_cells'),
+                              front=fire.get('front'), report=fire.get('report'),
+                              detections=(fire.get('detections') or [])[-8:]),
+                    districts=[{k: d.get(k) for k in cls.SHARED_DISTRICT_FIELDS}
+                               for d in (doc.get('districts') or []) if isinstance(d, dict)],
+                    vehicles=doc.get('vehicles') or {},
+                    events=(doc.get('events') or [])[-12:],
+                    communications_sent=(doc.get('communications_sent') or [])[-20:])
+
+    def shared_snapshot(self):
+        """Read-only view of the shared incident document for the archive screen.
+
+        The read happens here and not in the page because /state needs the bearer token
+        and the browser is never given credentials. Cached for SHARED_TTL: the screen
+        polls, and every miss is a KV read billed on the Worker.
+        """
+        now = time.monotonic()
+        with self.lock:
+            if self._shared is not None and now-self._shared_at < self.SHARED_TTL:
+                return self._shared
+            incident, status = self.sim.incident_id, self.store.status()
+        snapshot = dict(incident_id=incident, status=status, document=None, error=None,
+                        fetched_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+        if self.store.enabled:
+            try:
+                snapshot['document'] = self.trim_shared(self.store.get(incident))
+            except Exception as exc:
+                # A fresh incident has nothing published yet; that is a state, not a failure.
+                snapshot['error'] = str(exc)[:200]
+        with self.lock:
+            self._shared, self._shared_at = snapshot, time.monotonic()
+        return snapshot
+
+    def wipe_shared_session(self, incident_id):
+        """Clear the shared incident, its events and the dispatcher inbox on Reset.
+
+        Without this a Reset only rebuilt the local simulation. The KV document kept the
+        finished fire, so an inbound caller was still told about it, and the stored
+        loop_seen_generation stayed ahead of the fresh inbox, which silently swallowed the
+        next event the dispatcher should have picked up. StateStore.delete and the Worker
+        route already existed; nothing called them.
+
+        Runs off-thread: the controller lock is held here and the browser poll must not
+        wait on the network. A failure is reported through the store status, never raised,
+        so Reset always resets the simulation.
+        """
+        if not self.store.enabled or not incident_id:
+            return False
+        # Drop queued publishes first: a coalesced flush from the incident that just ended
+        # would land after the wipe and put it straight back.
+        self.store.cancel_pending()
+        self._shared = None
+
+        # A fresh session id goes out with the wipe. The Worker stores it on the empty
+        # envelope, which is what lets it tell a PATCH from the dispatcher Run that just
+        # died apart from one belonging to the session starting now: without it the new
+        # document carries session_id null, an in-flight Run writes loop_seen_generation
+        # on top of it, and the first event of the new incident is swallowed.
+        session = uuid.uuid4().hex
+
+        def wipe():
+            try:
+                self.store.delete(incident_id, dict(session_id=session))
+            except Exception as exc:
+                self.store.last_error = f'Session reset failed: {str(exc)[:200]}'
+
+        threading.Thread(target=wipe, daemon=True).start()
+        return True
+
     def record(self):
         frame=self.snapshot()
         self.frames.append(frame)
+        self.publish_state()
         if self.recording:
             self.recorded_frames.append(frame)
             if len(self.recorded_frames)>=1500:self.recording=False
@@ -91,7 +264,7 @@ class Controller:
     def _clock(self):
         while not self.stop.wait(1/self.speed):
             with self.lock:
-                if not self.running or self.busy or self.cursor is not None:
+                if not self.running or (self.busy and not self.optimistic) or self.cursor is not None:
                     continue
                 self.sim.step()
                 if self.sim.phase != 'active':
@@ -101,7 +274,14 @@ class Controller:
                 self.record()
                 if self.sim.phase == 'finished':
                     self.recording = False
-                if self.auto and self.sim.called and (self.sim.pending_decision_event or self.sim.tick>=self.next_decision):
+                if self.loop:
+                    self.pull_dispatch()
+                    if self.auto and self.sim.called and (self.sim.pending_decision_event or self.sim.tick>=self.next_decision):
+                        event = self.sim.pending_decision_event or 'local_observation'
+                        self.sim.pending_decision_event = None
+                        self.publish_inbox(event, force=True)
+                        self.next_decision = self.sim.tick + 16
+                elif self.auto and not self.busy and self.sim.called and (self.sim.pending_decision_event or self.sim.tick>=self.next_decision):
                     self.request_decision(self.sim.pending_decision_event or 'local_observation')
 
     def state(self):
@@ -112,17 +292,42 @@ class Controller:
                         recording=self.recording,recorded_frames=len(self.recorded_frames),
                         frame_count=len(self.frames),replay=self.cursor is not None,live_tick=self.sim.tick,
                         connected=self.robot.connected, error=self.error, workflow_url=EDITOR,
-                        workflow_calls=self.calls, latency=self.latency, run_evidence=self.run_evidence)
+                        workflow_calls=self.calls, latency=self.latency, run_evidence=self.run_evidence,
+                        timings=getattr(self.robot,'last_timings',{}), optimistic=self.optimistic,
+                        state_store=self.store.status(), happyrobot_mode='loop' if self.loop else 'push',
+                        dispatcher_loop=self.loop)
+
+    def state_bytes(self):
+        """Serialized state with an ETag. Re-serializes only when something observable changed,
+        so the 600 ms browser poll costs nothing while HappyRobot deliberates."""
+        with self.lock:
+            key = (len(self.frames), self.sim.tick, self.sim.incident_id, self.cursor, self.busy, self.running, self.auto,
+                   self.error, self.calls, self.recording, len(self.recorded_frames), self.reset_pending,
+                   len(self.pending_fires), self.speed, self.robot.connected, self.optimistic, self.latency,
+                   json.dumps(self.store.status(), sort_keys=True, default=str))
+            if key != self._cache_key:
+                self._cache_body = json.dumps(self.state()).encode()
+                self._cache_etag = '"%08x-%d"' % (zlib.crc32(self._cache_body), len(self._cache_body))
+                self._cache_key = key
+            return self._cache_etag, self._cache_body
 
     def request_decision(self, event='local_observation'):
         if self.sim.phase != 'active':
             raise ValueError('Fire is out; vehicles are returning or at station.')
+        if self.cursor is not None:
+            raise ValueError('Return to Live before requesting decisions.')
+        if self.loop:
+            if not self.sim.called:
+                raise ValueError('Send the farmer report first.')
+            self.sim.pending_decision_event = None
+            self.error = None
+            self.publish_inbox(event, force=True)
+            self.next_decision = self.sim.tick + 16
+            return
         if self.busy:
             raise ValueError('A decision is already running.')
         if not self.sim.called:
             raise ValueError('Send the farmer report first.')
-        if self.cursor is not None:
-            raise ValueError('Return to Live before requesting decisions.')
         if event != 'command_rejected':
             self.repair_attempts = 0
         payload = self.sim.payload(event)
@@ -141,9 +346,21 @@ class Controller:
                 self.calls += 1
                 self.latency = round(time.monotonic()-start, 1)
                 self.run_evidence = evidence
-                self.sim.apply(decision,payload['event_id'],payload['incident_id'],tick)
+                # Communications and the dispatch summary are facts about what Central already did;
+                # record them even if the drone mission is later rejected by validation.
+                if self.sim.incident_id==payload['incident_id']:
+                    self.sim.record_dispatch(getattr(self.robot,'last_dispatch',None))
+                    self.sim.apply_communications(getattr(self.robot,'last_communications',None))
+                if decision is not None:
+                    if self.optimistic and self.sim.tick!=tick:
+                        self.sim.log('system',f'Optimistic clock: applying decision made at T+{tick} to live T+{self.sim.tick}; safety validation uses current observations.')
+                        tick=self.sim.tick
+                    self.sim.apply(decision,payload['event_id'],payload['incident_id'],tick)
+                else:
+                    self.sim.log('central','No drone mission issued this round; vehicles keep their current orders.')
                 self.next_decision = self.sim.tick + 16
                 self.record()
+                self.publish_state(force=True)
         except Exception as exc:
             with self.lock:
                 if self.reset_pending:return
@@ -180,6 +397,9 @@ class Controller:
             if action == 'pause':
                 self.running = False
                 return
+            if action == 'optimistic':
+                self.optimistic = bool(data.get('enabled'))
+                return
             if action == 'seek':
                 index = int(data.get('index',0))
                 if not 0<=index<len(self.frames):
@@ -204,11 +424,12 @@ class Controller:
             if self.busy:
                 raise ValueError('HappyRobot is deciding. You can pause or inspect the timeline.')
             if action == 'reset':
+                self.wipe_shared_session(self.sim.incident_id)
                 self.reset_pending=False
                 self.pending_fires.clear()
                 self.repair_attempts=0
                 self.cursor = None
-                self.sim = Simulation(fleet_counts=self.sim.fleet_counts())
+                self.sim = Simulation(fleet_counts=self.sim.fleet_counts(), incident_id=dispatch_incident_id() if self.loop else None)
                 self.recording=False
                 self.error = None
                 self.auto = self.running = False
@@ -217,6 +438,9 @@ class Controller:
                 self.latency = None
                 self.frames = [self.snapshot()]
                 self.next_decision = 0
+                self._applied_command_id = None
+                self._applied_dispatch = None
+                self._inbox_generation = 0
             elif action == 'fleet':
                 self.sim.configure_fleet(data.get('count'),**data.get('counts',{}))
                 self.sim.observe()
@@ -292,7 +516,23 @@ def serve(port=8765):
                     frames=[json.loads(zlib.decompress(f)) for f in controller.recorded_frames]
                 self.reply(200,dict(format='los-panaderos-recording-v1',frames=frames))
             elif path == '/api/state':
-                self.reply(200, controller.state())
+                etag, body = controller.state_bytes()
+                if self.headers.get('If-None-Match') == etag:
+                    self.send_response(304)
+                    self.send_header('ETag', etag)
+                    self.send_header('Cache-Control', 'no-cache')
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.send_header('ETag', etag)
+                self.send_header('Cache-Control', 'no-cache')
+                self.send_header('X-Content-Type-Options', 'nosniff')
+                self.end_headers()
+                self.wfile.write(body)
+            elif path == '/api/shared':
+                self.reply(200, controller.shared_snapshot())
             elif path == '/api/config':
                 if not local_host(self.headers.get('Host')):
                     self.reply(403, {'error': 'Local config only.'})
@@ -337,7 +577,14 @@ def serve(port=8765):
 
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     print(f'Los Panaderos: http://127.0.0.1:{port}', flush=True)
-    print('HappyRobot development workflow; farmer call is a simulated transcript.', flush=True)
+    mode = 'loop (sim writes KV inbox; click Run on Despacho in HappyRobot development)' if loop_mode() else 'push (each tick starts a Despacho run)'
+    print(f'HappyRobot mode={happyrobot_mode()}: {mode}', flush=True)
+    if loop_mode():
+        print(f'Dispatcher session key: {dispatch_incident_id()} — click Run on Despacho Central (development).', flush=True)
+    print('Farmer call is a simulated transcript.', flush=True)
+    missing = contact_directory().get('missing', [])
+    if missing:
+        print('Demo contacts without phone/Telegram IDs (set DEMO_* in .env): '+', '.join(missing), flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

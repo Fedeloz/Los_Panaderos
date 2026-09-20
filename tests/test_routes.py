@@ -77,11 +77,31 @@ class PageRouteTests(unittest.TestCase):
         self.assertEqual(handler.reply.call_args.args[0], 200)
         self.assertTrue(handler.reply.call_args.args[1] == (self.static / 'incidente.html').read_bytes())
 
-    def test_state_api_uses_the_existing_controller(self):
+    def test_state_api_serves_the_cached_body_from_the_existing_controller(self):
+        # /api/state serves a pre-serialised body with an ETag, so the browser poll costs
+        # nothing while nothing changes; it no longer re-serialises state() per request.
+        self.controller.state_bytes.return_value = ('"abc"', b'{"tick": 0}')
         handler = self.handler('/api/state')
+        handler.send_response = Mock()
+        handler.send_header = Mock()
+        handler.end_headers = Mock()
+        handler.wfile = Mock()
         handler.do_GET()
-        self.controller.state.assert_called_once_with()
-        handler.reply.assert_called_once_with(200, self.controller.state.return_value)
+        self.controller.state_bytes.assert_called_once_with()
+        handler.send_response.assert_called_once_with(200)
+        handler.wfile.write.assert_called_once_with(b'{"tick": 0}')
+        self.assertIn(('ETag', '"abc"'), [c.args for c in handler.send_header.call_args_list])
+
+    def test_state_api_answers_304_when_the_browser_already_has_it(self):
+        self.controller.state_bytes.return_value = ('"abc"', b'{"tick": 0}')
+        handler = self.handler('/api/state', {'Host': '127.0.0.1:8765', 'If-None-Match': '"abc"'})
+        handler.send_response = Mock()
+        handler.send_header = Mock()
+        handler.end_headers = Mock()
+        handler.wfile = Mock()
+        handler.do_GET()
+        handler.send_response.assert_called_once_with(304)
+        handler.wfile.write.assert_not_called()
 
     def test_nonlocal_config_request_does_not_read_secrets(self):
         handler = self.handler('/api/config', {'Host': 'evil.example'})
@@ -123,3 +143,33 @@ class PageRouteTests(unittest.TestCase):
             handler.do_POST()
         self.assertEqual(handler.reply.call_args.args[0], 200)
         self.controller.action.assert_called_with('play', json.loads(body))
+
+
+class SharedStateRouteTests(unittest.TestCase):
+    """/api/shared exists so the page never needs the state API token."""
+
+    def test_trim_drops_the_cell_payload_the_screen_never_draws(self):
+        from simulator.server import Controller
+        doc = {
+            'incident_id': 'brunete-demo', 'sim_time': 12, 'updated_at': '2026-09-20T01:00:00Z',
+            'fire': {'confirmed': True, 'burning_cells': 9, 'observed_cells': [{'x': i, 'y': i} for i in range(200)],
+                     'detections': [{'source': f'd{i}'} for i in range(20)]},
+            'districts': [{'district_id': 'town', 'name': 'Casco', 'auto_danger_level': 'watch', 'chat_id': 'secreto'}],
+            'communications_sent': [{'kind': 'zone_alert', 'tick': i} for i in range(40)],
+            'events': [{'kind': 'deployed', 'sim_time': i} for i in range(40)],
+            'vehicles': {'engine-1': {'status': 'en_route'}},
+        }
+        trimmed = Controller.trim_shared(doc)
+        self.assertNotIn('observed_cells', trimmed['fire'])
+        self.assertEqual(len(trimmed['fire']['detections']), 8)
+        self.assertEqual(len(trimmed['communications_sent']), 20)
+        self.assertEqual(len(trimmed['events']), 12)
+        self.assertEqual(trimmed['sim_time'], 12)
+        self.assertEqual(trimmed['districts'][0]['auto_danger_level'], 'watch')
+        # The Telegram chat ids are not part of what the screen needs.
+        self.assertNotIn('chat_id', trimmed['districts'][0])
+
+    def test_trim_survives_an_empty_document(self):
+        from simulator.server import Controller
+        self.assertIsNone(Controller.trim_shared(None))
+        self.assertEqual(Controller.trim_shared({})['districts'], [])

@@ -112,15 +112,18 @@ window.ObservationMap = (() => {
     for(const [name,g] of Object.entries(s.people||{})){
       if(!g.refuge)continue;
       const kind=g.kind||(name==='farm'?'farm':'town'),key=g.refuge.join(',');
-      const entry=refuges.get(key)||{position:g.refuge,kind,arrived:0};
+      const entry=refuges.get(key)||{position:g.refuge,kind,arrived:0,districts:[]};
       if(g.status==='safe')entry.arrived+=Math.max(0,g.count-(g.burnt||0));
+      entry.districts.push(g.name||name);
       refuges.set(key,entry);
     }
     for(const r of refuges.values()){
       const x=r.position[0]*Z+5,y=r.position[1]*Z+5;
       c.strokeStyle=palette.refuge;c.fillStyle='#153c31';c.lineWidth=2.5;
       c.beginPath();c.moveTo(x,y-8);c.lineTo(x+8,y);c.lineTo(x,y+8);c.lineTo(x-8,y);c.closePath();c.fill();c.stroke();
-      tag(c,x+15,y-12,`${r.kind==='town'?'Town':'Farm'} refuge · ${r.arrived.toLocaleString('en-US')} arrived`,palette.refuge);
+      // One muster point per district now, so name it instead of four identical "Town refuge" tags.
+      const who=r.districts.length===1?r.districts[0]:`${r.kind==='town'?'Town':'Farm'} refuge`;
+      tag(c,x+15,y-12,`${who} · ${r.arrived.toLocaleString('en-US')} arrived`,palette.refuge);
     }
     c.restore();
   }

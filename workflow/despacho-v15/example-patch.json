@@ -1,0 +1,113 @@
+{
+  "with_explicit_action": {
+    "districts": [
+      {
+        "district_id": "town_north",
+        "danger_level": "warning",
+        "advice": "Prado Alto: aviso de evacuacion preventiva. Dirijase a patio del Colegio Público Ágora.",
+        "evacuation_point": "patio del Colegio Público Ágora",
+        "evacuation_route": "Calle Murillo"
+      },
+      {
+        "district_id": "farm",
+        "danger_level": "warning",
+        "advice": "Granja El Álamo: aviso de evacuacion preventiva. Dirijase a Cruce de la Dehesa.",
+        "evacuation_point": "Cruce de la Dehesa",
+        "evacuation_route": "pista a la M-600"
+      },
+      {
+        "district_id": "town",
+        "danger_level": "none",
+        "advice": "Casco Histórico: fuera de la zona afectada.",
+        "evacuation_point": "",
+        "evacuation_route": ""
+      }
+    ],
+    "public_message": "Incendio en Brunete en seguimiento. Distritos en aviso: town_north, farm.",
+    "advice_source": "despacho_code",
+    "loop_seen_generation": 7,
+    "session_id": "cafebabedeadbeefcafebabedeadbeef",
+    "last_dispatch": {
+      "decision": "avisar",
+      "criticidad": "alta",
+      "destinatarios": "Prado Alto, Paco Herranz",
+      "justificacion": "Frente a sotavento de Prado Alto; aviso preventivo a la granja."
+    },
+    "pending_command": {
+      "command_id": "b1777fc61b5a4bd0a37e0a7e5b58f13f",
+      "event_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "command": "scout",
+      "mission": "Scout-1 patrulla el flanco este; Squirtle investiga el humo; el camion espera sector.",
+      "reason": "Fuego no confirmado; verificar el reporte del granjero.",
+      "extinguisher_orders": [
+        {
+          "drone_id": "drone-1",
+          "command": "scout",
+          "target_x": 60,
+          "target_y": 30,
+          "district_id": "",
+          "reason": "Investigar el humo reportado desde una posicion segura."
+        }
+      ],
+      "scout_orders": [
+        {
+          "drone_id": "scout-1",
+          "command": "patrol",
+          "waypoints": [
+            [
+              16,
+              32
+            ],
+            [
+              20,
+              28
+            ]
+          ],
+          "district_id": "",
+          "reason": "Patrulla hacia el este, lejos del foco reportado."
+        }
+      ],
+      "truck_orders": [
+        {
+          "truck_id": "engine-1",
+          "command": "continue",
+          "target_x": 0,
+          "target_y": 0,
+          "reason": "Sin sector de ataque hasta confirmar el frente."
+        }
+      ]
+    },
+    "communications_sent": [
+      {
+        "kind": "zone_alert",
+        "status": "sent",
+        "district_id": "town_north",
+        "action": "evacuate",
+        "criticality": "alta",
+        "contact_name": "Prado Alto",
+        "information": "Prado Alto: aviso de evacuacion. Dirijase al patio del Colegio Publico Agora.",
+        "run_id": "11111111-2222-3333-4444-555555555555"
+      },
+      {
+        "kind": "call",
+        "status": "sent",
+        "district_id": "farm",
+        "criticality": "alta",
+        "contact_name": "Paco Herranz",
+        "information": "Reuna al grupo en el Cruce de la Dehesa.",
+        "run_id": "11111111-2222-3333-4444-555555555555"
+      }
+    ]
+  },
+  "without_action_informativa_omits_action_key": [
+    {
+      "kind": "zone_alert",
+      "status": "sent",
+      "district_id": "town",
+      "criticality": "informativa",
+      "contact_name": "Casco Histórico",
+      "information": "Casco en seguimiento, no evacuen.",
+      "run_id": "11111111-2222-3333-4444-555555555555"
+    }
+  ]
+}

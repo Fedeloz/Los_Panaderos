@@ -32,6 +32,16 @@
     <p class="kpi-detail" data-i18n="closedHelp">Fichas estáticas de demostración. Cada expediente conserva su resultado, superficie y actas; no abren sala de crisis.</p>
     <div id="closedList" class="event-list"></div>
   </section>
+  <section class="panel shared-panel" aria-labelledby="sharedHeading">
+    <h2 id="sharedHeading" data-i18n="sharedHeading">Estado compartido · Cloudflare KV</h2>
+    <p class="kpi-detail" data-i18n="sharedHelp">Documento que el simulador publica y los agentes de HappyRobot leen. Se consulta desde el servidor: el navegador nunca recibe el token.</p>
+    <div class="shared-meta" id="sharedMeta"></div>
+    <h2 class="inventory-heading" data-i18n="sharedDistrictsHeading">Distritos y nivel de peligro</h2>
+    <div id="sharedDistricts" class="event-list"></div>
+    <h2 class="inventory-heading" data-i18n="sharedCommsHeading">Comunicaciones emitidas</h2>
+    <p class="kpi-detail" data-i18n="sharedCommsHelp">Cada llamada y cada alerta de zona con su paso de simulación y su efecto real sobre la población.</p>
+    <div id="sharedComms" class="event-list"></div>
+  </section>
   <section class="panel" aria-labelledby="recordingHeading">
     <h2 id="recordingHeading" data-i18n="recordingHeading">Grabación del incidente · ES-2026-BRUNETE</h2>
     <section class="toolbar">

@@ -1,0 +1,35 @@
+{
+  "command_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+  "event_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "command": "scout",
+  "mission": "Scout-1 patrulla el flanco este; Squirtle investiga el humo reportado; el camion espera sector.",
+  "reason": "Fuego no confirmado; verificar el reporte del granjero.",
+  "extinguisher_orders": [
+    {
+      "drone_id": "drone-1",
+      "command": "scout",
+      "target_x": 60,
+      "target_y": 30,
+      "district_id": "",
+      "reason": "Investigar el humo reportado desde una posicion segura."
+    }
+  ],
+  "scout_orders": [
+    {
+      "drone_id": "scout-1",
+      "command": "patrol",
+      "waypoints": [[16, 32], [20, 28]],
+      "district_id": "",
+      "reason": "Patrulla hacia el este, lejos del foco reportado."
+    }
+  ],
+  "truck_orders": [
+    {
+      "truck_id": "engine-1",
+      "command": "continue",
+      "target_x": 0,
+      "target_y": 0,
+      "reason": "Sin sector de ataque hasta confirmar el frente."
+    }
+  ]
+}

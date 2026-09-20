@@ -164,3 +164,19 @@ body[data-page="medios"] .lower,body[data-page="archivo"] .lower{grid-template-c
   .data-grid,body[data-page="situacion"] .lower{grid-template-columns:1fr}
 }
 @media(max-width:600px){.cecop-nav{font-size:10px}.cecop-nav .nav-brand .badge{width:34px;height:34px;font-size:15px}.event-list .order-ticket,.closed-strip .order-ticket{display:block}.event-list .order-ticket>a{display:inline-block;margin-top:8px}.event-list .order-label,.closed-strip .order-label{margin-bottom:8px}.official-time{display:none}}
+
+.shared-panel .inventory-heading{margin-top:18px}
+.shared-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
+.shared-meta div{border:1px solid var(--line);padding:8px 10px;min-width:0}
+.shared-meta .kpi-label{display:block}
+.shared-meta strong{display:block;font:700 15px var(--meta);color:var(--cyan-ink);letter-spacing:.4px;margin-top:3px;overflow-wrap:anywhere}
+.shared-meta small{display:block;color:var(--muted);font:10px var(--meta);letter-spacing:.3px;margin-top:2px}
+.shared-stale strong{color:var(--warn)}
+.shared-empty{color:var(--muted);font-size:12px;margin-top:12px}
+.level-critical{border-color:var(--alert);color:var(--alert-soft)}
+.level-warning{border-color:var(--warn);color:var(--warn)}
+.level-watch{border-color:var(--cyan);color:var(--cyan-soft)}
+.level-none{border-color:var(--line-strong);color:var(--muted)}
+.comm-evacuate{border-left-color:var(--alert)}
+.comm-inform{border-left-color:var(--cyan)}
+.comm-none{border-left-color:var(--line-strong)}

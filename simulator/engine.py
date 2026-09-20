@@ -7,8 +7,9 @@ import random
 import uuid
 from pathlib import Path
 from .terrain import PROFILES, make_cells
+from .contacts import directory as contact_directory
 
-GEOGRAPHY = json.loads((Path(__file__).parent / "static/maps/brunete-illustrated.json").read_text())
+GEOGRAPHY = json.loads((Path(__file__).parent / "static/maps/brunete-illustrated.json").read_text(encoding="utf-8"))
 
 
 class Simulation:
@@ -35,8 +36,8 @@ class Simulation:
                  truck_jets=5, hose_range=10,
                  drone_standoff_cells=3, drone_suppression_range=8)
 
-    def __init__(self, seed=9, drone_count=1, fleet_counts=None):
-        self.incident_id = str(uuid.uuid4())
+    def __init__(self, seed=9, drone_count=1, fleet_counts=None, incident_id=None):
+        self.incident_id = incident_id or str(uuid.uuid4())
         self.rng = random.Random(seed)
         self.suppression_rng = random.Random(seed+1)
         self.phase = "active"
@@ -50,6 +51,13 @@ class Simulation:
         self.ignited = self.called = False
         self.call_text = ''
         self.history = []
+        self.communications = []
+        self.dispatch = None
+        # Field events for the shared state (drones confirming fire, truck deployed/arrived/containing).
+        self.pending_events = []
+        self.event_log = []
+        self._fire_reported_by = set()
+        self._truck_milestones = {}
         self.mission_records = []
         self.seen_commands = set()
         self.suppressed = 0
@@ -193,6 +201,31 @@ class Simulation:
         self.history.append(dict(tick=self.tick, source=source, message=message, **extra))
         self.history = self.history[-100:]
 
+    def emit(self, kind, source, x=None, y=None, **extra):
+        """Queue a field event for the shared state API (drained by StateStore). Never blocks."""
+        event=dict(kind=kind,source=source,sim_time=self.tick,incident_id=self.incident_id,
+                   x=None if x is None else int(round(x)),y=None if y is None else int(round(y)),**extra)
+        self.pending_events.append(event)
+        self.event_log=(self.event_log+[event])[-200:]
+        return event
+
+    def drain_events(self):
+        events,self.pending_events=self.pending_events,[]
+        return events
+
+    def nearest_district(self, x, y):
+        return min(self.groups,key=lambda k:math.dist((x,y),self.groups[k]['home'])) if self.groups else None
+
+    def _truck_milestone(self, truck, kind, detail):
+        key=(truck.get('truck_id','engine-1'),kind)
+        if key in self._truck_milestones:return
+        self._truck_milestones[key]=self.tick
+        target=truck.get('crew_target') or [truck['x'],truck['y']]
+        status={'deployed':'en_route','arrived':'arrived','containing':'containing','returning':'returning'}[kind]
+        self.emit(kind,truck.get('truck_id','engine-1'),truck['x'],truck['y'],vehicle_id=truck.get('truck_id','engine-1'),status=status,
+                  detail=detail,district_id=self.nearest_district(target[0],target[1]))
+        self.log(truck.get('truck_id','engine-1'),detail)
+
     @staticmethod
     def burning(cell):
         return cell['heat'] > 0 and cell['fuel'] > 0
@@ -326,7 +359,10 @@ class Simulation:
             self.mission='Fire out — drone and truck returning to station'
             for drone in self.extinguishers:drone.update(mode='returning',status='returning',target=list(self.base),last_drop=None)
             for scout in self.scouts:scout.update(mode='returning',status='returning',target=list(self.base),waypoints=[])
-            for truck in self.trucks:truck.update(status='returning',target=list(self.base),last_drops=[])
+            for truck in self.trucks:
+                truck.update(status='returning',target=list(self.base),last_drops=[])
+                self._truck_milestone(truck,'returning',f"{truck.get('truck_id','engine-1')} returning to station: fire out.")
+            self.emit('fire_out','simulation',detail='No fire remains; all vehicles returning.')
             self.log('simulation','Global simulator trigger: no fire remains. Returning both vehicles to station.')
         if self.phase == 'returning':
             for vehicle in self.vehicles():
@@ -562,6 +598,13 @@ class Simulation:
             t['last_drops']=[[a['x'],a['y']] for a in attempts]
             t['status']='suppressing'
         self.observe()
+        if not returning:
+            if t['status'] in {'en_route','on_scene','suppressing'}:
+                self._truck_milestone(t,'deployed',f"{t.get('truck_id','engine-1')} deployed from station toward sector {self.crew_target}.")
+            if t['status'] in {'on_scene','suppressing'}:
+                self._truck_milestone(t,'arrived',f"{t.get('truck_id','engine-1')} arrived at the fire sector.")
+            if t['status']=='suppressing':
+                self._truck_milestone(t,'containing',f"{t.get('truck_id','engine-1')} containing: hoses on the fire.")
 
     def truck_telemetry(self, truck=None):
         truck=self.truck if truck is None else truck
@@ -586,6 +629,13 @@ class Simulation:
                         cell['sources'].append(source)
                         if cell['burning']:own.append(dict(x=x,y=y))
             vehicle['observed_fire']=own
+            if own and vehicle.get('drone_id') and source not in self._fire_reported_by:
+                # First confirmed sighting by this drone: write it to the shared state as fire_detected.
+                self._fire_reported_by.add(source)
+                first=min(own,key=lambda c:math.hypot(c['x']-vehicle['x'],c['y']-vehicle['y']))
+                self.emit('fire_detected',source,first['x'],first['y'],vehicle_id=source,role=vehicle.get('role','drone'),
+                          cells=len(own),district_id=self.nearest_district(first['x'],first['y']),
+                          detail=f"{source} confirms {len(own)} burning cell(s) near ({first['x']}, {first['y']})")
         self.memory.update(current)
         self.observation=[dict(x=c['x'],y=c['y']) for c in current.values() if c['burning']]
         if self.trucks and self.observation and not self.truck.get('drone_order'):
@@ -664,6 +714,8 @@ class Simulation:
 
     def payload(self, event_type='local_observation'):
         self.observe()
+        contacts = contact_directory(self.groups)
+        channels = {d['district_id']: d for d in contacts['districts']}
         known = dict(width=self.width,height=self.height,wind=dict(dx=self.wind[0],dy=self.wind[1],strength=round(math.hypot(*self.wind),2),units="relative simulation strength",convention="positive X east, positive Y south; vector points TO spread",spread_steps={name:self.spread_interval(dx,dy) for name,dx,dy in [("east",1,0),("west",-1,0),("north",0,-1),("south",0,1)]}),
             forecast=dict(issued_at=self.tick,description='Synthetic forecast; arbitrary X/Y vector points TO destination, including diagonal and calm wind. wind.spread_steps gives directional ignition ATTEMPT intervals, not guaranteed propagation times. Ignition base probability is 50%, modified by terrain, source intensity and diagonal distance; stronger downwind wind shortens the interval, while upwind spread is slower. Failed attempts retry; predict uncertain fire arrival, not exact fronts. Assess settlement alignment with the full vector, not just named cardinal presets.'),
             farmer_report_location=dict(x=self.report[0],y=self.report[1]) if self.called else None,
@@ -674,8 +726,11 @@ class Simulation:
             districts=[dict(district_id=key,name=g['name'],kind=g['kind'],home=g['home'],
                 position=[g['x'],g['y']],population=g['count'],population_basis=g['population_basis'],
                 burnt=g['burnt'],status=g['status'],refuge=g['refuge'],
+                chat_id=channels.get(key,{}).get('chat_id'),evacuation_point=channels.get(key,{}).get('evacuation_point'),
                 boundary=next(z['polygon'] for z in GEOGRAPHY['observation_zones'] if z['id']==key))
                 for key,g in self.groups.items()],
+            contacts=contacts,
+            communications_sent=self.communications[-12:],last_dispatch=self.dispatch,
             evacuation_targets=[dict(district_id=key,name=g['name'],count=g['count'],
                 command='evacuate_farm' if g['kind']=='farm' else 'evacuate_town',
                 target_x=g['home'][0],target_y=g['home'][1])
@@ -692,7 +747,87 @@ class Simulation:
             world_state=json.dumps(known),drone_telemetry=json.dumps(self.telemetry() if self.extinguishers else {'available':False,'safe_containment_positions':[]}),
             thermal_detections=json.dumps(dict(observed_at=self.tick,burning_cells=[c for c in self.memory.values() if c['observed_at']==self.tick and c['burning']],
                 coverage=f'Joint current observations: radius {self.sensor_radius} around drone plus radius {self.truck_sensor_radius} around truck. Both share fire and clear-cell updates. Empty is not global containment.')),
-            human_messages=self.call_text)
+            human_messages=self.call_text,
+            contacts=json.dumps(contacts, ensure_ascii=False))
+
+    DELIVERED_STATUSES={'sent','delivered','succeeded'}
+    EVACUATION_ACTIONS={'evacuate','evacuar','evacuacion','evacuación','orden_evacuacion','evacuation_order'}
+    INFORM_ACTIONS={'inform','informar','informativa','informativo','information','update','reassure','tranquilizar','all_clear'}
+    EVACUATION_CRITICALITIES={'critica','crítica','critical','alta','high','emergencia','emergency'}
+
+    @classmethod
+    def alert_action(cls,item):
+        """Split a zone alert into an evacuation ORDER or an informational broadcast.
+
+        Explicit `action` wins. Without it we fall back to `criticality` and mark the record
+        inferred, so the dashboard and the next payload show the agent that it never said which
+        one it meant. Anything unlabelled is an information broadcast: a reassurance message
+        must never put a district on the road.
+        """
+        raw=str(item.get('action') or item.get('alert_type') or '').strip().lower()
+        if raw in cls.EVACUATION_ACTIONS:return 'evacuate','explicit'
+        if raw in cls.INFORM_ACTIONS:return 'inform','explicit'
+        criticality=str(item.get('criticality') or '').strip().lower()
+        if criticality in cls.EVACUATION_CRITICALITIES:return 'evacuate','inferred_from_criticality'
+        return 'inform','default'
+
+    def apply_communications(self, communications):
+        """Record calls/Telegram alerts HappyRobot actually sent. A zone alert either ORDERS its
+        district to evacuate or INFORMS it; a call reaches one person."""
+        applied=[]
+        for item in communications or []:
+            if not isinstance(item,dict):continue
+            kind=item.get('kind')
+            if kind not in {'zone_alert','call','personal_message'}:continue
+            record=dict(tick=self.tick,kind=kind,channel='telegram' if kind!='call' else 'phone',
+                        district_id=item.get('district_id') or None,contact_name=str(item.get('contact_name',''))[:120],
+                        criticality=str(item.get('criticality',''))[:16],status=str(item.get('status','sent'))[:40],
+                        information=str(item.get('information',''))[:600],run_id=item.get('run_id'))
+            group=self.groups.get(record['district_id']) if record['district_id'] else None
+            label=group['name'] if group else (record['contact_name'] or 'unknown recipient')
+            if kind=='zone_alert':
+                action,source=self.alert_action(item)
+                record.update(action=action,action_source=source)
+                delivered=record['status'] in self.DELIVERED_STATUSES
+                if not group:
+                    # No district resolved: nobody was warned. Say so instead of logging a silent success.
+                    record['effect']='no_recipient'
+                    self.log('central → telegram',f"Zone alert to {label} [{record['status']}] reached NO district "
+                             f"(district_id={record['district_id']!r}); population unchanged: {record['information'][:160]}")
+                elif action=='evacuate' and group['status']=='unwarned' and delivered:
+                    group['status']='evacuating'
+                    record['effect']='district_warned'
+                    self.pending_decision_event=self.pending_decision_event or 'evacuation_warning_delivered'
+                    self.log('central → telegram',f"EVACUATION order ({record['criticality'] or 'n/a'}) to {label}: {group['count']} people moving to refuge. {record['information'][:200]}")
+                elif action=='inform':
+                    record['effect']='district_informed'
+                    self.log('central → telegram',f"Information broadcast to {label} [{record['status']}] — "
+                             f"{group['count']} people informed, NOT evacuated (status stays {group['status']}): {record['information'][:200]}")
+                else:
+                    record['effect']='no_change'
+                    self.log('central → telegram',f"Evacuation order to {label} [{record['status']}]"+(f" — already {group['status']}" if group else '')+f": {record['information'][:200]}")
+                if source!='explicit' and group:
+                    self.log('system',f"Zone alert to {label} carried no explicit action; read as {action!r} from "
+                             f"criticality={record['criticality'] or 'empty'!r}. Set action=evacuate|inform in alertar_zona.")
+            elif kind=='call':
+                record['effect']='person_called'
+                self.log('central → phone',f"Call to {label}{' ('+group['name']+')' if group else ''} [{record['status']}]: {record['information'][:200]}")
+            else:
+                record['effect']='person_informed'
+                self.log('central → telegram',f"Message to {label} [{record['status']}]: {record['information'][:200]}")
+            applied.append(record)
+        self.communications=(self.communications+applied)[-50:]
+        if applied:self.update_people_exposure()
+        return applied
+
+    def record_dispatch(self, dispatch):
+        """Store Despacho Central's structured decision for the dashboard and next payload."""
+        if not isinstance(dispatch,dict):return
+        self.dispatch=dict(tick=self.tick,**{k:(str(v)[:800] if isinstance(v,str) else v) for k,v in dispatch.items() if k in {'decision','justificacion','criticidad','avisos_lanzados','destinatarios','datos_faltantes'}})
+        summary=f"Dispatch: {self.dispatch.get('decision','?')} · {self.dispatch.get('criticidad') or 'n/a'}"
+        if self.dispatch.get('destinatarios'):summary+=f" · warned: {self.dispatch['destinatarios']}"
+        if self.dispatch.get('datos_faltantes'):summary+=f" · missing: {self.dispatch['datos_faltantes']}"
+        self.log('central',summary[:600])
 
     def validate_drone_order(self, decision, drone):
         command = decision.get('command')
@@ -820,6 +955,17 @@ class Simulation:
         self.log('edge',str(decision.get('reason',''))[:1000],decision=decision)
         return self.last_result
 
+    def masked_contacts(self):
+        """Directory for the dashboard: real numbers/IDs stay in the payload, the browser only sees masked tails."""
+        def mask(value):
+            if not value:return None
+            value=str(value)
+            return '…'+value[-3:] if len(value)>3 else '…'
+        contacts=contact_directory(self.groups)
+        return dict(people=[dict(p,phone_number=mask(p['phone_number']),chat_id=mask(p['chat_id'])) for p in contacts['people']],
+                    districts=[dict(d,chat_id=mask(d['chat_id'])) for d in contacts['districts']],
+                    missing=contacts['missing'])
+
     def state(self):
         burning = sum(self.burning(c) for row in self.cells for c in row)
         return copy.deepcopy(dict(incident_id=self.incident_id,tick=self.tick,phase=self.phase,width=self.width,height=self.height,
@@ -830,4 +976,5 @@ class Simulation:
             history=self.history,mission_context=self.mission_context(),burning=burning,burned=sum(c.get('burned',0)>0 for row in self.cells for c in row),
             burnt_people=sum(g.get('burnt',0) for g in self.groups.values()),
             extinguished=self.suppressed,contained=self.ignited and burning==0,people=self.groups,
+            communications=self.communications,dispatch=self.dispatch,contacts=self.masked_contacts(),events=self.event_log[-30:],
             truck=self.truck_telemetry() if self.trucks else None,roads=sorted(self.roads),crew_due=self.crew_due,crew_target=self.crew_target,crew_extinguished=self.crew_extinguished,rules=self.rules))

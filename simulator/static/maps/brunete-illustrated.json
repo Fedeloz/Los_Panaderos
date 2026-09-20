@@ -27,11 +27,23 @@
   "refuges": {
     "town": [
       5,
-      22
+      30
+    ],
+    "town_north": [
+      17,
+      30
+    ],
+    "town_south": [
+      15,
+      44
+    ],
+    "town_rosales": [
+      6,
+      16
     ],
     "farm": [
       60,
-      12
+      26
     ]
   },
   "population_source": {
@@ -61,7 +73,7 @@
       ],
       "refuge": [
         5,
-        22
+        30
       ],
       "polygon": [
         [
@@ -107,8 +119,8 @@
         30
       ],
       "refuge": [
-        5,
-        22
+        17,
+        30
       ],
       "polygon": [
         [
@@ -162,8 +174,8 @@
         44
       ],
       "refuge": [
-        5,
-        22
+        15,
+        44
       ],
       "polygon": [
         [
@@ -229,8 +241,8 @@
         16
       ],
       "refuge": [
-        5,
-        22
+        6,
+        16
       ],
       "polygon": [
         [
@@ -281,7 +293,7 @@
       ],
       "refuge": [
         60,
-        12
+        26
       ],
       "polygon": [
         [
@@ -1951,5 +1963,6 @@
   "neighbourhood_sources": [
     "https://origin-www.bocm.es/boletin/CM_Orden_BOCM/2014/04/16/BOCM-20140416-40.PDF",
     "https://brunetehistoriayvida.es/tercera-fase/"
-  ]
+  ],
+  "refuges_note": "One muster point per district, each on a road cell (fuel 0) that fire cannot reach, 2-3 cells from its own anchor and at least 12 cells from any other muster point so the four town districts never converge on the same place. Facility names are real Brunete municipal facilities; their placement on this illustration is a scenario convention, not a georeferenced location. See docs/population-provenance.md."
 }
