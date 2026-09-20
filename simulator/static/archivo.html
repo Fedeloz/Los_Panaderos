@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CECOP · Archivo</title><link rel="icon" href="/favicon.png" type="image/png"><link rel="stylesheet" href="/style.css"></head>
+<body data-page="archivo">
+<div class="shell">
+<aside class="cecop-nav" aria-label="CECOP">
+  <div class="nav-brand"><div class="badge">112</div><span>CECOP</span></div>
+  <div class="nav-links">
+    <a href="/" data-nav="situacion" data-i18n="navSituation">Situación</a>
+    <a href="/incidente" data-nav="incidente" data-i18n="navIncident">Sala de crisis</a>
+    <a href="/medios" data-nav="medios" data-i18n="navFleet">Medios</a>
+    <a href="/archivo" data-nav="archivo" data-i18n="navArchive">Archivo</a>
+  </div>
+  <div class="nav-lang"><button type="button" id="langToggle" class="quiet" data-i18n-aria-label="changeLanguage">EN</button></div>
+</aside>
+<div class="ops">
+<header class="mast">
+  <div class="brand"><div class="badge">112</div><div><span class="eyebrow" data-i18n="eyebrow">CENTRAL DE OPERACIONES · CECOP</span><h1 data-i18n="pageTitle">Archivo</h1><p data-i18n="pageSubhead">PROTECCIÓN CIVIL · EXPEDIENTES Y GRABACIONES</p></div></div>
+  <div class="header-actions"><div class="incident-meta"><span id="incidentCode" data-i18n="nationalCode">CECOP-ES</span><span class="official-time"><span data-i18n="officialTime">Hora oficial</span> <time id="officialClock">--:--:--</time></span></div></div>
+</header>
+<section class="kpis" id="archiveKpis">
+  <div><span class="kpi-label" data-i18n="kClosedFiles">Expedientes cerrados</span><strong id="closedCount">—</strong><small class="kpi-detail" data-i18n="demoFigures">Cifras de demostración</small></div>
+  <div><span class="kpi-label" data-i18n="kClosedHa">Superficie afectada</span><strong id="closedHa">—</strong><small class="kpi-detail" data-i18n="closedHaHelp">hectáreas, suma de expedientes cerrados</small></div>
+  <div><span class="kpi-label" data-i18n="kClosedCcaa">CCAA</span><strong id="closedCcaa">—</strong><small class="kpi-detail" id="closedCcaaDetail"></small></div>
+  <div><span class="kpi-label" data-i18n="kRecording">Grabación Brunete</span><strong id="archiveRecordingState">—</strong><small class="kpi-detail"><span id="archiveFrameCount">—</span> <span data-i18n="framesLabelLower">fotogramas</span></small></div>
+</section>
+<div class="duty"><p id="connection" role="status" aria-live="polite" aria-atomic="true" data-i18n="connecting">Conectando…</p><a href="/incidente" class="duty-link" data-i18n="openIncident">Abrir sala de crisis</a></div>
+<div id="error" role="alert" hidden></div>
+<main class="lower">
+  <section class="panel" aria-labelledby="closedHeading">
+    <h2 id="closedHeading" data-i18n="closedHeading">Expedientes cerrados</h2>
+    <p class="kpi-detail" data-i18n="closedHelp">Fichas estáticas de demostración. Cada expediente conserva su resultado, superficie y actas; no abren sala de crisis.</p>
+    <div id="closedList" class="event-list"></div>
+  </section>
+  <section class="panel" aria-labelledby="recordingHeading">
+    <h2 id="recordingHeading" data-i18n="recordingHeading">Grabación del incidente · ES-2026-BRUNETE</h2>
+    <section class="toolbar">
+      <button id="archiveRecordRun" data-i18n="archiveRecordRun" disabled>Ejecutar y grabar</button>
+      <button id="archiveStopRecord" data-i18n="archiveStopRecord" disabled>Detener grabación</button>
+      <button id="archiveDownloadRecord" data-i18n="archiveDownloadRecord" disabled>Descargar</button>
+    </section>
+    <p data-i18n="recordingEffect">Ejecutar y grabar inicia el incidente y las decisiones de HappyRobot.</p>
+    <p data-i18n="stopEffect">Detener pausa el reloj; una deliberación en curso puede terminar.</p>
+    <h2 id="playbackHeading" class="inventory-heading" data-i18n="playbackHeading">Reproducción</h2>
+    <p data-i18n="archiveHelp">Reproducir abre la grabación del servidor en Sala de crisis. Abrir archivo lleva al selector de archivos de esa sala (máx. 100 MB). La reproducción no llama a HappyRobot.</p>
+    <section class="toolbar">
+      <button id="archivePlayRecord" data-i18n="archivePlayRecord" disabled>Reproducir</button>
+      <button id="archiveOpenRecording" data-i18n="archiveOpenRecording" disabled>Abrir archivo</button>
+    </section>
+    <p data-i18n="archiveLocation">Los controles también están en Preparar incidente → Archivo y reproducción.</p>
+    <a href="/incidente" data-i18n="openIncident">Abrir sala de crisis</a>
+  </section>
+</main>
+<footer class="site-footer">
+  <span data-i18n="demoBoard">Tablero de demostración: Brunete es la única sala simulada; el resto son expedientes estáticos de demostración.</span>
+  <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo HappyRobot</a>
+</footer>
+</div>
+</div>
+<script src="/chrome.js"></script><script src="/archivo.js"></script>
+</body>
+</html>

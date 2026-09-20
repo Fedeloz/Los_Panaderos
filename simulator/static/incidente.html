@@ -7,7 +7,18 @@
 <link rel="icon" href="/favicon.png" type="image/png">
 <link rel="stylesheet" href="/style.css">
 </head>
-<body>
+<body data-page="incidente">
+<div class="shell">
+<aside class="cecop-nav" aria-label="CECOP">
+  <div class="nav-brand"><div class="badge">112</div><span>CECOP</span></div>
+  <div class="nav-links">
+    <a href="/" data-nav="situacion" data-i18n="navSituation">Situación</a>
+    <a href="/incidente" data-nav="incidente" data-i18n="navIncident">Sala de crisis</a>
+    <a href="/medios" data-nav="medios" data-i18n="navFleet">Medios</a>
+    <a href="/archivo" data-nav="archivo" data-i18n="navArchive">Archivo</a>
+  </div>
+  <div class="nav-lang"><button type="button" id="langToggle" class="quiet" data-i18n-aria-label="changeLanguage">EN</button></div>
+</aside>
 <div class="ops">
 <header class="mast">
   <div class="brand">
@@ -20,10 +31,8 @@
   </div>
   <div class="header-actions">
     <div class="incident-meta"><span id="incidentCode">ES-2026-BRUNETE</span><span id="wx" class="wx" hidden></span></div>
-    <button type="button" id="langToggle" class="quiet" data-i18n-aria-label="changeLanguage">EN</button>
   </div>
 </header>
-
 <section class="kpis">
   <div class="kpi-threat"><span class="kpi-label" id="kThreatLbl" data-i18n="kThreat">Amenaza</span><strong id="threat">Vigilancia</strong></div>
   <div class="people-board" id="peopleBoard">
@@ -40,7 +49,6 @@
   <div><span class="kpi-label" id="kAgentLbl" data-i18n="kAgents">Agentes</span><strong id="runs">0</strong></div>
   <div><span class="kpi-label" id="kClockLbl" data-i18n="kClock">Reloj</span><strong id="clock">T+0</strong></div>
 </section>
-
 <div class="duty">
   <p id="connection" role="status" aria-live="polite" aria-atomic="true">Listo</p>
   <span class="agent-chain" data-i18n="agentChain">HappyRobot · Central → Exploración / Extinción</span>
@@ -53,19 +61,18 @@
   <a class="setup-jump" href="#setupPanel"><span data-i18n="setup">Preparar incidente</span><span id="operatingSummary"></span></a>
 </section>
 <div id="error" role="alert" hidden></div>
-
 <section class="order-ticket" aria-labelledby="missionLbl">
   <div class="order-label"><span class="eyebrow" id="missionLbl" data-i18n="mission">MISIÓN / ORDEN</span><span class="order-channel" data-i18n="orderChannel">HAPPYROBOT · CENTRAL</span></div>
   <h2 id="mission">A la espera de aviso</h2>
   <div id="people" class="unit-tags"></div>
 </section>
-
 <main class="maps">
   <article class="map-card">
     <div class="maptitle"><h2 id="truthTitle" data-i18n="truth">Situación real</h2><span id="truthTag">BRUNETE · TERRENO ILUSTRADO</span></div>
     <div class="map-stage">
       <div id="globe" hidden></div>
       <canvas id="truth" width="800" height="560"></canvas>
+      <canvas id="truthOverlay" class="map-overlay" width="800" height="560" aria-hidden="true"></canvas>
       <span class="map-paused" data-i18n="mapPaused">RELOJ EN PAUSA</span>
       <span class="map-replay" data-i18n="replay">Reproducción</span>
     </div>
@@ -85,6 +92,7 @@
     <div class="maptitle"><h2 id="beliefTitle" data-i18n="belief">Lo que el sistema ve</h2><span id="beliefTag" data-i18n="beliefTag">SENSORES + SATÉLITE RETARDADO</span></div>
     <div class="map-stage">
       <canvas id="belief" width="800" height="560"></canvas>
+      <div id="beliefToasts" class="belief-toasts" aria-live="polite" aria-atomic="false"></div>
       <span class="map-paused" data-i18n="mapPaused">RELOJ EN PAUSA</span>
       <span class="map-replay" data-i18n="replay">Reproducción</span>
     </div>
@@ -94,7 +102,6 @@
     <p id="beliefstats"></p>
   </article>
 </main>
-
 <section class="timeline">
   <button id="back" data-i18n-aria-label="backFrame">←</button>
   <button id="replayPlay" data-i18n="replayStart">▶ Repetir</button>
@@ -103,7 +110,6 @@
   <button data-action="live" data-i18n="liveBtn">En vivo</button>
   <span id="frame">En vivo</span>
 </section>
-
 <section class="lower">
   <details class="setup" id="setupPanel" open>
     <summary id="setupSummary">Preparar incidente</summary>
@@ -127,7 +133,7 @@
         <div><span class="eyebrow" id="windTitle" data-i18n="wind">VIENTO</span><p id="windHelp" data-i18n="windHelp">X este · Y sur · unidades demo</p></div>
         <label>X <input id="windX" type="range" min="-3" max="3" step="0.05" value="1"><output id="windXValue">1.0</output></label>
         <label>Y <input id="windY" type="range" min="-3" max="3" step="0.05" value="0"><output id="windYValue">0.0</output></label>
-        <svg id="windVector" viewBox="0 0 86 86" data-i18n-aria-label="wind"><path d="M5 43H81 M43 5V81" stroke="#53626a"/><circle cx="43" cy="43" r="36" fill="none" stroke="#53626a"/><path id="windArrow" stroke="#b5cfca" stroke-width="3" fill="none"/><circle id="windTip" r="4" fill="#b5cfca"/></svg>
+        <svg id="windVector" viewBox="0 0 86 86" data-i18n-aria-label="wind"><path d="M5 43H81 M43 5V81" stroke="#2a4657"/><circle cx="43" cy="43" r="36" fill="none" stroke="#2a4657"/><path id="windArrow" stroke="#9fd3ea" stroke-width="3" fill="none"/><circle id="windTip" r="4" fill="#9fd3ea"/></svg>
         <label class="spread-control"><span class="spread-label" data-i18n="spread">Propagación</span><input id="spreadFactor" type="range" min="0.25" max="4" step="0.25" value="0.5"><output id="spreadFactorValue">0.5×</output></label>
         <div><strong id="windStrength"></strong><p id="windPending">Viento aplicado</p></div>
         <button id="applyWind" data-i18n="applyWind">Aplicar</button>
@@ -152,14 +158,15 @@
     <div id="trail" role="log"></div>
   </article>
 </section>
-
-<footer>
+<footer class="site-footer">
   <span id="footerNote" data-i18n="footerNote">HappyRobot decide. Ilustración inspirada en Brunete; rejilla educativa, no Rothermel/Catastro. El reloj se pausa durante la deliberación; la reproducción no llama a la IA.</span>
-  <details><summary id="inspectLbl" data-i18n="inspect">Registro técnico de HappyRobot</summary><pre id="evidence"></pre></details>
-  <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo</a>
+  <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo HappyRobot</a>
   <div class="attribution"><a href="https://brunete.org/nuestro-pueblo/datos-estadisticos/" data-i18n="censusLink">Ayuntamiento de Brunete · padrón 2025</a><span data-i18n="censusAssumptions">Distribución por distritos estimada; ocupación de granja y refugios supuestos.</span><span data-i18n="pnoaIntro">Ilustración adaptada de una referencia</span> <a href="https://pnoa.ign.es/pnoa-imagen/ortofotos-pnoa-maxima-actualidad">PNOA</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0 scne.es</a></div>
+  <details><summary id="inspectLbl" data-i18n="inspect">Registro técnico de HappyRobot</summary><pre id="evidence"></pre></details>
 </footer>
 </div>
+</div>
+<script src="/chrome.js"></script>
 <script src="/vendor/bootstrap-icons.js"></script>
 <script src="/observation-map.js"></script>
 <script src="/app.js"></script>

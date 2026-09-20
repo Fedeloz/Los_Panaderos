@@ -48,6 +48,9 @@ TARGET = TARGETS.get(os.environ.get('HAPPYROBOT_TARGET', 'dispatch'), TARGETS['d
 WORKFLOW = os.environ.get('HAPPYROBOT_WORKFLOW_ID', TARGET['workflow'])
 EDGE_NODE = os.environ.get('HAPPYROBOT_DRONE_NODE', TARGET['drone_node'])
 DISPATCH_NODE = os.environ.get('HAPPYROBOT_DISPATCH_NODE', TARGET['dispatch_node'])
+# Older mission node, tried when the current one produced no output. A workflow edit that
+# moves the mission node then degrades to the previous one instead of failing the demo.
+LEGACY_EDGE_NODE = os.environ.get('HAPPYROBOT_LEGACY_DRONE_NODE', '01a0b96a-d5b4-771c-809c-850010ddbb67')
 COMM_NODE_ENV = dict(call='HAPPYROBOT_CALL_NODE',
                      zone_alert='HAPPYROBOT_ZONE_ALERT_NODE',
                      personal_message='HAPPYROBOT_PERSONAL_MESSAGE_NODE')
@@ -245,6 +248,19 @@ class HappyRobot:
             first = next((o for o in orders or [] if isinstance(o, dict)), {})
             d.setdefault('target_x', first.get('target_x', 0))
             d.setdefault('target_y', first.get('target_y', 0))
+        if 'truck_command' not in d and 'truck_orders' in d:
+            # Legacy single-truck mirror, kept so Simulation.apply still has a fallback when
+            # a run returns truck_orders only.
+            orders = d.get('truck_orders')
+            if isinstance(orders, str):
+                try:
+                    orders = json.loads(orders)
+                except ValueError:
+                    orders = []
+            truck = next((o for o in orders or [] if isinstance(o, dict)), {})
+            d['truck_command'] = truck.get('command', 'continue')
+            d.setdefault('truck_target_x', truck.get('target_x', 0))
+            d.setdefault('truck_target_y', truck.get('target_y', 0))
         return d
 
     @staticmethod
@@ -344,10 +360,13 @@ class HappyRobot:
         outputs = self.outputs_by_node(listing)
         evidence = dict(run=result, outputs={})
         contacts = contact_directory()
-        drone_outputs = outputs.get(EDGE_NODE, [])
+        mission_node = EDGE_NODE if outputs.get(EDGE_NODE) else (LEGACY_EDGE_NODE if outputs.get(LEGACY_EDGE_NODE) else EDGE_NODE)
+        if mission_node != EDGE_NODE:
+            text += f'\n\nMission read from the legacy node {mission_node}; the configured node produced no output.'
+        drone_outputs = outputs.get(mission_node, [])
         wanted = list(outputs.get(DISPATCH_NODE, []) if DISPATCH_NODE else [])
         wanted += [oid for node in COMM_NODES for oid in outputs.get(node, [])]
-        drone_output_id = self.latest_output(listing, EDGE_NODE) if drone_outputs else None
+        drone_output_id = self.latest_output(listing, mission_node) if drone_outputs else None
         if drone_output_id:
             wanted.append(drone_output_id)
         # All payload fetches are independent reads: issue them concurrently over the transport.

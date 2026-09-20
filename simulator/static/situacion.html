@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CECOP · Situación</title><link rel="icon" href="/favicon.png" type="image/png"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/mapa.css"></head>
+<body data-page="situacion">
+<div class="shell">
+<aside class="cecop-nav" aria-label="CECOP">
+  <div class="nav-brand"><div class="badge">112</div><span>CECOP</span></div>
+  <div class="nav-links">
+    <a href="/" data-nav="situacion" data-i18n="navSituation">Situación</a>
+    <a href="/incidente" data-nav="incidente" data-i18n="navIncident">Sala de crisis</a>
+    <a href="/medios" data-nav="medios" data-i18n="navFleet">Medios</a>
+    <a href="/archivo" data-nav="archivo" data-i18n="navArchive">Archivo</a>
+  </div>
+  <div class="nav-lang"><button type="button" id="langToggle" class="quiet" data-i18n-aria-label="changeLanguage">EN</button></div>
+</aside>
+<div class="ops">
+<header class="mast">
+  <div class="brand"><div class="badge">112</div><div><span class="eyebrow" data-i18n="eyebrow">CENTRAL DE OPERACIONES · CECOP</span><h1 data-i18n="nationalTitle">España</h1><p data-i18n="nationalSubhead">PROTECCIÓN CIVIL · CECOP NACIONAL</p></div></div>
+  <div class="header-actions"><div class="incident-meta"><span id="incidentCode" data-i18n="nationalCode">CECOP-ES</span><span class="official-time"><span data-i18n="officialTime">Hora oficial</span> <time id="officialClock">--:--:--</time></span></div></div>
+</header>
+<div id="error" role="alert" hidden></div>
+<main class="lower">
+  <section class="gis gis-hero" aria-labelledby="gisHeading">
+    <header class="gis-top">
+      <div class="gis-row gis-row-national">
+        <div class="gis-brand"><h2 id="gisHeading">CECOP</h2><span data-i18n="mapSubtitle">Incendios Forestales — España</span></div>
+        <div class="gis-counters gis-national" role="group" data-i18n-aria-label="nationalKpis" aria-label="Situación nacional">
+          <div class="counter counter-plain"><span data-i18n="kOpenIncidents">Incidentes abiertos</span><strong id="openIncidents">—</strong><small id="openDetail"></small></div>
+          <div class="counter counter-plain"><span data-i18n="kCcaa">CCAA afectadas</span><strong id="ccaaCount">—</strong><small id="ccaaDetail"></small></div>
+          <div class="counter counter-plain"><span data-i18n="kRiskPeople">Personas en riesgo</span><strong id="riskPeople">—</strong><small id="riskDetail"></small></div>
+          <div class="counter counter-plain"><span data-i18n="kAssetsCommitted">Medios comprometidos</span><strong id="assetsCommitted">—</strong><small id="assetsDetail"></small></div>
+          <div class="counter counter-plain kpi-level" id="levelCell"><span data-i18n="kLevel">Nivel</span><strong id="nationalLevel">—</strong><small id="levelDetail"></small></div>
+        </div>
+        <div class="gis-updated"><span data-i18n="lastUpdate">Última actualización</span><strong id="updatedAt">—</strong></div>
+      </div>
+      <div class="gis-row gis-row-ops">
+        <div class="duty gis-duty"><p id="connection" role="status" aria-live="polite" aria-atomic="true" data-i18n="connecting">Conectando…</p><a href="/incidente" class="duty-link" data-i18n="openIncident">Abrir sala de crisis</a></div>
+        <div class="gis-counters" role="group" aria-label="Contadores operativos">
+          <div class="counter counter-active"><i class="dot"></i><span data-i18n="cActive">Activos</span><strong id="countActive">—</strong></div>
+          <div class="counter counter-risk"><i class="dot"></i><span data-i18n="cRisk">En riesgo</span><strong id="countRisk">—</strong><small data-i18n="cRiskUnit">núcleos</small></div>
+          <div class="counter counter-controlled"><i class="dot"></i><span data-i18n="cControlled">Controlados</span><strong id="countControlled">—</strong></div>
+        </div>
+        <div class="gis-weather" role="group" aria-label="Meteorología">
+          <div><span data-i18n="wxWind">Viento</span><strong id="wxWind">—</strong></div>
+          <div><span data-i18n="wxTemp">Temperatura</span><strong id="wxTemp">—</strong></div>
+          <div><span data-i18n="wxHumidity">Humedad</span><strong id="wxHumidity">—</strong></div>
+        </div>
+      </div>
+    </header>
+    <div class="gis-stage" id="gisStage">
+      <div class="gis-map" id="gisMap" aria-label="Mapa de incendios forestales de España"></div>
+      <aside class="glass gis-layers" aria-labelledby="layersHeading">
+        <h3 id="layersHeading"><i class="ico ico-layers"></i><span data-i18n="layers">Capas</span></h3>
+        <ul id="layerList">
+          <li><i class="sw sw-hotspot"></i><label><span data-i18n="lyHotspots">Incendios activos</span><input type="checkbox" role="switch" data-layer="hotspots" checked></label></li>
+          <li><i class="sw sw-perimeter"></i><label><span data-i18n="lyPerimeters">Perímetros de incendio</span><input type="checkbox" role="switch" data-layer="perimeters" checked></label></li>
+          <li><i class="sw sw-risk"></i><label><span data-i18n="lyRisk">Zonas de riesgo</span><input type="checkbox" role="switch" data-layer="risk" checked></label></li>
+          <li><i class="sw sw-wind"></i><label><span data-i18n="lyWind">Viento</span><input type="checkbox" role="switch" data-layer="wind" checked></label></li>
+          <li><i class="sw sw-admin"></i><label><span data-i18n="lyAdmin">Límites administrativos</span><input type="checkbox" role="switch" data-layer="admin" checked></label></li>
+          <li><i class="sw sw-roads"></i><label><span data-i18n="lyRoads">Carreteras</span><input type="checkbox" role="switch" data-layer="roads" checked></label></li>
+          <li><i class="sw sw-cities"></i><label><span data-i18n="lyCities">Ciudades</span><input type="checkbox" role="switch" data-layer="cities" checked></label></li>
+          <li><i class="sw sw-topo"></i><label><span data-i18n="lyTopo">Topografía</span><input type="checkbox" role="switch" data-layer="topo" checked></label></li>
+        </ul>
+      </aside>
+      <div class="gis-zoom glass" role="group" aria-label="Zoom">
+        <button type="button" id="zoomIn" aria-label="Acercar">+</button>
+        <button type="button" id="zoomOut" aria-label="Alejar">−</button>
+        <button type="button" id="zoomReset" data-i18n-aria-label="zoomReset" aria-label="Vista nacional">⌖</button>
+      </div>
+      <aside class="glass gis-canarias" aria-labelledby="canariasHeading">
+        <div class="inset-head"><h3 id="canariasHeading" data-i18n="canarias">Islas Canarias</h3><span class="inset-tag">INSET</span></div>
+        <svg id="canariasInset" viewBox="0 0 260 112" role="img" aria-labelledby="canariasHeading"></svg>
+      </aside>
+      <aside class="glass gis-incidents" aria-labelledby="incidentsHeading">
+        <h3><i class="ico ico-fire"></i><span id="incidentsHeading" data-i18n="activeIncidents">Incendios activos</span><span class="pill pill-alert" id="incidentCount">—</span></h3>
+        <ol id="incidentList" class="incident-list"></ol>
+        <p class="panel-note" data-i18n="symbolicNote">Perímetros y focos a escala simbólica sobre localizador esquemático. Datos de demostración.</p>
+      </aside>
+      <aside class="glass gis-legend" aria-labelledby="legendHeading">
+        <h3 id="legendHeading" data-i18n="legend">Leyenda</h3>
+        <ul class="legend-list">
+          <li><i class="lg lg-hotspot"></i><span data-i18n="lgHotspot">Foco de incendio</span></li>
+          <li><i class="lg lg-perimeter"></i><span data-i18n="lgPerimeter">Perímetro de incendio</span></li>
+          <li><i class="lg lg-controlled"></i><span data-i18n="lgControlled">Incendio controlado</span></li>
+          <li class="lg-group"><i class="lg lg-risk"></i><span data-i18n="lgRisk">Zona de riesgo</span>
+            <ul>
+              <li><i class="lg lg-extreme"></i><span data-i18n="lgExtreme">Extremo</span></li>
+              <li><i class="lg lg-veryhigh"></i><span data-i18n="lgVeryHigh">Muy alto</span></li>
+              <li><i class="lg lg-high"></i><span data-i18n="lgHigh">Alto</span></li>
+              <li><i class="lg lg-moderate"></i><span data-i18n="lgModerate">Moderado</span></li>
+              <li><i class="lg lg-low"></i><span data-i18n="lgLow">Bajo</span></li>
+            </ul>
+          </li>
+          <li><i class="lg lg-wind"></i><span data-i18n="lgWind">Viento (dirección / intensidad)</span></li>
+          <li><i class="lg lg-ccaa"></i><span data-i18n="lgCcaa">Límite de comunidad autónoma</span></li>
+          <li><i class="lg lg-country"></i><span data-i18n="lgCountry">Límite de país</span></li>
+          <li><i class="lg lg-road"></i><span data-i18n="lgRoads">Carreteras principales</span></li>
+          <li><i class="lg lg-city"></i><span data-i18n="lgCities">Ciudades principales</span></li>
+          <li><i class="lg lg-brunete"></i><span data-i18n="lgBrunete">Brunete · sala simulada</span></li>
+        </ul>
+      </aside>
+      <div class="gis-scale" aria-hidden="true"><svg id="scaleBar" viewBox="0 0 250 30" width="250" height="30"></svg></div>
+      <div class="gis-credit" data-i18n="mapCredit">Base cartográfica derivada de Wikimedia Commons (NordNordWest) · CC BY-SA 3.0 · localizador esquemático, no cartografía oficial</div>
+      <div id="tooltip" class="gis-tooltip" role="tooltip" hidden></div>
+    </div>
+    <footer class="gis-timeline">
+      <div class="tl-controls">
+        <button type="button" id="tlBack" aria-label="Inicio de la ventana">⏮</button>
+        <button type="button" id="tlPlay" class="tl-play" aria-label="Reproducir">▶</button>
+        <button type="button" id="tlFwd" aria-label="Avanzar una hora">⏭</button>
+        <select id="tlSpeed" aria-label="Velocidad"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select>
+      </div>
+      <div class="tl-track">
+        <div class="tl-head"><time id="tlTime">—</time><span id="tlPhase" class="tl-phase"></span></div>
+        <input type="range" id="tlRange" min="-1440" max="0" step="5" value="0" aria-label="Línea temporal (últimas 24 h)">
+        <div class="tl-ticks" id="tlTicks"></div>
+      </div>
+      <button type="button" id="tlLive" class="tl-live is-live"><i></i><span data-i18n="tlLive">En directo</span></button>
+      <span class="tl-note" data-i18n="timelineNote">Evolución de las últimas 24 h · escenario de demostración</span>
+    </footer>
+  </section>
+  <section class="panel" aria-labelledby="eventsHeading">
+    <h2 id="eventsHeading" data-i18n="activeEvents">Expedientes abiertos</h2>
+    <div class="event-list">
+      <article class="order-ticket event-live" id="bruneteEvent">
+        <div class="order-label"><span class="eyebrow">ES-2026-BRUNETE</span><span id="eventThreat" class="event-status">—</span><span id="eventLevel" class="event-level">—</span></div>
+        <div><h2>Brunete · Madrid</h2><p class="event-meta" id="eventMeta">—</p><p id="eventMission" class="event-mission">—</p><p id="eventPeople">—</p></div>
+        <a href="/incidente" data-i18n="openIncident">Abrir sala de crisis</a>
+      </article>
+      <div id="watchList"></div>
+    </div>
+    <h2 class="closed-heading" data-i18n="closedEvents">Cerrados</h2>
+    <div id="closedList" class="closed-strip"></div>
+    <a href="/archivo" class="closed-link" data-i18n="openArchive">Abrir archivo</a>
+  </section>
+  <section class="panel" aria-labelledby="dataHeading">
+    <h2 id="dataHeading" data-i18n="salaHeading">Sala abierta</h2>
+    <p class="kpi-detail" data-i18n="salaHelp">Única sala simulada bajo mando CECOP. Las órdenes proceden de HappyRobot y se muestran sin traducir.</p>
+    <div class="data-grid"><div><span class="eyebrow" data-i18n="lastOrder">Última orden</span><p id="regionalMission">—</p><p class="kpi-detail" data-i18n="agentChain">HappyRobot · Central → Exploración / Extinción</p></div></div>
+    <div class="data-grid"><div><span class="eyebrow" data-i18n="salaClock">Reloj de sala</span><p id="salaClock" class="sala-clock">T+0</p></div><div><span class="eyebrow" data-i18n="kAgents">Agentes</span><p id="salaRuns" class="sala-clock">0</p></div></div>
+  </section>
+</main>
+<footer class="site-footer">
+  <span data-i18n="demoBoard">Tablero de demostración: Brunete es la única sala simulada; el resto son expedientes estáticos de demostración.</span>
+  <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo HappyRobot</a>
+  <span data-i18n="baseMapCredit">Mapa base derivado de Wikimedia Commons (NordNordWest) · CC BY-SA 3.0. Localizador esquemático, no cartografía oficial. Incendios, perímetros, riesgo y viento son un escenario de demostración.</span>
+</footer>
+</div>
+</div>
+<script src="/chrome.js"></script><script src="/situacion.js"></script><script src="/mapa.js"></script>
+</body>
+</html>

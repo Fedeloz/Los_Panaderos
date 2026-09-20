@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CECOP · Medios</title><link rel="icon" href="/favicon.png" type="image/png"><link rel="stylesheet" href="/style.css"></head>
+<body data-page="medios">
+<div class="shell">
+<aside class="cecop-nav" aria-label="CECOP">
+  <div class="nav-brand"><div class="badge">112</div><span>CECOP</span></div>
+  <div class="nav-links">
+    <a href="/" data-nav="situacion" data-i18n="navSituation">Situación</a>
+    <a href="/incidente" data-nav="incidente" data-i18n="navIncident">Sala de crisis</a>
+    <a href="/medios" data-nav="medios" data-i18n="navFleet">Medios</a>
+    <a href="/archivo" data-nav="archivo" data-i18n="navArchive">Archivo</a>
+  </div>
+  <div class="nav-lang"><button type="button" id="langToggle" class="quiet" data-i18n-aria-label="changeLanguage">EN</button></div>
+</aside>
+<div class="ops">
+<header class="mast">
+  <div class="brand"><div class="badge">112</div><div><span class="eyebrow" data-i18n="eyebrow">CENTRAL DE OPERACIONES · CECOP</span><h1 data-i18n="pageTitle">Medios</h1><p data-i18n="pageSubhead">PROTECCIÓN CIVIL · RESERVAS Y ASIGNACIÓN</p></div></div>
+  <div class="header-actions"><div class="incident-meta"><span id="incidentCode" data-i18n="nationalCode">CECOP-ES</span><span class="official-time"><span data-i18n="officialTime">Hora oficial</span> <time id="officialClock">--:--:--</time></span></div></div>
+</header>
+<section class="kpis" id="poolKpis">
+  <div><span class="kpi-label" data-i18n="kPoolUnits">Medios nacionales</span><strong id="poolUnits">—</strong><small class="kpi-detail" data-i18n="demoFigures">Cifras de demostración</small></div>
+  <div><span class="kpi-label" data-i18n="kPoolAssigned">Asignados</span><strong id="poolAssigned">—</strong><small class="kpi-detail" id="poolAssignedDetail"></small></div>
+  <div><span class="kpi-label" data-i18n="kPoolAvailable">Disponibles</span><strong id="poolAvailable">—</strong><small class="kpi-detail" data-i18n="poolAvailableHelp">reservas sin expediente asignado</small></div>
+  <div><span class="kpi-label" data-i18n="kBruneteFleet">Flota Brunete</span><strong id="fleetSummary">—</strong><small class="kpi-detail" data-i18n="bruneteFleetHelp">única sala simulada</small></div>
+</section>
+<div class="duty"><p id="connection" role="status" aria-live="polite" aria-atomic="true" data-i18n="connecting">Conectando…</p><a href="/incidente" class="duty-link" data-i18n="openIncident">Abrir sala de crisis</a></div>
+<div id="error" role="alert" hidden></div>
+<main class="lower">
+  <section class="panel" aria-labelledby="poolsHeading">
+    <h2 id="poolsHeading" data-i18n="poolsHeading">Reservas nacionales</h2>
+    <p class="kpi-detail" data-i18n="poolsHelp">Fichas estáticas de demostración: UME, BRIF y medios autonómicos con sus asignaciones a expedientes abiertos. No abren sala de crisis.</p>
+    <div id="poolList" class="pool-list"></div>
+  </section>
+  <section class="panel" aria-labelledby="fleetHeading">
+    <h2 id="fleetHeading" data-i18n="bruneteAssignment">Asignación Brunete · ES-2026-BRUNETE</h2>
+    <p class="kpi-detail" data-i18n="fleetHelp">Configura antes de la ignición. Reinicia en Sala de crisis para cambiar los medios; los recuentos se conservan.</p>
+    <div class="toolbar fleet-panel">
+      <label><span data-i18n="fleetTrucks">camiones</span><select id="fleet-trucks" disabled><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
+      <label><span data-i18n="fleetScouts">exploradores</span><select id="fleet-scouts" disabled><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
+      <label><span data-i18n="fleetExtinguishers">drones Squirtle</span><select id="fleet-extinguishers" disabled><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
+      <button id="applyFleet" data-i18n="applyFleet" disabled>Aplicar flota</button>
+    </div>
+    <h2 id="inventoryHeading" class="inventory-heading" data-i18n="inventory">Inventario de la sala</h2>
+    <div id="vehicleInventory" class="data-grid"></div>
+    <a href="/incidente" data-i18n="openIncident">Abrir sala de crisis</a>
+  </section>
+</main>
+<footer class="site-footer">
+  <span data-i18n="demoBoard">Tablero de demostración: Brunete es la única sala simulada; el resto son expedientes estáticos de demostración.</span>
+  <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo HappyRobot</a>
+</footer>
+</div>
+</div>
+<script src="/chrome.js"></script><script src="/medios.js"></script>
+</body>
+</html>

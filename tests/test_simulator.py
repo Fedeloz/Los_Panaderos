@@ -1058,6 +1058,72 @@ class ParserTests(unittest.TestCase):
         d = HappyRobot.normalize(dict(mission='m', primary_command='hold', drone_reason='r', extinguisher_orders='[]'))
         self.assertEqual((d['command'], d['reason'], d['target_x'], d['target_y']), ('hold', 'r', 0, 0))
 
+    def test_mission_falls_back_to_the_legacy_node_when_the_current_one_is_empty(self):
+        """A workflow edit that moves the mission node degrades to the previous one."""
+        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        output = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+        payload = {
+            'mission': 'Scout the smoke',
+            'drone_reason': 'Unconfirmed smoke',
+            'primary_command': 'scout',
+            'primary_district_id': '',
+            'extinguisher_orders': [{'drone_id': 'drone-1', 'command': 'scout', 'target_x': 79, 'target_y': 41, 'district_id': '', 'reason': 'Investigate'}],
+            'scout_orders': [{'drone_id': 'scout-1', 'command': 'hold', 'waypoints': [], 'district_id': '', 'reason': 'Hold'}],
+            'truck_orders': [{'truck_id': 'engine-1', 'command': 'continue', 'target_x': 0, 'target_y': 0, 'reason': 'Wait'}],
+        }
+        # The listing carries an output for the legacy node only; the configured one is silent.
+        listing = ('## Resultado\n- Output ID: %s\n- Node Persistent ID: %s\n- Status: succeeded\n'
+                   '- Timestamp: 2026-09-19T12:00:00Z' % (output, hr.LEGACY_EDGE_NODE))
+        answers = [
+            {'content': [{'text': f'Run ID: {run}\nStatus: completed'}]},
+            {'content': [{'text': listing}]},
+            {'content': [{'text': 'Data: '+json.dumps(payload)}]},
+        ]
+        h = HappyRobot()
+        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=answers) as call:
+            decision, evidence = h.decide({'event_type': 'farmer_call'})
+        self.assertEqual(decision['command'], 'scout')
+        self.assertEqual((decision['target_x'], decision['target_y']), (79, 41))
+        self.assertEqual(decision['reason'], 'Unconfirmed smoke')
+        self.assertIn('legacy node', evidence)
+        self.assertEqual(call.call_args_list[-1].args[1]['output_id'], output)
+
+    def test_mission_uses_the_configured_node_when_both_are_present(self):
+        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        current, stale = 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+        payload = {'mission': 'm', 'drone_reason': 'r', 'primary_command': 'hold', 'extinguisher_orders': '[]'}
+        listing = ('## Actual\n- Output ID: %s\n- Node Persistent ID: %s\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:01Z\n'
+                   '## Viejo\n- Output ID: %s\n- Node Persistent ID: %s\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:00Z'
+                   % (current, hr.EDGE_NODE, stale, hr.LEGACY_EDGE_NODE))
+        answers = [
+            {'content': [{'text': f'Run ID: {run}\nStatus: completed'}]},
+            {'content': [{'text': listing}]},
+            {'content': [{'text': 'Data: '+json.dumps(payload)}]},
+        ]
+        h = HappyRobot()
+        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=answers) as call:
+            decision, evidence = h.decide({'event_type': 'farmer_call'})
+        self.assertEqual(decision['command'], 'hold')
+        self.assertNotIn('legacy node', evidence)
+        self.assertEqual(call.call_args_list[-1].args[1]['output_id'], current)
+
+    def test_resultado_payload_normalizes_to_legacy_decision_shape(self):
+        payload = {
+            'mission': 'Investigate smoke',
+            'drone_reason': 'No confirmed fire',
+            'primary_command': 'scout',
+            'primary_district_id': '',
+            'extinguisher_orders': [{'drone_id': 'drone-1', 'command': 'scout', 'target_x': '79', 'target_y': '41', 'district_id': '', 'reason': 'Recon'}],
+            'truck_orders': [{'truck_id': 'engine-1', 'command': 'continue', 'target_x': 0, 'target_y': 0, 'reason': 'Hold sector'}],
+            'truck_reason': 'No observed fire',
+        }
+        choices = HappyRobot.decisions({'content': [{'text': 'Data: '+json.dumps(payload)}]})
+        self.assertEqual(len(choices), 1)
+        self.assertEqual(choices[0]['command'], 'scout')
+        self.assertEqual(choices[0]['target_x'], '79')
+        self.assertEqual(choices[0]['reason'], 'No confirmed fire')
+        self.assertEqual(choices[0]['truck_command'], 'continue')
+
     def test_latest_delegation_selected_independent_of_listing_order(self):
         old = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
         new = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'

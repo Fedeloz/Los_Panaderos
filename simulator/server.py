@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from .contacts import directory as contact_directory, load_env
 from .engine import Simulation
+from .geo import PLACE
 from .happyrobot import HappyRobot, EDITOR
 from .state_store import StateStore, build_state
 
@@ -28,6 +29,43 @@ def dispatch_incident_id():
 
 def loop_mode():
     return happyrobot_mode() == 'loop'
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _env_file():
+    values = {}
+    path = ROOT / '.env'
+    if not path.exists():
+        return values
+    for line in path.read_text(encoding='utf-8').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def local_host(host_header):
+    """Only the loopback interface may read local API keys."""
+    return (host_header or '').split(':')[0] in {'127.0.0.1', 'localhost'}
+
+
+def action_origin_allowed(origin, host_header, port):
+    """Same-origin only: localhost, PUBLIC_ORIGIN, or Origin matching Host (Cloudflare tunnel)."""
+    if not origin:
+        return False
+    allowed = {f'http://127.0.0.1:{port}', f'http://localhost:{port}'}
+    public = os.environ.get('PUBLIC_ORIGIN', '').strip().rstrip('/')
+    if public:
+        allowed.add(public)
+    if origin in allowed:
+        return True
+    host = (host_header or '').split(',')[0].strip()
+    if not host:
+        return False
+    return origin in {f'https://{host}', f'http://{host}'}
 
 
 class Controller:
@@ -366,6 +404,10 @@ def serve(port=8765):
     controller = Controller()
     atexit.register(controller.robot.close)
     static = Path(__file__).parent/'static'
+    pages = {'/': 'situacion.html', '/situacion': 'situacion.html',
+             '/incidente': 'incidente.html', '/incidente/brunete': 'incidente.html',
+             '/medios': 'medios.html', '/archivo': 'archivo.html',
+             '/favicon.ico': 'favicon.png'}
 
     class Handler(BaseHTTPRequestHandler):
         def reply(self, code, body, content_type='application/json'):
@@ -401,8 +443,17 @@ def serve(port=8765):
                 self.send_header('X-Content-Type-Options', 'nosniff')
                 self.end_headers()
                 self.wfile.write(body)
-            elif path in {'/', '/app.js', '/observation-map.js', '/vendor/bootstrap-icons.js', '/style.css', '/maps/brunete.jpg', '/maps/brunete-illustrated.png', '/cursors/flamethrower-hover.svg', '/cursors/flamethrower-active.svg'}:
-                name = 'index.html' if path == '/' else path[1:]
+            elif path == '/api/config':
+                if not local_host(self.headers.get('Host')):
+                    self.reply(403, {'error': 'Local config only.'})
+                    return
+                env = _env_file()
+                self.reply(200, dict(
+                    cesium_token=env.get('CESIUM_API_KEY') or None,
+                    nasa_key=env.get('NASA_KEY') or None,
+                    place=dict(PLACE)))
+            elif path in pages or path in {'/app.js', '/ops.js', '/chrome.js', '/situacion.js', '/medios.js', '/archivo.js', '/mapa.js', '/mapa.css', '/observation-map.js', '/vendor/bootstrap-icons.js', '/style.css', '/favicon.png', '/cursors/flamethrower-hover.svg', '/cursors/flamethrower-active.svg', '/maps/brunete.jpg', '/maps/brunete-illustrated.png', '/maps/spain-location.svg'}:
+                name = pages[path] if path in pages else path[1:]
                 types = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.jpg':'image/jpeg', '.png':'image/png', '.svg':'image/svg+xml'}
                 file = static/name
                 self.reply(200, file.read_bytes(), types[file.suffix])
@@ -411,8 +462,9 @@ def serve(port=8765):
 
         def do_POST(self):
             # Reject cross-origin requests to the local authenticated MCP bridge.
-            allowed = {f'http://127.0.0.1:{port}', f'http://localhost:{port}'}
-            if self.headers.get('Origin') not in allowed or self.headers.get('X-Simulator-Request') != '1':
+            # Cloudflare tunnels are same-origin: Origin matches the public Host header.
+            if self.headers.get('X-Simulator-Request') != '1' or not action_origin_allowed(
+                    self.headers.get('Origin'), self.headers.get('Host'), port):
                 self.reply(403, {'error': 'Use the local simulator interface.'})
                 return
             if self.path != '/api/action':
