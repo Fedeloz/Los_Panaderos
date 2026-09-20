@@ -165,9 +165,24 @@ function authorized(request, env) {
 // Empty strings / nulls in a PATCH mean "leave unchanged" (agent tools send blanks for optional params).
 const compact = (obj) => Object.fromEntries(Object.entries(obj || {}).filter(([, v]) => v !== '' && v !== null && v !== undefined));
 
-function mergeState(current, patch) {
+function sessionMismatch(current, patch) {
+  const currentSession = String(current?.session_id || '').trim();
+  const incoming = String(patch?.session_id || '').trim();
+  return Boolean(currentSession && incoming && currentSession !== incoming);
+}
+
+export function mergeState(current, patch) {
   const isPatch = Boolean(current);
-  const clean = isPatch ? compact(patch) : { ...(patch || {}) };
+  let incoming = patch || {};
+  // After a simulator reset the envelope already has a session_id. A PATCH from a
+  // previous Despacho run still carrying the old one must not ACK inbox work or
+  // overwrite the live mission. Keep the document session_id too, or the next
+  // (real) PATCH would look like the mismatch.
+  if (isPatch && sessionMismatch(current, incoming)) {
+    const drop = new Set(['loop_seen_generation', 'pending_command', 'last_dispatch', 'session_id']);
+    incoming = Object.fromEntries(Object.entries(incoming).filter(([key]) => !drop.has(key)));
+  }
+  const clean = isPatch ? compact(incoming) : { ...incoming };
   const next = { ...(current || {}), ...clean };
   if (isPatch && Array.isArray(patch?.districts)) {
     const byId = new Map((current.districts || []).map((d) => [d.district_id, d]));
