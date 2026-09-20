@@ -101,6 +101,8 @@ class Controller:
         self._applied_command_id = None
         self._applied_dispatch = None
         self._inbox_generation = 0
+        self._shared = None
+        self._shared_at = 0.0
         threading.Thread(target=self._clock, daemon=True).start()
 
     def snapshot(self):
@@ -164,6 +166,54 @@ class Controller:
             self.sim.log('system', 'Command from dispatcher loop rejected: '+str(exc)[:200])
             self._applied_command_id = command_id
 
+    # Fields the archive screen reads. observed_cells alone can be 200 entries and the
+    # page never draws them, so the document is trimmed before it crosses the wire.
+    SHARED_FIELDS = ('incident_id', 'sim_time', 'phase', 'updated_at', 'incident_danger_level',
+                     'mission', 'wind', 'auto_public_message', 'public_message', 'last_dispatch')
+    SHARED_DISTRICT_FIELDS = ('district_id', 'name', 'kind', 'population', 'status', 'burnt',
+                              'danger_level', 'auto_danger_level', 'advice', 'auto_advice',
+                              'evacuation_point', 'advice_updated_at')
+    SHARED_TTL = 2.0
+
+    @classmethod
+    def trim_shared(cls, doc):
+        if not isinstance(doc, dict):
+            return None
+        fire = doc.get('fire') or {}
+        return dict({k: doc.get(k) for k in cls.SHARED_FIELDS},
+                    fire=dict(confirmed=fire.get('confirmed'), burning_cells=fire.get('burning_cells'),
+                              front=fire.get('front'), report=fire.get('report'),
+                              detections=(fire.get('detections') or [])[-8:]),
+                    districts=[{k: d.get(k) for k in cls.SHARED_DISTRICT_FIELDS}
+                               for d in (doc.get('districts') or []) if isinstance(d, dict)],
+                    vehicles=doc.get('vehicles') or {},
+                    events=(doc.get('events') or [])[-12:],
+                    communications_sent=(doc.get('communications_sent') or [])[-20:])
+
+    def shared_snapshot(self):
+        """Read-only view of the shared incident document for the archive screen.
+
+        The read happens here and not in the page because /state needs the bearer token
+        and the browser is never given credentials. Cached for SHARED_TTL: the screen
+        polls, and every miss is a KV read billed on the Worker.
+        """
+        now = time.monotonic()
+        with self.lock:
+            if self._shared is not None and now-self._shared_at < self.SHARED_TTL:
+                return self._shared
+            incident, status = self.sim.incident_id, self.store.status()
+        snapshot = dict(incident_id=incident, status=status, document=None, error=None,
+                        fetched_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+        if self.store.enabled:
+            try:
+                snapshot['document'] = self.trim_shared(self.store.get(incident))
+            except Exception as exc:
+                # A fresh incident has nothing published yet; that is a state, not a failure.
+                snapshot['error'] = str(exc)[:200]
+        with self.lock:
+            self._shared, self._shared_at = snapshot, time.monotonic()
+        return snapshot
+
     def wipe_shared_session(self, incident_id):
         """Clear the shared incident, its events and the dispatcher inbox on Reset.
 
@@ -182,6 +232,7 @@ class Controller:
         # Drop queued publishes first: a coalesced flush from the incident that just ended
         # would land after the wipe and put it straight back.
         self.store.cancel_pending()
+        self._shared = None
 
         def wipe():
             try:
@@ -472,6 +523,8 @@ def serve(port=8765):
                 self.send_header('X-Content-Type-Options', 'nosniff')
                 self.end_headers()
                 self.wfile.write(body)
+            elif path == '/api/shared':
+                self.reply(200, controller.shared_snapshot())
             elif path == '/api/config':
                 if not local_host(self.headers.get('Host')):
                     self.reply(403, {'error': 'Local config only.'})

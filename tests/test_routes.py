@@ -143,3 +143,33 @@ class PageRouteTests(unittest.TestCase):
             handler.do_POST()
         self.assertEqual(handler.reply.call_args.args[0], 200)
         self.controller.action.assert_called_with('play', json.loads(body))
+
+
+class SharedStateRouteTests(unittest.TestCase):
+    """/api/shared exists so the page never needs the state API token."""
+
+    def test_trim_drops_the_cell_payload_the_screen_never_draws(self):
+        from simulator.server import Controller
+        doc = {
+            'incident_id': 'brunete-demo', 'sim_time': 12, 'updated_at': '2026-09-20T01:00:00Z',
+            'fire': {'confirmed': True, 'burning_cells': 9, 'observed_cells': [{'x': i, 'y': i} for i in range(200)],
+                     'detections': [{'source': f'd{i}'} for i in range(20)]},
+            'districts': [{'district_id': 'town', 'name': 'Casco', 'auto_danger_level': 'watch', 'chat_id': 'secreto'}],
+            'communications_sent': [{'kind': 'zone_alert', 'tick': i} for i in range(40)],
+            'events': [{'kind': 'deployed', 'sim_time': i} for i in range(40)],
+            'vehicles': {'engine-1': {'status': 'en_route'}},
+        }
+        trimmed = Controller.trim_shared(doc)
+        self.assertNotIn('observed_cells', trimmed['fire'])
+        self.assertEqual(len(trimmed['fire']['detections']), 8)
+        self.assertEqual(len(trimmed['communications_sent']), 20)
+        self.assertEqual(len(trimmed['events']), 12)
+        self.assertEqual(trimmed['sim_time'], 12)
+        self.assertEqual(trimmed['districts'][0]['auto_danger_level'], 'watch')
+        # The Telegram chat ids are not part of what the screen needs.
+        self.assertNotIn('chat_id', trimmed['districts'][0])
+
+    def test_trim_survives_an_empty_document(self):
+        from simulator.server import Controller
+        self.assertIsNone(Controller.trim_shared(None))
+        self.assertEqual(Controller.trim_shared({})['districts'], [])
