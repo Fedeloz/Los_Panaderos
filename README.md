@@ -14,29 +14,41 @@ HackSpain 2026. Team 9. Incendio forestal en Brunete.
 
 ## El problema
 
-En un incendio rural el humo llega antes que la confirmación. El viento cambia. Hay más frentes que medios. Hay que decidir ya qué información cuenta, a quién se avisa y dónde va cada recurso. Mandar el camión a un sector es dejar el otro esperando.
+En un incendio rural el humo llega antes que la confirmación. El viento cambia. Hay más frentes que medios.
 
-El cuello de botella no es solo el fuego. Es la centralita: filtrar avisos, priorizar población y coordinar a la vez la flota y las comunicaciones. Un protocolo fijo se queda atrás en el primer cambio de frente.
+Hay que decidir ya qué información cuenta, a quién se avisa y dónde va cada recurso. Mandar el camión a un sector es dejar el otro esperando.
+
+El cuello de botella no es solo el fuego. Es la centralita: filtrar avisos, priorizar a la población y coordinar a la vez la flota y las comunicaciones. Un protocolo fijo se queda atrás en el primer cambio de frente.
 
 ## La solución
 
-Un sistema multiagente en HappyRobot. Una centralita, Despacho Central, decide a partir de lo que recibe: aviso de humo, telemetría y reportes del scout. Debajo, agentes heterogéneos ejecutan: scout y dron de extinción (Los Panaderos), camión de bomberos, y canales de aviso (llamada y Telegram).
+Usamos HappyRobot junto a un motor de simulación.
 
-Drones autónomos vigilan el entorno para detectar pronto. Patrullan, reducen la incertidumbre y solo entonces se desvía la extinción o se alerta a un distrito. En el simulador cada vehículo tiene autonomía táctica: planificador de ruta, distancia de seguridad al fuego y sistema de extinción. HappyRobot no pilota cada celda.
+HappyRobot es el cerebro. Agentes que razonan, avisan y asignan misiones. El simulador es el mundo: incendio, viento, sensores, vehículos y población. HappyRobot no sustituye la física. El motor avanza el fuego, mueve la flota y comprueba cada orden.
 
-## 1. Cómo decide la centralita
+La centralita, Despacho Central, decide con lo que llega: aviso de humo, telemetría y reportes del scout. Debajo, agentes heterogéneos ejecutan. Scout y dron de extinción (Los Panaderos). Camión de bomberos. Canales de aviso: llamada y Telegram.
+
+Drones autónomos patrullan para detectar pronto. Reducen la incertidumbre y solo entonces se desvía la extinción o se alerta a un distrito.
+
+Cada vehículo tiene autonomía táctica en el simulador: planificador de ruta, distancia de seguridad al fuego y sistema de extinción. HappyRobot no pilota cada celda.
+
+El simulador escribe en el buzón. HappyRobot lee y decide. El motor aplica la orden o la rechaza a la vista. El reloj se para mientras los agentes deliberan.
+
+## Cómo decide la centralita
 
 Brunete no enseña el incendio entero. Hay dos mapas: el terreno y lo que los sensores han visto. El satélite llega tarde. Un foco pintado sigue oculto hasta que un scout o un extinguisher lo observa.
 
-El buzón recibe `farmer_call` (transcripción simulada) y, si el explorador confirma un foco distinto, `scout_fire_report`. Despacho elige avisar, no avisar o verificar, con criticidad y destinatarios. La misión de flota la cierra Los Panaderos: Scout, luego Dron, con una orden por id (`scout-1`, `drone-1`, `engine-1`).
+El buzón recibe el aviso de humo (`farmer_call`) y, si el explorador confirma un foco distinto, el reporte del scout (`scout_fire_report`).
 
-A quién se avisa y cuándo depende del riesgo: viento hacia un distrito sin aviso, tiempo de preaviso y si el fuego está confirmado. No se evacúa Brunete entero. Se avisa el distrito amenazado, o se informa sin mover a la población. El simulador rechaza coordenadas fuera de mapa, distritos inventados o un `reason` vacío.
+Despacho elige avisar, no avisar o verificar. Fija criticidad y destinatarios. La misión de flota la cierra Los Panaderos: primero Scout, luego Dron. Una orden por id (`scout-1`, `drone-1`, `engine-1`).
+
+A quién se avisa y cuándo depende del riesgo: viento hacia un distrito sin aviso, tiempo de preaviso y si el fuego está confirmado. No se evacúa Brunete entero. Se avisa el distrito amenazado, o se informa sin mover a la población.
+
+El simulador rechaza coordenadas fuera de mapa, distritos inventados o un `reason` vacío.
 
 Si el viento gira o el scout confirma fuego, hay un evento nuevo y la centralita vuelve a decidir.
 
-## 2. Cómo actúa
-
-**Recursos**
+## Cómo actúa
 
 | Medio | Papel |
 |---|---|
@@ -46,23 +58,17 @@ Si el viento gira o el scout confirma fuego, hay un evento nuevo y la centralita
 
 Un camión en el sector A no está en el B.
 
-**Población y comunicaciones.** Agentes de razonamiento abren el canal: alerta de zona (`evacuate` o `inform`), llamada a un contacto, Telegram personal. Un mensaje de calma no debe salir como evacuación.
+Agentes de razonamiento abren el canal: alerta de zona (`evacuate` o `inform`), llamada a un contacto, Telegram personal. Un mensaje de calma no debe salir como evacuación.
 
 La llamada del vecino no pasa por el buzón. Marina pregunta nombre y barrio y lee el estado público (`GET /lookup`).
 
-El operador ve la sala CECOP, puede pausar o cambiar el viento. El reloj se para mientras HappyRobot delibera.
+El operador ve la sala CECOP. Puede pausar o cambiar el viento.
 
 Más adelante: cruce con bases gubernamentales de residentes en zona, y cámaras térmicas en los drones. Hoy el aviso usa el directorio de demo y sensores simulados.
 
-## 3. Cómo se supervisa
-
-La interfaz muestra misión, órdenes, estado de cada distrito y el registro de comunicaciones. Una orden inválida se rechaza a la vista. El sistema no la sustituye en silencio.
-
-De ejecuciones anteriores, un bucle local (SQLite) mete casos y lecciones en un brief antes de la siguiente decisión. El post-mortem escribe después. **Obtener experiencia** aún no está publicado. Jev puede puntuar en sombra. No manda flota.
-
 ## Arrancar
 
-Run de **Despacho Central** abierto en development antes de ignición y aviso de humo. El ↺ Reiniciar no borra la KV (`brunete-demo`).
+Antes de ignición y aviso de humo, deja abierto el Run de **Despacho Central** en development. El ↺ Reiniciar no borra la KV (`brunete-demo`).
 
 ```sh
 python3 -m simulator.server
