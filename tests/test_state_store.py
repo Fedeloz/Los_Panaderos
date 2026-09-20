@@ -130,8 +130,14 @@ class FakeApi(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         FakeApi.calls.append(('DELETE', self.path, self.headers.get('Authorization')))
+        body = {}
         if self.headers.get('Content-Length'):
-            self.rfile.read(int(self.headers['Content-Length']))
+            raw = self.rfile.read(int(self.headers['Content-Length']))
+            try:
+                body = json.loads(raw or b'{}')
+            except ValueError:
+                body = {}
+        FakeApi.store.setdefault('reset_bodies', []).append(body)
         FakeApi.store.pop(self.path.rsplit('/', 1)[1], None)
         FakeApi.store['events'] = []
         self._send(200, {'ok': True, 'reset': True})
@@ -186,6 +192,24 @@ class SessionResetTests(unittest.TestCase):
             deletes = [path for method, path, *_ in FakeApi.calls if method == 'DELETE']
             self.assertEqual(deletes, [f'/state/{incident}'],
                              'Reset must wipe the incident it abandons')
+        finally:
+            c.stop.set()
+
+    def test_reset_opens_a_new_session_the_worker_can_recognise(self):
+        """Without a session id the fresh document carries null, and a PATCH from the
+        dispatcher Run that just died would land on it unchallenged."""
+        c = self.controller()
+        try:
+            c.action('place_fire', dict(x=76, y=41))
+            c.action('ignite', {})
+            c.action('reset', {})
+            for _ in range(50):
+                if FakeApi.store.get('reset_bodies'):
+                    break
+                time.sleep(0.05)
+            bodies = FakeApi.store.get('reset_bodies') or []
+            self.assertTrue(bodies, 'el reset debe mandar un DELETE')
+            self.assertEqual(len(bodies[0].get('session_id', '')), 32)
         finally:
             c.stop.set()
 

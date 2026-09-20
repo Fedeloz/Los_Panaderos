@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import threading
 import time
+import uuid
 import zlib
 from urllib.parse import urlparse
 
@@ -234,9 +235,16 @@ class Controller:
         self.store.cancel_pending()
         self._shared = None
 
+        # A fresh session id goes out with the wipe. The Worker stores it on the empty
+        # envelope, which is what lets it tell a PATCH from the dispatcher Run that just
+        # died apart from one belonging to the session starting now: without it the new
+        # document carries session_id null, an in-flight Run writes loop_seen_generation
+        # on top of it, and the first event of the new incident is swallowed.
+        session = uuid.uuid4().hex
+
         def wipe():
             try:
-                self.store.delete(incident_id)
+                self.store.delete(incident_id, dict(session_id=session))
             except Exception as exc:
                 self.store.last_error = f'Session reset failed: {str(exc)[:200]}'
 
