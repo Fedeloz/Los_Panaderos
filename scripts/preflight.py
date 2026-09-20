@@ -20,6 +20,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from simulator.contacts import directory, load_env
 from simulator.state_store import StateStore
 
+def _utf8_console():
+    """The Windows console defaults to cp1252 and these scripts print accents. Without
+    this a plain `python -m scripts.demo` dies on the first non-ASCII character."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
+_utf8_console()
+
 OK, WARN, BAD = 'OK  ', 'AVISO', 'FALLO'
 UA = {'User-Agent': 'los-panaderos-preflight/1.0'}
 
