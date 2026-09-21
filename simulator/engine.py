@@ -33,7 +33,7 @@ class Simulation:
                  satellite_delay_steps=12,
                  satellite_interval_steps=12, satellite_block_size=8,
                  truck_cells_per_step=2, truck_offroad_speed_factor=0.8, truck_mobilization_steps=8,
-                 truck_jets=5, hose_range=10,
+                 truck_jets=5, hose_range=10, truck_approach_range=4,
                  drone_standoff_cells=3, drone_suppression_range=8)
 
     def __init__(self, seed=9, drone_count=1, fleet_counts=None, incident_id=None):
@@ -167,6 +167,13 @@ class Simulation:
                 d.update(mode='hold',status='awaiting_assignment')
                 self.pending_decision_event=self.pending_decision_event or 'scout_patrol_complete'
 
+    def safe_scout_waypoint(self, point, blocked):
+        x=max(0,min(self.width-1,point[0]));y=max(0,min(self.height-1,point[1]))
+        if (x,y) not in blocked:return [x,y]
+        safe=((xx,yy) for yy in range(self.height) for xx in range(self.width) if (xx,yy) not in blocked)
+        chosen=min(safe,key=lambda p:((p[0]-x)**2+(p[1]-y)**2,p),default=None)
+        return list(chosen) if chosen is not None else None
+
     def validate_scout_orders(self, raw):
         if isinstance(raw,str):
             try:raw=json.loads(raw)
@@ -174,7 +181,7 @@ class Simulation:
         if raw is None and not self.scouts:return []
         if not isinstance(raw,list):raise ValueError('Supply scout_orders for every configured scout.')
         expected={d['drone_id'] for d in self.scouts};seen=set()
-        blocked=self.danger_zone([(c['x'],c['y']) for c in self.observation])
+        blocked=self.danger_zone([(c['x'],c['y']) for c in self.memory.values() if c['burning']])
         for order in raw:
             if not isinstance(order,dict):raise ValueError('Invalid scout order.')
             ident=order.get('drone_id')
@@ -192,7 +199,15 @@ class Simulation:
             if not isinstance(points,list) or len(points)>6 or (order['command']=='patrol' and not points):raise ValueError('Patrol needs 1–6 waypoints.')
             for point in points:
                 if not isinstance(point,list) or len(point)!=2 or any(type(v) is not int for v in point):raise ValueError('Scout waypoint must be [integer x, integer y].')
-                if not (0<=point[0]<self.width and 0<=point[1]<self.height) or tuple(point) in blocked:raise ValueError('Scout waypoint outside map or too close to observed fire.')
+            if order['command']=='patrol':
+                corrected=[]
+                for point in points:
+                    safe=self.safe_scout_waypoint(point,blocked)
+                    if safe is not None and (not corrected or safe!=corrected[-1]):corrected.append(safe)
+                if corrected!=points:
+                    order['waypoints']=corrected
+                    order['reason']=str(order.get('reason') or 'Scout patrol')+' [Autopilot adjusted waypoints for map bounds and fire clearance.]'
+                    if not corrected:order['command']='hold'
             if not isinstance(order.get('reason'),str) or not order['reason'].strip():raise ValueError('Explain each scout assignment.')
         if seen!=expected:raise ValueError('Include exactly one order for every configured scout.')
         return raw
@@ -439,6 +454,12 @@ class Simulation:
             else:vehicle.update(status='trapped',route=[],travel_credit=0)
             return
         target=vehicle.get('target')
+        if vehicle.get('role')=='scout' and vehicle.get('mode')=='patrol' and target is not None:
+            safe=self.safe_scout_waypoint(target,blocked)
+            if safe!=target:
+                vehicle.update(target=safe,route=[])
+                self.log('autopilot',f"{vehicle['drone_id']} adjusted its patrol waypoint away from observed fire.")
+                target=safe
         if target is None:
             vehicle['travel_credit']=0
             return
@@ -568,10 +589,17 @@ class Simulation:
             # Follow shared active sightings within the assigned sector without replacing the order.
             nearby=[p for p in visible if math.dist(p,self.crew_target)<=self.rules['hose_range']]
             aim=max(nearby,key=lambda p:(p[0]*self.wind[0]+p[1]*self.wind[1],-math.dist(p,self.crew_target))) if nearby else self.crew_target
-            fx,fy=aim;radius=self.rules['hose_range'] if nearby else self.truck_sensor_radius
+            fx,fy=aim;radius=self.rules['truck_approach_range']
             goals={(x,y) for y in range(max(0,fy-radius),min(self.height,fy+radius+1))
                    for x in range(max(0,fx-radius),min(self.width,fx+radius+1))
                    if 3<=math.hypot(x-fx,y-fy)<=radius and (x,y) not in blocked}
+            # Prefer close observation, but retain a reachable outer attack position
+            # when a broad front blocks all close approaches to the assigned sector.
+            if not goals:
+                radius=self.rules['hose_range']
+                goals={(x,y) for y in range(max(0,fy-radius),min(self.height,fy+radius+1))
+                       for x in range(max(0,fx-radius),min(self.width,fx+radius+1))
+                       if 3<=math.hypot(x-fx,y-fy)<=radius and (x,y) not in blocked}
             obstacles=blocked
         path,cost=self.truck_route(here,goals,obstacles)
         if path is None:
@@ -611,7 +639,7 @@ class Simulation:
         due=self.crew_due if truck is self.truck else truck.get("crew_due")
         offroad=self.rules['truck_cells_per_step']*self.rules['truck_offroad_speed_factor']
         return dict(truck,truck_id=truck.get('truck_id','engine-1'),speed=self.rules['truck_cells_per_step'],
-                    offroad_speed=offroad,can_travel_offroad=True,sensor_radius=self.truck_sensor_radius,hose_range=self.rules['hose_range'],jets=self.rules['truck_jets'],
+                    preferred_approach_range=self.rules['truck_approach_range'],standoff_cells=3,offroad_speed=offroad,can_travel_offroad=True,sensor_radius=self.truck_sensor_radius,hose_range=self.rules['hose_range'],jets=self.rules['truck_jets'],
                     suppression_success_probability=self.rules['truck_suppression_success_probability'],expected_successful_jet_hits_per_step=3.0,
                     position_reported_at=self.tick,arrival_estimate_steps=max(0,due-self.tick) if due is not None else None)
 
@@ -719,7 +747,7 @@ class Simulation:
         known = dict(width=self.width,height=self.height,wind=dict(dx=self.wind[0],dy=self.wind[1],strength=round(math.hypot(*self.wind),2),units="relative simulation strength",convention="positive X east, positive Y south; vector points TO spread",spread_steps={name:self.spread_interval(dx,dy) for name,dx,dy in [("east",1,0),("west",-1,0),("north",0,-1),("south",0,1)]}),
             forecast=dict(issued_at=self.tick,description='Synthetic forecast; arbitrary X/Y vector points TO destination, including diagonal and calm wind. wind.spread_steps gives directional ignition ATTEMPT intervals, not guaranteed propagation times. Ignition base probability is 50%, modified by terrain, source intensity and diagonal distance; stronger downwind wind shortens the interval, while upwind spread is slower. Failed attempts retry; predict uncertain fire arrival, not exact fronts. Assess settlement alignment with the full vector, not just named cardinal presets.'),
             farmer_report_location=dict(x=self.report[0],y=self.report[1]) if self.called else None,
-            scenario_instructions="The current districts list is authoritative: four town neighbourhoods plus one farm. Ignore older prompts enumerating only North/Centre/South or four total districts. Assess and target each current district_id separately. The ignition point is user-selected. Ignore fixed-coordinate examples. Assess life risk from farmer_report_location and forecast BEFORE scouting. Strong wind (magnitude >=2 in demo units) toward unwarned residents warrants precautionary evacuation without waiting for thermal confirmation. Otherwise scout from safe stand-off.",
+            scenario_instructions="The current districts list is authoritative: four town neighbourhoods plus one farm. Ignore older prompts enumerating only North/Centre/South or four total districts. Assess and target each current district_id separately. The ignition point is user-selected. Ignore fixed-coordinate examples. Assess life risk from farmer_report_location and forecast BEFORE scouting. Strong wind (magnitude strictly >1.8 in demo units) toward unwarned residents requires a scout to physically deliver evacuation warnings BEFORE smoke investigation or map-wide patrol, without waiting for thermal confirmation. Continue until warning delivery; then warn remaining threatened districts or resume map-wide scouting. Remote messages for these districts must use action=inform so they do not bypass physical arrival. Otherwise scout from safe stand-off.",
             farm=dict(zip(("x","y"),self.farm)),town=dict(zip(("x","y"),self.town)),station=dict(zip(("x","y"),self.base)),
             geography={k:v for k,v in GEOGRAPHY.items() if k not in ("roads","image_source")},
             terrain_map=dict(description='Static approximate land cover; not live fire observations',legend={k[0].upper():k for k in PROFILES if k!='built'},built_symbol='U',rows=[''.join('U' if c['terrain']=='built' else c['terrain'][0].upper() for c in row) for row in self.cells]),

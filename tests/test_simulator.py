@@ -5,7 +5,7 @@ import os
 import unittest
 import threading
 import time
-from unittest.mock import patch
+from unittest.mock import patch, PropertyMock
 from tempfile import TemporaryDirectory
 from pathlib import Path
 
@@ -19,6 +19,33 @@ def command(action='contain', x=65, y=43):
 
 
 class PhysicsTests(unittest.TestCase):
+    def test_scout_patrol_corrects_unsafe_waypoints(self):
+        s=Simulation(drone_count=2);s.scouts[0].update(x=30.,y=20.)
+        s.cells[20][35].update(heat=1,fuel=1);s.observe()
+        order=s.validate_scout_orders([dict(drone_id='scout-1',command='patrol',waypoints=[[35,20],[999,-1]],reason='Sweep')])[0]
+        for x,y in order['waypoints']:
+            self.assertTrue(0<=x<s.width and 0<=y<s.height)
+            self.assertNotIn((x,y),s.danger_zone([(35,20)]))
+        scout=s.scouts[0];scout.update(mode='patrol',target=[35,20])
+        s.move_safely(scout,4)
+        self.assertNotEqual(scout['target'],[35,20])
+
+    def test_truck_advances_inside_hose_range_for_observation(self):
+        s=Simulation();s.ignite();s.farmer_call()
+        for row in s.cells:
+            for cell in row:cell['heat']=0
+        s.cells[20][40]['heat']=1
+        s.truck.update(x=30.,y=20.,mobilized_at=0,drone_order={'command':'attack_sector'})
+        s.crew_target=[40,20]
+        with patch.object(s.suppression_rng,'random',return_value=1):
+            for _ in range(12):s.update_truck()
+        distance=math.hypot(s.truck['x']-40,s.truck['y']-20)
+        self.assertGreaterEqual(distance,3)
+        self.assertLessEqual(distance,4)
+        self.assertTrue(s.truck['observed_fire'])
+        self.assertEqual(s.truck_telemetry()['preferred_approach_range'],4)
+
+
     def test_intense_fire_requires_repeated_cooling_and_preserves_fuel(self):
         s=Simulation();c=s.cells[20][30];c['heat']=1.
         with patch.object(s.suppression_rng,'random',return_value=0):
@@ -344,7 +371,7 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(s.truck['observed_fire'],[])
         self.assertIn(dict(x=30,y=20),s.observation)
         s.update_truck()
-        self.assertEqual((s.truck['x'],s.truck['y']),(20,20))
+        self.assertLess(math.hypot(s.truck['x']-30,s.truck['y']-20),10)
         self.assertEqual(s.crew_extinguished,1)
         self.assertFalse(s.memory['30,20']['burning'])
 
@@ -551,13 +578,13 @@ class PhysicsTests(unittest.TestCase):
     def test_travel_takes_time_and_evacuation_waits_for_drone(self):
         s=Simulation();s.apply(command('evacuate_farm',65,10),'a',s.incident_id,0)
         s.step();self.assertEqual(s.groups['farm']['status'],'unwarned')
-        s.step(32);self.assertEqual(s.groups['farm']['status'],'evacuating')
+        s.step(24);self.assertEqual(s.groups['farm']['status'],'evacuating')
         self.assertEqual(s.suppressed,0)
-        s.step(40);self.assertEqual(s.groups['farm']['status'],'safe')
+        s.step(8);self.assertEqual(s.groups['farm']['status'],'safe')
 
     def test_people_stop_at_burning_route(self):
         s=Simulation();g=s.groups['farm'];g['status']='evacuating'
-        s.cells[s.farm[1]-1][s.farm[0]-1]['heat']=1;s.step()
+        s.cells[s.farm[1]+1][s.farm[0]]['heat']=1;s.step()
         self.assertEqual(g['status'],'blocked');self.assertEqual(g['x'],s.farm[0])
 
     def test_invalid_commands_are_side_effect_free(self):
@@ -718,8 +745,8 @@ class CommunicationTests(unittest.TestCase):
         from simulator.contacts import directory
         contacts = directory(s.groups)
         farm = next(d for d in contacts['districts'] if d['district_id'] == 'farm')
-        self.assertIn('Cruce de la Dehesa', farm['evacuation_point'])
-        self.assertIn('camión le recogerá', farm['rescue_plan'])
+        self.assertIn('Refugio de la granja', farm['evacuation_point'])
+        self.assertIn('comunicar su posición', farm['rescue_plan'])
         paco = next(p for p in contacts['people'] if p['contact_id'] == 'farm-manager')
         self.assertEqual(paco['evacuation_point'], farm['evacuation_point'])
         self.assertTrue(paco['rescue_plan'])
@@ -920,6 +947,104 @@ class ControllerTests(unittest.TestCase):
 
 
 class ParserTests(unittest.TestCase):
+    def test_http_trigger_bypasses_mcp_trigger(self):
+        h=HappyRobot()
+        with patch.dict(os.environ, {'HAPPYROBOT_TRIGGER_TRANSPORT':'http'}), patch.object(h,'trigger_http',return_value={'content':[]}) as trigger, patch.object(h,'connect') as connect:
+            self.assertEqual(h.tool('trigger_run',{'workflow_id':'test'}),{'content':[]})
+            trigger.assert_called_once_with({'workflow_id':'test'},60)
+            connect.assert_not_called()
+
+    def test_expired_oauth_cache_is_refreshed_once(self):
+        import hashlib, io
+        url='https://mcp.platform.eu.happyrobot.ai/mcp'
+        key=hashlib.md5(url.encode()).hexdigest()
+        with TemporaryDirectory() as tmp:
+            home=Path(tmp);folder=home/'.mcp-auth'/'test';folder.mkdir(parents=True)
+            cache=folder/(key+'_tokens.json')
+            cache.write_text(json.dumps(dict(access_token='old-test-token',refresh_token='test-refresh',expires_in=3600)))
+            cache.with_name(key+'_client_info.json').write_text(json.dumps(dict(client_id='test-client')))
+            os.utime(cache,(time.time()-7200,time.time()-7200))
+            response=io.BytesIO(json.dumps(dict(access_token='new-test-token',expires_in=3600)).encode())
+            with patch('pathlib.Path.home',return_value=home),patch('urllib.request.urlopen',return_value=response) as fetch:
+                HappyRobot.refresh_expired_session({'args':[url]})
+                HappyRobot.refresh_expired_session({'args':[url]})
+            fetch.assert_called_once()
+            self.assertEqual(json.loads(cache.read_text())['access_token'],'new-test-token')
+            self.assertEqual(cache.stat().st_mode & 0o777,0o600)
+
+    def test_lost_trigger_recovery_requires_exact_event_and_incident(self):
+        run='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        oid='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+        node='01a0be09-4655-7e6a-baa8-915989a7e818'
+        def reply(text):return {'content':[{'text':text}]}
+        for incident, matched in [('other',False),('incident',True)]:
+            h=HappyRobot()
+            replies=[reply('[COMPLETED] '+run),reply(f'## Iniciar despacho\n- Output ID: {oid}\n- Node Persistent ID: {node}\n- Status: succeeded'),reply(json.dumps({'event_id':'event','incident_id':incident}))]
+            if matched:replies.append(reply('Status: completed'))
+            with patch.object(h,'close'),patch.object(h,'tool',side_effect=replies) as call:
+                result=h.recover_trigger({'event_id':'event','incident_id':'incident'})
+            self.assertEqual(result is not None,matched)
+            self.assertTrue(all(c.args[0]=='monitor_runs' for c in call.call_args_list))
+
+    def test_stalled_result_read_reconnects_without_triggering(self):
+        h = HappyRobot()
+        args = dict(action='outputs', run_id='known-run', output_id='known-output')
+        with patch.object(h, 'connect') as connect, patch.object(h, 'close') as close, patch.object(h, '_request', side_effect=[RuntimeError('transport timed out'), {'content': []}]) as request:
+            self.assertEqual(h.tool('monitor_runs', args), {'content': []})
+            close.assert_called_once()
+            self.assertEqual(connect.call_count, 2)
+            self.assertEqual(request.call_args_list[0].args[1], request.call_args_list[1].args[1])
+
+    def test_stalled_trigger_is_never_automatically_repeated(self):
+        h = HappyRobot()
+        with patch.object(h, 'connect'), patch.object(h, '_request', side_effect=RuntimeError('transport timed out')) as request:
+            with self.assertRaisesRegex(RuntimeError, 'timed out'):
+                h.tool('trigger_run', {'workflow_id': 'workflow'})
+            request.assert_called_once()
+
+    def test_async_run_details_preserve_run_id_and_fetch_orders(self):
+        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        output = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+        replies = [
+            {'content': [{'text': f'Run ID: {run}\nStatus: workflow started'}]},
+            RuntimeError('HappyRobot timed out; the simulator has paused. Retry explicitly.'),
+            {'content': [{'text': f'# Run Details\n- ID: {run}\n- Status: completed'}]},
+            {'content': [{'text': f'## Orders\n- Output ID: {output}\n- Node Persistent ID: {hr.EDGE_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-20T09:00:00Z'}]},
+            {'content': [{'text': 'Data: '+json.dumps(command('scout'))}]}]
+        h = HappyRobot()
+        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=replies) as call, patch('simulator.happyrobot.time.sleep'):
+            decision, _ = h.decide({'event_type': 'farmer_call'})
+        self.assertEqual(decision['command'], 'scout')
+        self.assertEqual(call.call_args_list[1].args[1], dict(action='get', run_id=run))
+        self.assertIsNone(h._active_run_id)
+        self.assertEqual(sum(c.args[0] == 'trigger_run' for c in call.call_args_list), 1)
+
+    def test_decision_deadline_cancels_without_applying_or_retriggering(self):
+        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        canceled = threading.Event()
+        def tool(name, args, timeout=60):
+            if name == 'trigger_run':
+                self.assertFalse(args['wait'])
+                return {'content': [{'text': f'Run ID: {run}\nStatus: workflow started'}]}
+            self.assertEqual(args, dict(action='cancel', run_id=run))
+            canceled.set()
+            return {}
+        h = HappyRobot()
+        with patch.object(h, 'tool', side_effect=tool) as call, patch('simulator.happyrobot.time.monotonic', side_effect=[0, 0, 121]):
+            with self.assertRaisesRegex(RuntimeError, '120-second'):
+                h.decide({'event_type': 'farmer_call'})
+            self.assertTrue(canceled.wait(1))
+            self.assertEqual(sum(c.args[0] == 'trigger_run' for c in call.call_args_list), 1)
+        self.assertIsNone(h._decision_deadline)
+
+    def test_expired_deadline_does_not_send_another_request(self):
+        h = HappyRobot()
+        h._decision_deadline = time.monotonic()-1
+        with patch.object(h, '_send') as send:
+            with self.assertRaisesRegex(RuntimeError, '120-second'):
+                h._request('tools/call', {})
+            send.assert_not_called()
+
     def test_completed_summary_fetches_actual_output_and_normalizes_coordinates(self):
         run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
         output = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
@@ -998,7 +1123,7 @@ class ParserTests(unittest.TestCase):
             decision, evidence = h.decide({'event_type': 'farmer_call'})
         self.assertIsNone(decision); self.assertEqual(h.last_dispatch['decision'], 'verificar')
 
-    def test_output_fetches_run_concurrently_over_one_transport(self):
+    def test_output_fetches_are_serialized_for_transport_recovery(self):
         run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
         ids = {k: f'{k*8}-{k*4}-{k*4}-{k*4}-{k*12}' for k in 'bcd'}
         call_node = [n for n, kind in hr.COMM_NODES.items() if kind == 'call'][0]
@@ -1022,8 +1147,8 @@ class ParserTests(unittest.TestCase):
         with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=tool) as call:
             t = time.monotonic(); decision, evidence = h.decide({'event_type': 'farmer_call'}); elapsed = time.monotonic()-t
         self.assertEqual(call.call_count, 4)  # trigger + 3 outputs, no listing round-trip
-        self.assertGreaterEqual(peak[0], 2)
-        self.assertLess(elapsed, .4)  # 3 × 150 ms sequential would be ≥ 450 ms
+        self.assertEqual(peak[0], 1)
+        self.assertLess(elapsed, 2)
         self.assertEqual(decision['command'], 'hold'); self.assertEqual(h.last_dispatch['decision'], 'avisar')
         self.assertEqual(h.last_timings['fetched'], 3); self.assertIn('Timing:', evidence)
 
@@ -1141,6 +1266,68 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(HappyRobot.decisions({'content': [{'text': 'No result.'}]}), [])
 
 
+class EventDispatchTests(unittest.TestCase):
+    def test_routine_events_are_coalesced_but_new_fire_is_urgent(self):
+        from simulator.server import Controller
+        c = Controller.__new__(Controller)
+        c.sim = Simulation()
+        c.next_decision = 32
+        c.sim.tick = 17
+        for event in ('route_blocked', 'scout_patrol_complete', 'evacuation_warning_delivered'):
+            c.sim.pending_decision_event = event
+            self.assertFalse(c.decision_due())
+        c.sim.tick = 24
+        self.assertTrue(c.decision_due())
+        c.sim.tick = 17
+        for event in ('scout_fire_report', 'scout_fire_confirmation'):
+            c.sim.pending_decision_event = event
+            self.assertTrue(c.decision_due())
+        c.sim.pending_decision_event = None
+        self.assertFalse(c.decision_due())
+        c.sim.tick = 32
+        self.assertTrue(c.decision_due())
+
+    def test_single_decision_mode_does_not_automatically_replan_rejected_order(self):
+        from simulator.server import Controller
+        with patch.dict(os.environ, {'HAPPYROBOT_MODE': 'push', 'HAPPYROBOT_SINGLE_DECISION': '1'}):
+            c = Controller()
+            try:
+                c.sim.ignite(); c.sim.farmer_call()
+                with patch.object(c.robot, 'decide', side_effect=ValueError('Unsafe waypoint')), patch.object(c, 'request_decision') as retry:
+                    c._decide(c.sim.payload('farmer_call'), c.sim.tick)
+                    retry.assert_not_called()
+                self.assertEqual(c.error, 'Unsafe waypoint')
+                self.assertFalse(c.busy)
+                self.assertFalse(c.running)
+            finally:
+                c.stop.set(); c.robot.close()
+
+    def test_default_mode_is_direct_push(self):
+        from simulator.server import happyrobot_mode
+        with patch.dict(os.environ, {}, clear=True), patch('simulator.server.load_env'):
+            self.assertEqual(happyrobot_mode(), 'push')
+
+    def test_smoke_event_starts_agent_with_cloudflare_snapshot(self):
+        from simulator.server import Controller
+        with patch.dict(os.environ, {'HAPPYROBOT_MODE':'push'}):
+            c=Controller();c.stop.set();c.sim.ignite();c.sim.farmer_call()
+            captured=[]
+            try:
+                def decide(payload):
+                    captured.append(payload)
+                    return command('hold',*c.sim.base), 'test'
+                with patch.object(c.robot,'decide',side_effect=decide), patch.object(c.sim,'apply'), patch.object(c.store,'publish') as publish:
+                    c.request_decision('farmer_call')
+                    deadline=time.monotonic()+3
+                    while c.busy and time.monotonic()<deadline:time.sleep(.01)
+                    self.assertEqual(len(captured),1)
+                    p=captured[0]
+                    self.assertEqual(p['event_type'],'farmer_call')
+                    self.assertEqual(json.loads(p['shared_state'])['incident_id'],c.sim.incident_id)
+                    self.assertEqual(c.sim.tick,0)
+                    publish.assert_not_called()
+            finally:c.robot.close()
+
 class DispatcherLoopTests(unittest.TestCase):
     def setUp(self):
         self._mode = patch.dict(os.environ, {'HAPPYROBOT_MODE': 'loop', 'DISPATCH_INCIDENT_ID': 'brunete-demo',
@@ -1155,6 +1342,14 @@ class DispatcherLoopTests(unittest.TestCase):
     def tearDown(self):
         self._env.stop()
         self._mode.stop()
+
+    def test_loop_without_store_fails_visibly(self):
+        from simulator.server import Controller
+        c=Controller();c.stop.set();c.sim.ignite();c.sim.farmer_call()
+        try:
+            with self.assertRaisesRegex(ValueError,'Loop mode requires'):
+                c.request_decision('farmer_call')
+        finally:c.robot.close()
 
     def test_the_suite_never_reaches_the_deployed_worker(self):
         from simulator.server import Controller
@@ -1172,7 +1367,7 @@ class DispatcherLoopTests(unittest.TestCase):
             self.assertTrue(c.loop)
             self.assertEqual(c.sim.incident_id, 'brunete-demo')
             c.sim.ignite(); c.sim.farmer_call()
-            with patch.object(c.robot, 'decide') as decide, patch.object(c, 'publish_inbox') as inbox:
+            with patch.object(type(c.store), 'enabled', new_callable=PropertyMock, return_value=True), patch.object(c.robot, 'decide') as decide, patch.object(c, 'publish_inbox') as inbox:
                 c.request_decision('farmer_call')
                 decide.assert_not_called()
                 inbox.assert_called_once()

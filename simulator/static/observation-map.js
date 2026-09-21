@@ -122,7 +122,7 @@ window.ObservationMap = (() => {
       c.strokeStyle=palette.refuge;c.fillStyle='#153c31';c.lineWidth=2.5;
       c.beginPath();c.moveTo(x,y-8);c.lineTo(x+8,y);c.lineTo(x,y+8);c.lineTo(x-8,y);c.closePath();c.fill();c.stroke();
       // One muster point per district now, so name it instead of four identical "Town refuge" tags.
-      const who=r.districts.length===1?r.districts[0]:`${r.kind==='town'?'Town':'Farm'} refuge`;
+      const who=`Refugio · ${r.districts.length===1?r.districts[0]:r.kind==='town'?'Pueblo':'Granja'}`;
       tag(c,x+15,y-12,`${who} · ${r.arrived.toLocaleString('en-US')} arrived`,palette.refuge);
     }
     c.restore();

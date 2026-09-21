@@ -46,9 +46,9 @@ class BuildStateTests(unittest.TestCase):
         self.assertEqual({d['district_id'] for d in state['districts']}, set(s.groups))
         farm = next(d for d in state['districts'] if d['district_id'] == 'farm')
         self.assertEqual(farm['status'], 'evacuating'); self.assertIn(farm['auto_danger_level'], ('warning', 'critical'))
-        self.assertIn('Cruce de la Dehesa', farm['auto_advice'])
-        self.assertIn('el fuego no puede llegar', farm['auto_advice'])
-        self.assertIn('recogerá al pasar', farm['auto_advice'])
+        self.assertIn('Refugio de la granja', farm['auto_advice'])
+        self.assertIn('sin combustible vegetal', farm['auto_advice'])
+        self.assertIn('comunicar su posición', farm['auto_advice'])
         self.assertTrue(farm['rescue_plan'])
         town = next(d for d in state['districts'] if d['district_id'] == 'town_rosales')
         self.assertEqual(town['auto_danger_level'], 'watch')  # downwind but ~77 cells away, unconfirmed report
@@ -310,7 +310,7 @@ class StateStoreClientTests(unittest.TestCase):
 
 
 class ControllerPublishTests(unittest.TestCase):
-    def test_controller_publishes_after_decision(self):
+    def test_push_controller_leaves_cloudflare_writes_to_happyrobot(self):
         from simulator.server import Controller
         c = Controller(); c.stop.set()
         published = []
@@ -319,12 +319,11 @@ class ControllerPublishTests(unittest.TestCase):
             c.sim.ignite(); c.sim.farmer_call()
             with patch.object(c.robot, 'decide', return_value=(None, 'ev')):
                 c.busy = True; c._decide(c.sim.payload('farmer_call'), c.sim.tick)
-        self.assertTrue(any(force for _, force, _e in published))
-        self.assertTrue(all(isinstance(events, list) for _, _f, events in published))  # drained field events travel with each publish
+        self.assertFalse(c.loop)
+        self.assertEqual(published, [])  # Despacho owns writes in push mode
         c.robot.close()
 
 
 if __name__ == '__main__':
     unittest.main()
-
 

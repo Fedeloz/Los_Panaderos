@@ -73,10 +73,10 @@ REFUGES = {
     (6, 16): dict(name='explanada de la carretera del Valle de los Rosales, a la salida de la urbanización',
                   route='Salir de la urbanización por la carretera del Valle de los Rosales en dirección este hasta la explanada del kilómetro 0,4. No tomar los caminos del norte.',
                   safe_because='La explanada es firme de tierra y asfalto sin vegetación alrededor, y es la única salida rodada de la urbanización.'),
-    (60, 26): dict(name='Cruce de la Dehesa, la explanada del camino de la M-600 al suroeste de la granja',
-                   route='Salir de la granja por la pista principal hacia el suroeste y seguir el camino unos 700 metros hasta la explanada del cruce; no cruzar los campos hacia el sur ni hacia el este.',
-                   safe_because='El cruce es camino y tierra apisonada, sin vegetación alrededor: el fuego no puede llegar hasta allí.',
-                   rescue='Es el mismo camino por el que sube la dotación desde el parque de bomberos. Espere en la explanada, a la vista del camino y con el grupo reunido, y el camión le recogerá al pasar.'),
+    (73, 27): dict(name='Refugio de la granja, explanada al sur de la granja',
+                  route='Desde la granja, dirigirse un poco al sur hasta el refugio de la explanada. Ruta ilustrativa del simulador; evitar cualquier tramo bloqueado por fuego.',
+                  safe_because='En el simulador, el refugio ocupa una explanada despejada sin combustible vegetal.',
+                  rescue='Reunir al grupo en el refugio y comunicar su posición a la central.'),
 }
 
 CHANNELS = dict(

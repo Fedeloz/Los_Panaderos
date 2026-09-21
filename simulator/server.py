@@ -20,7 +20,7 @@ from .state_store import StateStore, build_state
 
 def happyrobot_mode():
     load_env()
-    return (os.environ.get('HAPPYROBOT_MODE', 'loop') or 'loop').strip().lower()
+    return (os.environ.get('HAPPYROBOT_MODE', 'push') or 'push').strip().lower()
 
 
 def dispatch_incident_id():
@@ -111,7 +111,7 @@ class Controller:
 
     def publish_state(self, force=False):
         """Push the shared incident state (districts, danger levels, contacts, comms) to the state API."""
-        if not self.store.enabled or not self.sim.ignited:
+        if not self.loop or not self.store.enabled or not self.sim.ignited:
             return False
         return self.store.publish(build_state(self.sim), force=force, events=self.sim.drain_events())
 
@@ -261,6 +261,14 @@ class Controller:
         if len(self.frames)>1500:
             self.frames.pop(0)
 
+    def decision_due(self):
+        # Batch routine telemetry so vehicles can execute their orders. New observed
+        # fire still warrants immediate reassessment; no hidden simulator data used.
+        event = self.sim.pending_decision_event
+        urgent = event in {'scout_fire_confirmation', 'scout_fire_report'}
+        return self.sim.tick >= self.next_decision or bool(event and (
+            urgent or self.sim.tick >= self.next_decision - 8))
+
     def _clock(self):
         while not self.stop.wait(1/self.speed):
             with self.lock:
@@ -276,12 +284,12 @@ class Controller:
                     self.recording = False
                 if self.loop:
                     self.pull_dispatch()
-                    if self.auto and self.sim.called and (self.sim.pending_decision_event or self.sim.tick>=self.next_decision):
+                    if self.auto and self.sim.called and self.decision_due():
                         event = self.sim.pending_decision_event or 'local_observation'
                         self.sim.pending_decision_event = None
                         self.publish_inbox(event, force=True)
                         self.next_decision = self.sim.tick + 16
-                elif self.auto and not self.busy and self.sim.called and (self.sim.pending_decision_event or self.sim.tick>=self.next_decision):
+                elif self.auto and not self.busy and self.sim.called and self.decision_due():
                     self.request_decision(self.sim.pending_decision_event or 'local_observation')
 
     def state(self):
@@ -317,6 +325,8 @@ class Controller:
         if self.cursor is not None:
             raise ValueError('Return to Live before requesting decisions.')
         if self.loop:
+            if not self.store.enabled:
+                raise ValueError('Loop mode requires STATE_API_URL and STATE_API_TOKEN. Use HAPPYROBOT_MODE=push for direct Despacho planning.')
             if not self.sim.called:
                 raise ValueError('Send the farmer report first.')
             self.sim.pending_decision_event = None
@@ -331,6 +341,7 @@ class Controller:
         if event != 'command_rejected':
             self.repair_attempts = 0
         payload = self.sim.payload(event)
+        payload['shared_state'] = json.dumps(build_state(self.sim), ensure_ascii=False)
         self.sim.pending_decision_event = None
         self.busy = True
         self.error = None
@@ -365,7 +376,7 @@ class Controller:
             with self.lock:
                 if self.reset_pending:return
                 message = str(exc)[:800]
-                if isinstance(exc, ValueError) and self.repair_attempts < 1 and self.cursor is None:
+                if isinstance(exc, ValueError) and self.repair_attempts < 1 and self.cursor is None and os.environ.get('HAPPYROBOT_SINGLE_DECISION') != '1':
                     self.repair_attempts += 1
                     retry = True
                     self.sim.last_result = dict(status='rejected',reason=message,
@@ -577,7 +588,7 @@ def serve(port=8765):
 
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     print(f'Los Panaderos: http://127.0.0.1:{port}', flush=True)
-    mode = 'loop (sim writes KV inbox; click Run on Despacho in HappyRobot development)' if loop_mode() else 'push (each tick starts a Despacho run)'
+    mode = 'loop (sim writes KV inbox; click Run on Despacho in HappyRobot development)' if loop_mode() else 'push (each decision calls Despacho; HappyRobot reads/writes Cloudflare)'
     print(f'HappyRobot mode={happyrobot_mode()}: {mode}', flush=True)
     if loop_mode():
         print(f'Dispatcher session key: {dispatch_incident_id()} — click Run on Despacho Central (development).', flush=True)

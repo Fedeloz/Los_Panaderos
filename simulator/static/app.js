@@ -137,6 +137,22 @@ window.AerialView = (() => {
     }
     c.restore();
   }
+  function charredGround(c,x,y,burned,stale=false){
+    if(!(burned>0))return;
+    const severity=Math.min(1,Math.sqrt(burned)),px=x*Z,py=y*Z;
+    c.save();c.globalAlpha=stale?.55:1;
+    // Opaque charcoal patches replace the green terrain; fixed texture also replays cleanly.
+    c.fillStyle=`rgba(21,19,18,${.45+severity*.5})`;c.fillRect(px,py,Z,Z);
+    c.fillStyle=`rgba(5,6,6,${.25+severity*.4})`;
+    c.fillRect(px+Math.floor(noise(x,y,31)*4),py+Math.floor(noise(x,y,32)*4),5,4);
+    if(burned>.12){
+      c.fillStyle=`rgba(162,153,139,${.2+severity*.3})`;
+      c.fillRect(px+1+Math.floor(noise(x,y,33)*7),py+1+Math.floor(noise(x,y,34)*7),2,1);
+      c.strokeStyle='#090a09';c.lineWidth=.8;c.beginPath();
+      c.moveTo(px+2,py+2);c.lineTo(px+4,py+5);c.lineTo(px+3,py+8);c.stroke();
+    }
+    c.restore();
+  }
   function paint(canvas,s,belief,now){
     if(canvas.width!==1600){canvas.width=1600;canvas.height=1120}canvas.style.imageRendering='auto';
     const c=canvas.getContext('2d');c.setTransform(2,0,0,2,0,0);c.clearRect(0,0,W,H);c.drawImage(terrain(s),0,0,W,H);
@@ -151,13 +167,13 @@ window.AerialView = (() => {
       c.clip();c.drawImage(terrain(s),0,0,W,H);
       c.fillStyle='#10262324';c.fillRect(0,0,W,H);c.restore();
       ObservationMap.zones(c,s);
-      for(const o of s.observed_cells||[]){if(o.burning)fire(o.x,o.y,o.observed_at!==s.tick,o.intensity??1);else{c.fillStyle=o.observed_at===s.tick?'#aecfac0a':'#aecfac04';c.fillRect(o.x*Z,o.y*Z,Z,Z)}}
+      for(const o of s.observed_cells||[]){charredGround(c,o.x,o.y,o.burned_fraction||0,o.observed_at!==s.tick);if(o.burning)fire(o.x,o.y,o.observed_at!==s.tick,o.intensity??1);else{c.fillStyle=o.observed_at===s.tick?'#aecfac0a':'#aecfac04';c.fillRect(o.x*Z,o.y*Z,Z,Z)}}
       for(const f of s.truck?.observed_fire||[]){const key=f.x+','+f.y;const old=fires.find(p=>p.x===f.x&&p.y===f.y);if(old)old.stale=false;else fire(f.x,f.y)}
       for(const [x,y] of s.satellite?.blocks||[]){c.fillStyle='#e0ae5b22';c.fillRect(x*Z,y*Z,80,80);c.strokeStyle='#d8b06977';c.strokeRect(x*Z,y*Z,80,80)}
     }else{
       for(let y=0;y<s.height;y++)for(let x=0;x<s.width;x++){
         const cell=s.cells[y][x];const burned=cell.burned??(!cell.fuel?1:0);
-        if(burned>0){const px=x*Z+5,py=y*Z+5,g=c.createRadialGradient(px,py,1,px,py,10);g.addColorStop(0,`rgba(25,24,20,${Math.min(.85,burned*1.5)})`);g.addColorStop(1,'rgba(25,24,20,0)');c.fillStyle=g;c.fillRect(px-10,py-10,20,20)}
+        charredGround(c,x,y,burned);
         if(cell.heat&&cell.fuel)fire(x,y,false,cell.heat);
       }
     }
@@ -186,7 +202,7 @@ window.AerialView = (() => {
     const d=position('drone',now),t=position('truck',now);
     if(belief){if(s.drone)sensor(c,s.drone,d,'#d7efbcbb');if(s.truck)sensor(c,s.truck,t,'#82cde9bb');for(const p of s.drone?.safe_containment_positions||[])ellipse(c,p.x*Z+5,p.y*Z+5,2,2,'#8de3cc')}
     if(s.drone)route(c,s.drone,d,'#eef2c9a0');if(s.truck)route(c,s.truck,t,'#f2917b99');
-    for(const [name,g] of Object.entries(s.people||{})){ellipse(c,g.x*Z+2,g.y*Z+3,4,2,'#182f2477');ellipse(c,g.x*Z,g.y*Z,2.5,3.2,g.status==='burnt'?'#a64335':g.status==='safe'?'#c1e99c':'#f5ead2');if(!belief&&g.status!=='unwarned')text(c,g.x*Z+7,g.y*Z,name.toUpperCase()+': '+g.status.toUpperCase())}
+    for(const [name,g] of Object.entries(s.people||{})){ellipse(c,g.x*Z+2,g.y*Z+3,4,2,'#182f2477');ellipse(c,g.x*Z,g.y*Z,2.5,3.2,g.status==='burnt'?'#a64335':g.status==='safe'?'#c1e99c':'#f5ead2');if(!belief&&g.status!=='unwarned')text(c,g.x*Z+7,g.y*Z,name.toUpperCase()+': '+(g.status==='safe'?'REFUGIO':g.status.toUpperCase()))}
     if(s.truck)vehicle(c,s.truck,t,false,time);if(s.drone)vehicle(c,s.drone,d,true,time);
     for(const extra of [...(s.extinguishers||[]).slice(1),...(s.trucks||[]).slice(1)]){const p={x:extra.x,y:extra.y},flying=extra.role!=='truck';if(belief)sensor(c,extra,p,flying?'#d7efbcbb':'#82cde9bb');route(c,extra,p,'#d7efbcbb');vehicle(c,extra,p,flying,time)}
     for(const scout of s.scouts||[]){const p={x:scout.x,y:scout.y};if(belief)sensor(c,scout,p,'#afbcff88');route(c,scout,p,'#b8caffaa');vehicle(c,scout,p,true,time)}
@@ -488,8 +504,26 @@ function renderToasts(s){
   const history=s.history||[];
   const newest=history.length?trailKey(history[history.length-1]):'';
   const incident=s.incident_id;
-  // First frame, replay scrubbing and incident resets only seed the cursor: no backlog spam.
-  if(s.replay||!toastCursor||toastCursor.incident!==incident){toastCursor={incident,newest,count:history.length,seq:0};return}
+  // Recorded decisions follow simulation time, so pausing/scrubbing never loses
+  // the explanation to a wall-clock timeout. Rebuild from this frame only.
+  if(s.replay){
+    const recent=history.filter(e=>e&&e.tick<=s.tick&&s.tick-e.tick<=10&&
+      (radioKind(e.source||'').agent||e.source==='dispatch')).slice(-TOAST_MAX);
+    const key=JSON.stringify([incident,recent.map(trailKey)]);
+    if(host.dataset.replayKey!==key){
+      host.replaceChildren(...recent.map(e=>{
+        const toast=document.createElement('div');toast.className=`toast source-${radioKind(e.source||'').kind}`;
+        toast.textContent=`T+${e.tick} · ${e.source}: ${e.message}`;
+        return toast;
+      }));
+      host.dataset.replayKey=key;
+    }
+    toastCursor=null;
+    return;
+  }
+  if(host.dataset.replayKey){host.replaceChildren();delete host.dataset.replayKey}
+  // First live frame and incident resets seed the cursor without replaying backlog.
+  if(!toastCursor||toastCursor.incident!==incident){toastCursor={incident,newest,count:history.length,seq:0};return}
   if(newest===toastCursor.newest&&history.length===toastCursor.count)return;
   // Diff by previous length so empty → first farmer/dispatch messages toast.
   // If the 100-entry window slid, take the newest few instead of a stale index.

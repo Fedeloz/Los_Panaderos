@@ -1,6 +1,7 @@
 """Local stdio MCP client. Reuses the user's configured OAuth proxy.
 
-No tokens are read, copied, or served to the browser. No inbound tunnel needed.
+OAuth tokens stay in the local MCP cache; expired sessions are refreshed there.
+Credentials are never logged or served to the browser. No inbound tunnel needed.
 
 Workflow and node ids come from .env (see .env.example); the literals below are the
 last known good values. HappyRobot regenerates node ids on every workflow edit.
@@ -31,13 +32,13 @@ load_env()
 TARGETS = dict(
     dispatch=dict(
         workflow='01a0baad-da0f-7939-aafa-7d587f577741',
-        editor='https://platform.eu.happyrobot.ai/hackspainteam9/workflows/zqtnabjy5loj/editor/xcc9z0mzg57n',
-        # Persistent node IDs inside Despacho Central v14 (always-on self-continue).
-        drone_node='01a0bbe3-38e6-7a83-9808-7ec1dc5454da',      # Ejecutar mision de dron
-        dispatch_node='01a0bbd6-ef9b-749f-9263-793e99247690',   # Decision de Despacho
-        comm_nodes={'01a0bbe3-889c-73ca-89a2-e5a6ba3dc31f': 'call',            # Llamar a esta persona
-                    '01a0bbe3-38fa-785f-864c-d38947351bcc': 'zone_alert',      # Enviar alerta de zona
-                    '01a0bbe3-38f0-74a3-9b9b-bf25a7a27684': 'personal_message'}),  # Enviar informacion personal
+        editor='https://platform.eu.happyrobot.ai/hackspainteam9/workflows/zqtnabjy5loj/editor/w5808pkx8wb4',
+        # Persistent node IDs inside Despacho Central v21 (one event per run).
+        drone_node='01a0bde1-1c8d-7806-bb72-27af172e818a',      # Ejecutar mision de dron
+        dispatch_node='01a0bde1-1cd3-7228-af08-82db533a0c92',   # Decision de Despacho
+        comm_nodes={'01a0bde1-1cc9-7b27-9ff8-6def362c103b': 'call',            # Llamar a esta persona
+                    '01a0bde1-1c9a-7dd3-a0af-b84a82d001c2': 'zone_alert',      # Enviar alerta de zona
+                    '01a0bde1-1ca6-738c-87f5-4537fb7a11ca': 'personal_message'}),  # Enviar informacion personal
     drone=dict(
         workflow='01a0b8ea-d9af-71f3-9fb7-8a469f9ac25b',
         editor='https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/lq3pyryjou20',
@@ -65,16 +66,15 @@ def comm_nodes(defaults):
 
 
 COMM_NODES = comm_nodes(TARGET['comm_nodes'])
-EDITOR = TARGET['editor']
+EDITOR = os.environ.get('HAPPYROBOT_EDITOR', TARGET['editor'])
+
+STATE_RESULT_NODE = os.environ.get('HAPPYROBOT_STATE_RESULT_NODE', '01a0bde1-1cdb-77cf-b9ec-e9749375100e')
 
 DECISION_KEYS = {'command', 'target_x', 'target_y', 'reason', 'mission'}
 ORDER_KEYS = {'extinguisher_orders', 'scout_orders', 'truck_orders'}
 
 
 class HappyRobot:
-    # Concurrent monitor_runs fetches per decision (one stdio transport, several in-flight ids).
-    FETCH_WORKERS = 6
-
     def __init__(self):
         self.process = None
         self.lock = threading.Lock()        # connect/close
@@ -131,6 +131,11 @@ class HappyRobot:
             self.process.stdin.flush()
 
     def _request(self, method, params, timeout=60):
+        deadline = getattr(self, '_decision_deadline', None)
+        if deadline is not None:
+            timeout = min(timeout, deadline-time.monotonic())
+            if timeout <= 0:
+                raise RuntimeError('HappyRobot exceeded the 120-second decision limit. No command applied.')
         with self.pending_lock:
             self.sequence += 1
             request_id = self.sequence
@@ -146,11 +151,57 @@ class HappyRobot:
             self.connected = False
             raise RuntimeError('HappyRobot connection closed. Reconnect using your MCP OAuth configuration.')
         if not finished or slot['message'] is None:
-            raise RuntimeError('HappyRobot timed out; the simulator has paused. Retry explicitly.')
+            if deadline is not None and time.monotonic() >= deadline:
+                raise RuntimeError('HappyRobot exceeded the 120-second decision limit. No command applied.')
+            label = params.get('name', method)
+            args = params.get('arguments', {})
+            stage = '/'.join(str(v) for v in (label, args.get('action'), args.get('output_id')) if v)
+            raise RuntimeError(f'HappyRobot transport timed out during {stage}; run {args.get("run_id", "not yet acknowledged")}. No command applied.')
         msg = slot['message']
         if 'error' in msg:
             raise RuntimeError('HappyRobot MCP rejected the request.')
         return msg['result']
+
+    @staticmethod
+    def refresh_expired_session(config):
+        """Refresh the configured EU MCP login before its expired token causes HTTP 500."""
+        import hashlib
+        import urllib.parse
+        import urllib.request
+        url = next((a for a in config.get('args', []) if a.startswith('https://mcp.platform.eu.happyrobot.ai/')), None)
+        if not url:
+            return
+        key = hashlib.md5(url.encode()).hexdigest()
+        files = list((Path.home()/'.mcp-auth').glob(f'*/{key}_tokens.json'))
+        if not files:
+            return  # Normal MCP OAuth login handles new installations.
+        cache = max(files, key=lambda p: p.stat().st_mtime)
+        import fcntl
+        # All local ports share one OAuth cache; serialize refresh-token rotation.
+        with cache.with_suffix('.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            tokens = json.loads(cache.read_text())
+            lifetime = float(tokens.get('expires_in') or 0)
+            if lifetime <= 0 or time.time() < cache.stat().st_mtime + lifetime - 120:
+                return
+            client = json.loads(cache.with_name(key+'_client_info.json').read_text())
+            body = urllib.parse.urlencode(dict(grant_type='refresh_token',
+                refresh_token=tokens['refresh_token'], client_id=client['client_id'])).encode()
+            req = urllib.request.Request('https://platform.eu.happyrobot.ai/api/mcp/token', data=body,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'})
+            try:
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    fresh = json.load(response)
+                if not fresh.get('access_token'):
+                    raise ValueError('Missing token')
+            except Exception:
+                raise RuntimeError('HappyRobot OAuth session expired and refresh failed. Reconnect the HappyRobot MCP login.') from None
+            temp = cache.with_suffix('.tmp')
+            # Create with owner-only permissions before writing credentials.
+            fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, 'w') as output:
+                json.dump({**tokens, **fresh}, output)
+            temp.replace(cache)
 
     def connect(self):
         with self.lock:
@@ -165,6 +216,7 @@ class HappyRobot:
             config = servers.get(name)
             if not config or not config.get('command'):
                 raise RuntimeError('Configure a HappyRobot stdio MCP proxy and complete OAuth first.')
+            self.refresh_expired_session(config)
             self.pending = {}
             self.closed = threading.Event()
             self.process = subprocess.Popen([config['command'], *config.get('args', [])],
@@ -182,9 +234,60 @@ class HappyRobot:
                 self.close()
                 raise
 
+    def trigger_http(self, arguments, timeout):
+        """Trigger through the provider API using the same authorized local OAuth session."""
+        import hashlib
+        import urllib.parse
+        import urllib.request
+        import urllib.error
+        path = Path(os.environ.get('HAPPYROBOT_MCP_CONFIG', str(ROOT/'.cursor/mcp.json')))
+        config = json.loads(path.read_text())['mcpServers'][os.environ.get('HAPPYROBOT_MCP_SERVER', 'happyrobot-mcp-eu-all')]
+        self.refresh_expired_session(config)
+        url = next(a for a in config['args'] if a.startswith('https://mcp.platform.eu.happyrobot.ai/'))
+        key = hashlib.md5(url.encode()).hexdigest()
+        files = list((Path.home()/'.mcp-auth').glob(f'*/{key}_tokens.json'))
+        if not files:
+            raise RuntimeError('HappyRobot OAuth login missing; connect MCP first.')
+        token = json.loads(max(files, key=lambda p:p.stat().st_mtime).read_text())['access_token']
+        payload = arguments.get('payload', {})
+        if isinstance(payload, str):payload=json.loads(payload)
+        body = json.dumps(dict(payload=payload, environment=arguments.get('environment', 'development'))).encode()
+        endpoint = 'https://api.platform.eu.happyrobot.ai/workflows/'+urllib.parse.quote(arguments['workflow_id'], safe='')+'/runs'
+        req = urllib.request.Request(endpoint, data=body, headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
+        deadline=getattr(self, '_decision_deadline', None)
+        if deadline is not None:
+            timeout=min(timeout, deadline-time.monotonic())
+            if timeout<=0:raise RuntimeError('HappyRobot exceeded the 120-second decision limit. No command applied.')
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:result=json.load(response)
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(f'HappyRobot HTTP trigger failed ({exc.code}). No automatic retrigger.') from None
+        except (TimeoutError, urllib.error.URLError):
+            raise RuntimeError('HappyRobot HTTP trigger timed out; acknowledgement uncertain.') from None
+        run_id=result.get('run_id')
+        if not run_id:
+            raise RuntimeError('HappyRobot HTTP trigger returned no run ID; acknowledgement uncertain.')
+        return {'content':[{'text':f'Run ID: {run_id}\nStatus: {result.get("status", "running")}'}]}
+
     def tool(self, name, arguments, timeout=60):
+        if name == 'trigger_run' and os.environ.get('HAPPYROBOT_TRIGGER_TRANSPORT') == 'http':
+            return self.trigger_http(arguments, timeout)
+        # Refresh authentication before each new decision, including after idle periods.
+        # A fresh transport does not create a duplicate workflow run.
+        if name == 'trigger_run':
+            self.close()
         self.connect()
-        result = self._request('tools/call', dict(name=name, arguments=arguments), timeout)
+        readonly = name == 'monitor_runs' and arguments.get('action') in {'get', 'outputs'}
+        try:
+            result = self._request('tools/call', dict(name=name, arguments=arguments), min(timeout, 20) if readonly else timeout)
+        except RuntimeError as exc:
+            if not readonly or not any(word in str(exc).lower() for word in ('timed out', 'connection closed')):
+                raise
+            # Reopen the stalled OAuth bridge and retry ONLY this read. The workflow
+            # itself is never retriggered, so calls/messages cannot be duplicated.
+            self.close()
+            self.connect()
+            result = self._request('tools/call', dict(name=name, arguments=arguments), min(timeout, 20))
         if result.get('isError'):
             # These workflow errors contain no credentials; keep a bounded message.
             message = '\n'.join(c.get('text', '') for c in result.get('content', []))
@@ -338,17 +441,87 @@ class HappyRobot:
     # ---- run orchestration -----------------------------------------------
 
     def decide(self, payload):
+        self._decision_deadline = time.monotonic() + 120
+        self._active_run_id = None
+        try:
+            return self._decide_once(payload)
+        except Exception:
+            if self._active_run_id:
+                run_id = self._active_run_id
+                self._active_run_id = None
+                # Cancellation is a separate bounded request, outside the expired budget.
+                self._decision_deadline = None
+                def cancel():
+                    try:
+                        self.tool('monitor_runs', dict(action='cancel', run_id=run_id), timeout=5)
+                    except Exception:
+                        pass
+                threading.Thread(target=cancel, daemon=True).start()
+            raise
+        finally:
+            self._decision_deadline = None
+
+    def recover_trigger(self, payload):
+        if not payload.get('event_id') or not payload.get('incident_id'):
+            return None
+        self.close()
+        listing = self.text(self.tool('monitor_runs', dict(action='list', workflow_id=WORKFLOW, page_size=5)))
+        runs = re.findall(r'\[(?:COMPLETED|RUNNING|FAILED|SCHEDULED|CANCELED)\]\s+([0-9a-f-]{36})', listing)
+        trigger_node = os.environ.get('HAPPYROBOT_TRIGGER_NODE', '01a0be09-4655-7e6a-baa8-915989a7e818')
+        for run_id in runs:
+            entries = self.text(self.tool('monitor_runs', dict(action='outputs', run_id=run_id, node_id=trigger_node)))
+            for oid in self.outputs_by_node(entries).get(trigger_node, []):
+                output = self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=oid))
+                if any(isinstance(v, dict) and v.get('event_id') == payload['event_id']
+                       and v.get('incident_id') == payload['incident_id'] for v in self.json_values(output)):
+                    self._active_run_id = run_id
+                    status = self.tool('monitor_runs', dict(action='get', run_id=run_id))
+                    return {'content': [{'text': self.text(status)+'\nRun ID: '+run_id}]}
+        return None
+
+    def _decide_once(self, payload):
         self.last_dispatch, self.last_communications = None, []
         timings = {}
         started = time.monotonic()
-        result = self.tool('trigger_run', dict(workflow_id=WORKFLOW, environment='development',
-                          payload=json.dumps(payload), wait=True), timeout=330)
-        timings['run'] = round(time.monotonic()-started, 1)
+        try:
+            result = self.tool('trigger_run', dict(workflow_id=WORKFLOW, environment='development',
+                              payload=json.dumps(payload), wait=False), timeout=30)
+        except RuntimeError as exc:
+            if 'timed out' not in str(exc).lower():
+                raise
+            # An uncertain trigger may already have side effects. Recover by exact
+            # event identity, never by newest run or by triggering again.
+            result = self.recover_trigger(payload)
+            if result is None:
+                raise RuntimeError('HappyRobot trigger acknowledgement was lost; no matching run found. Paused without retriggering.') from exc
         text = self.text(result)
+        match = re.search(r'Run ID:\s*([0-9a-f-]{36})', text)
+        if not match:
+            raise RuntimeError('HappyRobot did not return a run ID. '+text[-700:])
+        self._active_run_id = match.group(1)
+        while not re.search(r'Status:\s*(completed|failed|canceled)\b', text):
+            remaining = self._decision_deadline-time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError('HappyRobot exceeded the 120-second decision limit. No command applied.')
+            time.sleep(min(2, remaining))
+            try:
+                result = self.tool('monitor_runs', dict(action='get', run_id=self._active_run_id), timeout=min(30, remaining))
+            except RuntimeError as exc:
+                # A stalled read is not a failed run. Recheck this same run within
+                # the overall deadline, never trigger a duplicate mission.
+                if 'timed out' in str(exc).lower():
+                    continue
+                raise
+            text = self.text(result)
+            # Run-details responses use ID instead of Run ID.
+            if 'Run ID:' not in text:
+                text += '\nRun ID: '+self._active_run_id
+        timings['run'] = round(time.monotonic()-started, 1)
         run_match = re.search(r'Run ID:\s*([0-9a-f-]{36})', text)
         if not run_match or not re.search(r'Status:\s*completed\b', text):
-            raise RuntimeError('HappyRobot run did not complete. No command applied.')
+            raise RuntimeError('HappyRobot run did not complete. No command applied. '+text[-1200:])
         run_id = run_match.group(1)
+        self._active_run_id = None
         # trigger_run returns a status summary. Fetch the run's node outputs, then only the
         # payloads we act on: the delegated drone mission, the dispatch summary and every
         # call/Telegram action that actually ran. Never parse the echoed input.
@@ -364,12 +537,15 @@ class HappyRobot:
         if mission_node != EDGE_NODE:
             text += f'\n\nMission read from the legacy node {mission_node}; the configured node produced no output.'
         drone_outputs = outputs.get(mission_node, [])
+        state_output_id = self.latest_output(listing, STATE_RESULT_NODE) if outputs.get(STATE_RESULT_NODE) else None
         wanted = list(outputs.get(DISPATCH_NODE, []) if DISPATCH_NODE else [])
         wanted += [oid for node in COMM_NODES for oid in outputs.get(node, [])]
         drone_output_id = self.latest_output(listing, mission_node) if drone_outputs else None
         if drone_output_id:
             wanted.append(drone_output_id)
-        # All payload fetches are independent reads: issue them concurrently over the transport.
+        if state_output_id:
+            wanted.append(state_output_id)
+        # Serialize reads so a stalled bridge can reconnect without interrupting other requests.
         fetched = self.fetch_outputs(run_id, wanted)
         evidence['outputs'].update(fetched)
         timings['fetch'] = round(time.monotonic()-step, 1)
@@ -381,6 +557,14 @@ class HappyRobot:
                 record = self.communication(kind, fetched[oid], contacts, run_id)
                 if record:
                     self.last_communications.append(record)
+        # Event-driven Despacho persists these same records in Cloudflare.
+        # Read its final payload rather than reconstructing effects from child outputs.
+        if state_output_id:
+            for item in self.json_values(fetched[state_output_id]):
+                if isinstance(item, dict) and 'pending_command' in item and 'communications_sent' in item:
+                    self.last_dispatch = item.get('last_dispatch') or self.last_dispatch
+                    self.last_communications = item.get('communications_sent') or []
+                    break
         decision = None
         if drone_output_id:
             output = fetched[drone_output_id]
@@ -417,16 +601,9 @@ class HappyRobot:
         return decision, text[:16000]
 
     def fetch_outputs(self, run_id, output_ids):
-        """Fetch several run outputs concurrently. Order-independent; failures propagate."""
-        output_ids = list(dict.fromkeys(output_ids))
-        if not output_ids:
-            return {}
-        if len(output_ids) == 1:
-            return {output_ids[0]: self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=output_ids[0]))}
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=min(self.FETCH_WORKERS, len(output_ids))) as pool:
-            results = list(pool.map(lambda oid: self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=oid)), output_ids))
-        return dict(zip(output_ids, results))
+        """Read each unique output once; serialized to allow safe bridge recovery."""
+        return {oid: self.tool('monitor_runs', dict(action='outputs', run_id=run_id, output_id=oid))
+                for oid in dict.fromkeys(output_ids)}
 
     @staticmethod
     def outputs_by_node(listing):
