@@ -1,4 +1,5 @@
 import copy
+import math
 import unittest
 
 from simulator.engine import Simulation
@@ -28,6 +29,9 @@ class DeterministicFleetPolicyTests(unittest.TestCase):
         decision=self.policy.decide(sim)
         self.assertEqual(decision['extinguisher_orders'][0]['command'],'scout')
         self.assertEqual(decision['scout_orders'][0]['command'],'patrol')
+        waypoints=decision['scout_orders'][0]['waypoints']
+        self.assertGreaterEqual(len(waypoints),3)
+        self.assertTrue(any(math.dist(point,sim.report)>4 for point in waypoints))
         self.assertEqual(decision['truck_orders'][0]['command'],'attack_sector')
 
     def test_confirmed_fire_uses_validated_containment_position(self):
