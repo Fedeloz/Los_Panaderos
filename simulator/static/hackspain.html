@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lo que construimos en HackSpain 2026 · Los Panaderos</title>
+<meta name="description" content="Crónica de Los Panaderos en HackSpain 2026: un sistema multiagente que coordina la respuesta a un incendio forestal, y una simulación que puedes probar.">
+<link rel="icon" href="/favicon.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=DM+Sans:ital,wght@0,400;0,500;0,700;0,900;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/hackspain.css">
+</head>
+<body class="hs">
+<a class="skip" href="#main">Ir al contenido principal</a>
+<div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+<nav class="topbar" aria-label="Principal">
+  <a class="brand" href="/hackspain"><span class="brand-mark">LP</span><span>Los Panaderos</span></a>
+  <div class="topbar-links">
+    <a href="#construimos">Qué construimos</a>
+    <a href="#simulacion">La simulación</a>
+    <a href="#probar">Probar</a>
+    <a class="btn btn-sm" href="/incidente">Abrir simulación</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <p class="kicker">Crónica · 18–20 septiembre 2026 · UPM–ETSIT, Madrid</p>
+  <img class="hero-logo" src="/hackspain/hackspain-wordmark-color.svg" alt="HackSpain" width="928" height="306">
+  <h1>36 horas, un incendio simulado y un equipo de agentes que decide a quién avisar primero</h1>
+  <p class="lede">Fuimos a HackSpain 2026 con una pregunta sencilla: cuando llega el primer aviso de humo y nadie sabe todavía cuánto hay de verdad, ¿puede un sistema de agentes ayudar a una centralita de emergencias a priorizar mejor? Esto es lo que construimos, cómo funciona por dentro y cómo puedes probarlo.</p>
+  <div class="hero-actions">
+    <a class="btn" href="/incidente">Abrir la simulación</a>
+    <a class="btn btn-ghost" href="/incidente?demo=1">Ver la demo guiada</a>
+    <a class="btn btn-ghost" href="#construimos">Leer la crónica</a>
+  </div>
+</header>
+
+<main id="main" class="article">
+
+  <section id="hackspain">
+    <h2>El fin de semana</h2>
+    <p>HackSpain juntó a 250 <em>builders</em> menores de 30 en la ETSIT durante 36 horas, con cinco tracks propuestos por startups, compute gratis y un jurado de fondos. Nosotros somos <strong>Los Panaderos</strong>: cuatro personas, una idea de protección civil y muchas ganas de que el resultado se pudiera tocar, no solo contar en una slide.</p>
+    <p>Elegimos el track de HappyRobot, la plataforma de agentes de voz y flujos de trabajo, porque el problema que teníamos en la cabeza era exactamente de coordinación: recibir información parcial, decidir, dar órdenes, escuchar qué cambia y volver a decidir.</p>
+  </section>
+
+  <aside class="callout callout-gold" aria-label="Idea central">
+    <p class="callout-label">La idea en una frase</p>
+    <p>El cuello de botella en un incendio no es solo el fuego. Es la centralita: filtrar avisos, priorizar a la población y coordinar a la vez flota y comunicaciones. Un protocolo fijo se queda atrás en el primer cambio de viento.</p>
+  </aside>
+
+  <section id="construimos">
+    <h2>Qué construimos</h2>
+    <p><strong>Los Panaderos</strong> es un sistema multiagente para coordinar la respuesta a un incendio forestal, acoplado a un simulador que hace de mundo. La parte de agentes razona, avisa y asigna misiones; el simulador propaga el fuego, mueve los vehículos y <strong>valida o rechaza cada orden</strong> antes de ejecutarla. Los agentes no pilotan celda a celda ni se inventan datos: trabajan con lo que sus sensores ven.</p>
+    <p>El ciclo que repetimos una y otra vez durante la hackathon es este:</p>
+    <ol class="steps">
+      <li><span class="step-n">01</span><div><h3>Observar</h3><p>Aviso de humo de un vecino, drones exploradores, camión con sensor, satélite con retraso. Nada de esto es la verdad completa.</p></div></li>
+      <li><span class="step-n">02</span><div><h3>Decidir</h3><p>Despacho Central verifica el foco, elige a qué distrito avisar y qué misión encargar a cada vehículo. Informar y evacuar son órdenes distintas.</p></div></li>
+      <li><span class="step-n">03</span><div><h3>Actuar</h3><p>Los scouts patrullan, el dron de extinción contiene desde posiciones seguras y el camión ataca el sector asignado.</p></div></li>
+      <li><span class="step-n">04</span><div><h3>Volver a decidir</h3><p>Cambia el viento o aparece un segundo foco: el simulador lanza un evento nuevo y los agentes reconsideran.</p></div></li>
+    </ol>
+    <p>Además del despacho hay agentes de comunicación: llamadas y mensajes a los contactos de cada distrito, y <strong>Marina</strong>, un agente que atiende a residentes que llaman preguntando qué hacer, consulta el estado público del incidente y responde según su barrio.</p>
+  </section>
+
+  <figure class="shot">
+    <img src="/hackspain/sala-de-crisis.png" alt="Sala de crisis del panel CECOP: indicadores de población y flota, y dos mapas de Brunete, uno con la situación real simulada y otro con lo que el sistema observa." loading="lazy" width="1440" height="1000">
+    <figcaption>La sala de crisis, pausada en T+13. A la izquierda, lo que pasa de verdad en el terreno; a la derecha, lo único que los agentes conocen.</figcaption>
+  </figure>
+
+  <section id="simulacion">
+    <h2>Cómo funciona la simulación</h2>
+    <p>El escenario es <strong>Brunete (Madrid)</strong>, con una ilustración del terreno inspirada en la ortofoto del PNOA, cuatro distritos urbanos, una granja y un punto de encuentro por distrito. Los 11.261 habitantes son el padrón municipal de 2025; su reparto por distritos es una suposición del escenario.</p>
+
+    <h3>Dos mapas, dos verdades</h3>
+    <p>El mapa de la izquierda es la <strong>situación real</strong>: la rejilla de 80×56 celdas donde el fuego crece según el viento, el combustible y la humedad. El de la derecha es <strong>lo que el sistema ve</strong>: solo las celdas que un dron o un camión han observado, las que recuerda de antes y unos bloques de satélite que llegan doce pasos tarde. Un foco nuevo permanece invisible para los agentes hasta que alguien pasa por encima.</p>
+
+    <h3>La flota</h3>
+    <dl class="fleet">
+      <div><dt>Dron explorador</dt><dd>Rápido, sin agua. Patrulla, confirma focos y hace de megafonía para avisar a un distrito.</dd></div>
+      <div><dt>Dron de extinción</dt><dd>Un chorro, 40% de éxito por intento. Se mantiene a distancia de seguridad y nunca vuela a una celda en llamas.</dd></div>
+      <div><dt>Camión de bomberos</dt><dd>Cinco chorros, 60% de éxito. Tarda ocho pasos en movilizarse y va por carretera. Es el medio principal.</dd></div>
+    </dl>
+    <p>Cada vehículo tiene autonomía táctica dentro del simulador: planificador de ruta, distancia de seguridad y replanificación cuando descubre fuego en el camino. Los agentes deciden <em>qué</em> hacer; el motor decide <em>cómo</em> llegar.</p>
+
+    <h3>Qué puede rechazar el simulador</h3>
+    <p>Cada orden pasa un filtro antes de aplicarse: identidad del incidente, frescura del tick, comandos duplicados, coordenadas fuera de mapa, objetivos sobre fuego activo o distritos que ya han sido avisados. Si una orden no pasa, se rechaza a la vista de todos y se le pide al agente una corrección. Nos pareció más honesto que sustituir en silencio la orden por "la más parecida que sí vale".</p>
+  </section>
+
+  <aside class="callout callout-teal" aria-label="Aviso sobre el alcance">
+    <p class="callout-label">Alcance</p>
+    <p>Es un prototipo educativo. El fuego, los sensores y los movimientos son simulados; el mapa es ilustrado y no está georreferenciado; los puntos de encuentro no son un plan oficial. No es una predicción operativa de incendios.</p>
+  </aside>
+
+  <section id="probar" class="try">
+    <h2>Pruébalo</h2>
+    <p>La simulación corre en el navegador contra el mismo motor que usamos en la hackathon. No necesitas cuenta ni configuración.</p>
+    <ol class="howto">
+      <li>Entra en la <strong>sala de crisis</strong>.</li>
+      <li>Haz clic en el terreno para elegir dónde empieza el fuego y ajusta el viento.</li>
+      <li>Pulsa <strong>Ignición</strong> y después <strong>Aviso de humo</strong>: llega la llamada y los agentes se ponen a trabajar.</li>
+      <li>Observa cómo divergen los dos mapas, añade focos nuevos y rebobina con la línea de tiempo.</li>
+    </ol>
+    <div class="try-actions">
+      <a class="btn btn-lg" href="/incidente">Abrir la simulación</a>
+      <a class="btn btn-ghost" href="/incidente?demo=1">Ver la demo guiada</a>
+      <a class="btn btn-ghost" href="/">Ver el tablero CECOP</a>
+    </div>
+  </section>
+
+  <section id="aprendimos">
+    <h2>Qué aprendimos</h2>
+    <ul class="lessons">
+      <li><strong>La incertidumbre es la feature.</strong> Cuando los agentes veían el mapa completo, las decisiones eran triviales y aburridas. Con información parcial aparecieron los dilemas reales: ¿verifico o aviso ya?</li>
+      <li><strong>Separar decidir de ejecutar.</strong> Que el simulador valide cada orden nos dio una red de seguridad y nos permitió cambiar de agente sin tocar la física.</li>
+      <li><strong>Avisar no es evacuar.</strong> La primera versión mandaba a todo el pueblo a los refugios. Distinguir "informar" de "evacuar" por distrito fue el cambio más importante del fin de semana.</li>
+      <li><strong>Reproducir para explicar.</strong> Poder rebobinar la simulación y ver qué sabía el sistema en cada momento vale más que cualquier log.</li>
+    </ul>
+  </section>
+
+  <section id="siguiente">
+    <h2>Lo que viene</h2>
+    <p>Queremos que el sistema aprenda de incidentes anteriores sin reentrenar nada: recuperar casos parecidos antes de decidir, evaluar alternativas después de actuar y guardar lecciones para la próxima vez. También estamos moviendo la simulación a una arquitectura web con una sesión aislada por visitante, para que cualquiera pueda abrir su propio incendio desde este enlace.</p>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="foot-inner">
+    <div>
+      <p class="kicker">Los Panaderos · HackSpain 2026</p>
+      <p class="foot-note">Marca HackSpain usada según su <a href="https://hackspain.com/brand" rel="noopener" target="_blank">brand kit</a>. Ilustración de Brunete inspirada en PNOA (CC BY 4.0 scne.es). Padrón: Ayuntamiento de Brunete 2025.</p>
+    </div>
+    <nav class="foot-links" aria-label="Enlaces">
+      <a href="/incidente">Simulación</a>
+      <a href="/">Tablero CECOP</a>
+      <a href="https://github.com/Fedeloz/Los_Panaderos" rel="noopener" target="_blank">Código</a>
+      <a href="https://hackspain.com" rel="noopener" target="_blank">hackspain.com</a>
+    </nav>
+  </div>
+  <img class="foot-symbol" src="/hackspain/hackspain-symbol-color.svg" alt="" width="64" height="64" aria-hidden="true">
+</footer>
+</body>
+</html>
