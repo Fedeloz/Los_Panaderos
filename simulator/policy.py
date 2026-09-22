@@ -13,42 +13,42 @@ class DeterministicFleetPolicy:
             if district:
                 reserved.add(district)
                 group = sim.groups[district]
-                scout_orders.append(dict(drone_id=scout['drone_id'],command='evacuate_farm' if group['kind']=='farm' else 'evacuate_town',district_id=district,waypoints=[],reason=f"Warn {group['name']} because it is exposed downwind."))
+                scout_orders.append(dict(drone_id=scout['drone_id'],command='evacuate_farm' if group['kind']=='farm' else 'evacuate_town',district_id=district,waypoints=[],reason=f"Avisar a {group['name']} porque está expuesto a sotavento."))
             elif scout.get('mode','').startswith('evacuate_') and scout.get('evacuation_group') in sim.groups and sim.groups[scout['evacuation_group']]['status']=='unwarned':
-                scout_orders.append(dict(drone_id=scout['drone_id'],command='continue',district_id='',waypoints=[],reason='Continue the current physical warning mission.'))
+                scout_orders.append(dict(drone_id=scout['drone_id'],command='continue',district_id='',waypoints=[],reason='Continuar la misión presencial de aviso en curso.'))
             else:
                 points = self._scout_points(sim,scout)
-                scout_orders.append(dict(drone_id=scout['drone_id'],command='patrol' if points else 'hold',district_id='',waypoints=points,reason='Inspect the reported sector from safe approaches.' if points else 'No useful safe patrol target is available.'))
+                scout_orders.append(dict(drone_id=scout['drone_id'],command='patrol' if points else 'hold',district_id='',waypoints=points,reason='Inspeccionar el sector reportado desde aproximaciones seguras.' if points else 'No hay un objetivo de patrulla seguro y útil disponible.'))
         extinguisher_orders = []
         for drone in sim.extinguishers:
             district = self._next_district(sim,urgent,reserved)
             if district:
                 reserved.add(district)
                 group = sim.groups[district]
-                extinguisher_orders.append(self._drone_order(drone,'evacuate_farm' if group['kind']=='farm' else 'evacuate_town',group['home'],f"Warn {group['name']} because no scout is available for this urgent district.",district))
+                extinguisher_orders.append(self._drone_order(drone,'evacuate_farm' if group['kind']=='farm' else 'evacuate_town',group['home'],f"Avisar a {group['name']} porque no hay explorador disponible para este distrito urgente.",district))
                 continue
             positions = sim.safe_drone_positions(drone)
             if sim.observation and positions:
                 point = positions[len(extinguisher_orders)%len(positions)]
-                extinguisher_orders.append(self._drone_order(drone,'contain',[point['x'],point['y']],'Contain confirmed fire from an engine-validated safe position.'))
+                extinguisher_orders.append(self._drone_order(drone,'contain',[point['x'],point['y']],'Contener el fuego confirmado desde una posición segura validada por el motor.'))
                 continue
             approaches = sim.smoke_scout_positions()
             if approaches:
                 point = approaches[len(extinguisher_orders)%len(approaches)]
-                extinguisher_orders.append(self._drone_order(drone,'scout',[point['x'],point['y']],'Approach unconfirmed smoke from safe stand-off without blind suppression.'))
+                extinguisher_orders.append(self._drone_order(drone,'scout',[point['x'],point['y']],'Aproximarse al humo no confirmado manteniendo distancia segura y sin extinción a ciegas.'))
             else:
-                extinguisher_orders.append(self._drone_order(drone,'hold',[round(drone['x']),round(drone['y'])],'No safe effective target is currently available.'))
+                extinguisher_orders.append(self._drone_order(drone,'hold',[round(drone['x']),round(drone['y'])],'No hay un objetivo seguro y eficaz disponible.'))
         truck_orders = []
         observed = [(cell['x'],cell['y']) for cell in sim.observation]
         for truck in sim.trucks:
             if observed:
                 target = min(observed,key=lambda point:math.dist(point,(truck['x'],truck['y'])))
-                truck_orders.append(dict(truck_id=truck['truck_id'],command='attack_sector',target_x=target[0],target_y=target[1],reason='Attack the nearest confirmed sector using shared observations.'))
+                truck_orders.append(dict(truck_id=truck['truck_id'],command='attack_sector',target_x=target[0],target_y=target[1],reason='Atacar el sector confirmado más cercano usando las observaciones compartidas.'))
             elif sim.called:
-                truck_orders.append(dict(truck_id=truck['truck_id'],command='attack_sector',target_x=sim.report[0],target_y=sim.report[1],reason='Mobilize toward the reported smoke sector while drones verify it.'))
+                truck_orders.append(dict(truck_id=truck['truck_id'],command='attack_sector',target_x=sim.report[0],target_y=sim.report[1],reason='Movilizarse hacia el sector del humo reportado mientras los drones lo verifican.'))
             else:
-                truck_orders.append(dict(truck_id=truck['truck_id'],command='hold',target_x=round(truck['x']),target_y=round(truck['y']),reason='No incident report is active.'))
-        return dict(mission=self._mission(urgent,sim),reason='Deterministic priorities: life safety, observation, then validated containment.',extinguisher_orders=extinguisher_orders,scout_orders=scout_orders,truck_orders=truck_orders)
+                truck_orders.append(dict(truck_id=truck['truck_id'],command='hold',target_x=round(truck['x']),target_y=round(truck['y']),reason='No hay ningún aviso de incidente activo.'))
+        return dict(mission=self._mission(urgent,sim),reason='Prioridades deterministas: seguridad de la población, observación y contención validada.',extinguisher_orders=extinguisher_orders,scout_orders=scout_orders,truck_orders=truck_orders)
 
     @staticmethod
     def _drone_order(drone,command,target,reason,district=''):
@@ -78,7 +78,7 @@ class DeterministicFleetPolicy:
     @staticmethod
     def _mission(urgent,sim):
         if urgent:
-            return 'Warn threatened districts, verify the incident and position suppression assets'
+            return 'Avisar a los distritos amenazados, verificar el incidente y posicionar los medios de extinción'
         if sim.observation:
-            return 'Contain confirmed fire while maintaining shared observation'
-        return 'Verify reported smoke and mobilize toward the reported sector'
+            return 'Contener el fuego confirmado manteniendo la observación compartida'
+        return 'Verificar el humo y movilizar los medios hacia el sector reportado'

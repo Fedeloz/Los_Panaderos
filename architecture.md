@@ -73,9 +73,9 @@ The current `state-api/` Worker exists to exchange incident state with HappyRobo
 
 The deployed app builds archive/shared-state views directly from the session's `Simulation` using `build_state()`. The existing `state-api/` source may remain temporarily as historical/legacy code, but production does not call it and no `STATE_API_TOKEN` is required.
 
-### Hybrid replay
+### Client-side replay
 
-The authoritative current checkpoint is stored in the Durable Object. High-frequency timeline frames remain bounded and primarily client-side to avoid repeatedly storing the full 80×56 grid. Server recordings are explicitly requested and capped. Seeking replay never invokes the policy or mutates Live state.
+The Durable Object stores only the authoritative current checkpoint. Timeline and recording frames belong exclusively to the browser; `seek` is not a server action and never invokes Python, the policy or Durable Object storage. Browser replay may use memory or IndexedDB and returning to Live fetches the authoritative state. Durable Object eviction therefore cannot lose authoritative state and carries no replay-memory cost.
 
 ## Request lifecycle
 
@@ -105,7 +105,7 @@ For session requests the Worker validates the cookie, method, same-origin POST, 
 
 `Simulation` gains a versioned JSON-safe checkpoint. It includes all future-driving state plus both seeded random generator states. Restore tests must prove that an original and JSON-round-tripped simulation produce identical future states.
 
-A session checkpoint adds controller state such as running, automatic decisions, speed, next decision tick, counters, recording state and last-update time. It is written only after successful mutations.
+A session checkpoint adds controller state such as running, automatic decisions, speed, next decision tick, last-update time and a bounded `decisions[]` audit trail. Each decision records its triggering event, tick, per-vehicle orders, mission, reason, result and `accepted`/`rejected` status. Rejected orders pause and are persisted; unexpected action failures roll back in-memory mutations before returning an error.
 
 ## Code changes
 
@@ -131,10 +131,10 @@ A session checkpoint adds controller state such as running, automatic decisions,
 
 ### `simulator/server.py`
 
-- keep as an optional local adapter around `SimulatorSession`;
-- remove all HappyRobot imports, subprocess calls and modes;
+- remain an optional thin HTTP adapter around `SimulatorSession`;
+- remove all HappyRobot imports, subprocess calls, modes and duplicate controller logic;
 - stop publishing to or polling the external state API;
-- retain existing local routes and recordings for development.
+- retain existing local page/API routes while replay remains browser-owned.
 
 ### `simulator/cloudflare.py`
 
@@ -170,8 +170,11 @@ The root `wrangler.jsonc` will declare:
 
 - Python entry point and current compatibility date;
 - `python_workers` compatibility flag while still documented by Cloudflare examples;
-- static asset directory `simulator/static`;
-- selective Worker-first routes for `/api/*` and page aliases;
+- static asset directory `simulator/static` with automatic HTML handling;
+- Worker-first execution only for `/api/*`; page aliases and canonical redirects live in `_redirects`;
+- a `_headers` policy with CSP, clickjacking, MIME, referrer and permissions protections;
+- JSON content-type, same-origin, body-size, action and per-action field validation;
+- structured operational logs and bounded JSON 400/500 responses;
 - `SIMULATIONS` Durable Object binding;
 - declarative SQLite-backed Durable Object export;
 - conservative CPU limit;

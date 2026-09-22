@@ -601,17 +601,14 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(frame['tick'],0);self.assertEqual(frame['burning'],3)
         self.assertNotEqual(frame['cells'],s.cells)
 
-    def test_replay_pauses_and_rejects_mutations(self):
+    def test_replay_is_client_side_and_never_mutates_server_state(self):
         from simulator.server import Controller
         c=Controller()
         try:
-            c.action('ignite',{});c.action('step',{});tick=c.sim.tick
-            c.action('seek',{'index':0})
-            self.assertEqual(c.state()['tick'],0)
-            with self.assertRaises(ValueError):c.action('step',{})
+            c.action('ignite',{'action':'ignite'});c.action('step',{'action':'step'});tick=c.sim.tick
+            with self.assertRaisesRegex(ValueError,'client-side'):c.action('seek',{'action':'seek','index':0})
             self.assertEqual(c.sim.tick,tick)
-            c.action('live',{});self.assertEqual(c.state()['tick'],tick)
-            self.assertFalse(c.running)
+            self.assertEqual(c.state()['frame_count'],1)
         finally:c.stop.set()
 
 

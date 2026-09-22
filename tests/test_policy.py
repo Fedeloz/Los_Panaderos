@@ -73,7 +73,8 @@ class SessionTests(unittest.TestCase):
         restored=SimulatorSession.restore(json.loads(json.dumps(session.checkpoint())))
         self.assertEqual(restored.catch_up(100000),restored.max_catch_up_steps)
         self.assertEqual(restored.sim.tick,restored.max_catch_up_steps)
-        self.assertGreater(restored.decisions,1)
+        self.assertGreater(restored.decision_count,1)
+        self.assertTrue(all(item['status']=='accepted' for item in restored.decision_log))
 
     def test_paused_session_does_no_background_work(self):
         session=SimulatorSession(now_ms=1000);session.action('ignite',now_ms=1000)
@@ -85,6 +86,35 @@ class SessionTests(unittest.TestCase):
         first.action('place_fire',dict(x=30,y=20),now_ms=0);first.action('ignite',now_ms=0)
         self.assertNotEqual(first.sim.incident_id,second.sim.incident_id)
         self.assertTrue(first.sim.ignited);self.assertFalse(second.sim.ignited)
+
+    def test_rejected_order_is_persistable_and_pauses_the_session(self):
+        class InvalidPolicy:
+            def decide(self,sim):return dict(mission='Invalid',reason='test',extinguisher_orders=[],scout_orders=[],truck_orders=[])
+        session=SimulatorSession(policy=InvalidPolicy(),now_ms=0)
+        session.action('ignite',now_ms=0);state=session.action('call',now_ms=0)
+        self.assertFalse(state['running']);self.assertFalse(state['auto'])
+        self.assertTrue(state['error']);self.assertEqual(state['decisions'][-1]['status'],'rejected')
+        self.assertEqual(state['decisions'][-1]['trigger'],'farmer_call')
+        self.assertTrue(any(entry['source']=='policy' for entry in state['history']))
+        restored=SimulatorSession.restore(session.checkpoint(),InvalidPolicy())
+        self.assertEqual(restored.decision_log,session.decision_log)
+
+    def test_unexpected_action_failure_rolls_back_all_mutations(self):
+        class BrokenPolicy:
+            def decide(self,sim):raise RuntimeError('policy crashed')
+        session=SimulatorSession(policy=BrokenPolicy(),now_ms=0);session.action('ignite',now_ms=0)
+        before=session.checkpoint()
+        with self.assertRaisesRegex(RuntimeError,'policy crashed'):session.action('call',now_ms=0)
+        self.assertEqual(session.checkpoint(),before)
+
+    def test_step_failure_is_recorded_instead_of_escaping(self):
+        class BrokenPolicy:
+            def decide(self,sim):raise RuntimeError('step policy crashed')
+        session=SimulatorSession(policy=BrokenPolicy(),now_ms=0);session.sim.ignite();session.sim.farmer_call()
+        session.running=session.auto=True;session.next_decision=0
+        session.step_once()
+        self.assertFalse(session.running);self.assertEqual(session.decision_log[-1]['status'],'rejected')
+        self.assertIn('step policy crashed',session.error)
 
 
 if __name__ == '__main__':

@@ -123,7 +123,7 @@ class PageRouteTests(unittest.TestCase):
             with self.subTest(origin=origin, host=host):
                 handler = self.handler('/api/action', {
                     'Origin': origin, 'Host': host, 'X-Simulator-Request': '1',
-                    'Content-Length': str(len(body)),
+                    'Content-Length': str(len(body)), 'Content-Type': 'application/json',
                 })
                 handler.rfile = io.BytesIO(body)
                 handler.do_POST()
@@ -131,12 +131,20 @@ class PageRouteTests(unittest.TestCase):
         self.assertEqual(self.controller.action.call_count, 3)
         self.controller.action.assert_called_with('fleet', json.loads(body))
 
+    def test_post_requires_json_content_type(self):
+        body=json.dumps({'action':'play'}).encode()
+        handler=self.handler('/api/action',{'Origin':'http://127.0.0.1:8765','Host':'127.0.0.1:8765',
+            'X-Simulator-Request':'1','Content-Length':str(len(body)),'Content-Type':'text/plain'})
+        handler.rfile=io.BytesIO(body);handler.do_POST()
+        self.assertEqual(handler.reply.call_args.args[0],415)
+        self.controller.action.assert_not_called()
+
     def test_public_origin_env_allows_configured_tunnel_host(self):
         body = json.dumps({'action': 'play'}).encode()
         with patch.dict(server.os.environ, {'PUBLIC_ORIGIN': 'https://panaderos.example.com'}):
             handler = self.handler('/api/action', {
                 'Origin': 'https://panaderos.example.com', 'Host': '127.0.0.1:8765',
-                'X-Simulator-Request': '1', 'Content-Length': str(len(body)),
+                'X-Simulator-Request': '1', 'Content-Length': str(len(body)), 'Content-Type': 'application/json',
             })
             handler.rfile = io.BytesIO(body)
             handler.do_POST()

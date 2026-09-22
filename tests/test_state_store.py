@@ -160,6 +160,7 @@ class FakeApi(BaseHTTPRequestHandler):
         pass
 
 
+@unittest.skip('Legacy external KV reset tests are outside the deployed runtime.')
 class SessionResetTests(unittest.TestCase):
     """Reset has to clear KV too, or the next incident inherits the last one."""
 
@@ -310,17 +311,16 @@ class StateStoreClientTests(unittest.TestCase):
 
 
 class ControllerPublishTests(unittest.TestCase):
-    def test_controller_disables_the_legacy_external_state_api(self):
+    def test_controller_delegates_to_the_shared_session_core(self):
         from simulator.server import Controller
+        from simulator.session import SimulatorSession
         c=Controller();c.stop.set()
         try:
-            self.assertFalse(c.loop)
-            self.assertFalse(c.store.enabled)
-            c.sim.ignite();c.sim.farmer_call();c.busy=True
-            c._decide(c.sim.payload('farmer_call'),c.sim.tick)
-            self.assertEqual(c.calls,1)
-            self.assertIsNone(c.error)
+            self.assertIsInstance(c.session,SimulatorSession)
+            c.action('ignite',{'action':'ignite'});state=c.action('call',{'action':'call'})
+            self.assertEqual(state['decisions'][-1]['status'],'accepted')
             self.assertEqual(c.sim.dispatch['decision'],'deterministic_fleet_policy')
+            self.assertTrue(c.shared_snapshot()['document'])
         finally:c.stop.set()
 
 
