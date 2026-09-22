@@ -378,17 +378,21 @@ class PhysicsTests(unittest.TestCase):
         self.assertTrue(s.burning(s.cells[20][30]))
 
     def test_vehicle_observation_radii(self):
-        s=Simulation();s.drone.update(x=20.,y=20.)
+        s=Simulation(drone_count=2);s.drone.update(x=20.,y=20.);s.scouts[0].update(x=20.,y=20.)
         s.truck.update(x=50.,y=20.)
-        for x,y in [(32,20),(33,20),(59,20),(60,20)]:s.cells[y][x]['heat']=1
+        for x,y in [(30,20),(31,20),(36,20),(37,20),(59,20),(60,20)]:s.cells[y][x]['heat']=1
         s.observe();s.update_truck()
-        self.assertIn(dict(x=32,y=20),s.observation)
-        self.assertNotIn(dict(x=33,y=20),s.observation)
+        self.assertIn(dict(x=30,y=20),s.drone['observed_fire'])
+        self.assertNotIn(dict(x=31,y=20),s.drone['observed_fire'])
+        self.assertIn(dict(x=36,y=20),s.scouts[0]['observed_fire'])
+        self.assertNotIn(dict(x=37,y=20),s.scouts[0]['observed_fire'])
         self.assertIn(dict(x=59,y=20),s.truck['observed_fire'])
         self.assertNotIn(dict(x=60,y=20),s.truck['observed_fire'])
-        self.assertEqual(s.telemetry()['sensor_radius'],12)
+        self.assertEqual(s.telemetry()['sensor_radius'],10)
+        self.assertEqual(s.scout_telemetry()[0]['sensor_radius'],16)
         self.assertEqual(s.truck_telemetry()['sensor_radius'],9)
-        self.assertIn('radius 12',json.loads(s.payload()['thermal_detections'])['coverage'])
+        coverage=json.loads(s.payload()['thermal_detections'])['coverage']
+        self.assertIn('radius 16 around scouts',coverage);self.assertIn('10 around extinguisher',coverage)
 
     def test_warning_frees_drone_while_people_keep_moving(self):
         s=Simulation();s.ignite();s.farmer_call()
@@ -413,6 +417,8 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(s.drone['route_plans'],1)
         s.move_safely(s.drone,3)
         self.assertEqual(s.drone['route_plans'],1)  # Reuse the clear route.
+        s.move_safely(s.drone,3)
+        self.assertEqual(s.drone['route_plans'],1)
         s.move_safely(s.drone,3)
         self.assertEqual(s.drone['route_plans'],2)
         blocked=s.danger_zone([(38,20)])

@@ -1,4 +1,5 @@
 import copy
+import math
 import unittest
 
 from simulator.engine import Simulation
@@ -28,6 +29,9 @@ class DeterministicFleetPolicyTests(unittest.TestCase):
         decision=self.policy.decide(sim)
         self.assertEqual(decision['extinguisher_orders'][0]['command'],'scout')
         self.assertEqual(decision['scout_orders'][0]['command'],'patrol')
+        waypoints=decision['scout_orders'][0]['waypoints']
+        self.assertGreaterEqual(len(waypoints),3)
+        self.assertTrue(any(math.dist(point,sim.report)>4 for point in waypoints))
         self.assertEqual(decision['truck_orders'][0]['command'],'attack_sector')
 
     def test_confirmed_fire_uses_validated_containment_position(self):
@@ -75,6 +79,17 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(restored.sim.tick,restored.max_catch_up_steps)
         self.assertGreater(restored.decision_count,1)
         self.assertTrue(all(item['status']=='accepted' for item in restored.decision_log))
+
+    def test_farmer_call_dispatches_and_moves_the_scout(self):
+        session=SimulatorSession(now_ms=0);session.action('ignite',now_ms=0)
+        start=(session.sim.scouts[0]['x'],session.sim.scouts[0]['y'])
+        state=session.action('call',now_ms=0)
+        scout_order=state['decisions'][-1]['orders']['scouts'][0]
+        self.assertEqual(scout_order['command'],'patrol')
+        self.assertEqual(session.sim.scouts[0]['mode'],'patrol')
+        session.action('step',now_ms=0)
+        self.assertNotEqual((session.sim.scouts[0]['x'],session.sim.scouts[0]['y']),start)
+        self.assertEqual(session.sim.scouts[0]['status'],'en_route')
 
     def test_paused_session_does_no_background_work(self):
         session=SimulatorSession(now_ms=1000);session.action('ignite',now_ms=1000)

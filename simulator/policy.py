@@ -68,12 +68,17 @@ class DeterministicFleetPolicy:
 
     @staticmethod
     def _scout_points(sim,scout):
-        points = sim.smoke_scout_positions()
-        if points:
-            return [[point['x'],point['y']] for point in points[:3]]
-        if scout.get('target'):
-            return [list(map(round,scout['target']))]
-        return []
+        points=[];report_seen=f'{sim.report[0]},{sim.report[1]}' in sim.memory
+        if not report_seen:
+            points.extend([[point['x'],point['y']] for point in sim.smoke_scout_positions()[:2]])
+        if not sim.observation:
+            points.extend(sim.scout_search_waypoints(scout,limit=6-len(points)))
+        elif scout.get('target'):
+            points.append(list(map(round,scout['target'])))
+        unique=[]
+        for point in points:
+            if point not in unique:unique.append(point)
+        return unique[:6]
 
     @staticmethod
     def _mission(urgent,sim):

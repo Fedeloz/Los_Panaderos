@@ -4,6 +4,27 @@ import unittest
 from simulator.engine import Simulation
 
 class FleetTests(unittest.TestCase):
+    def test_scout_has_longer_vision_than_extinguisher(self):
+        s=Simulation(fleet_counts=dict(scouts=1,extinguishers=1,trucks=0))
+        s.drone.update(x=20.,y=20.);s.scouts[0].update(x=20.,y=20.)
+        s.cells[20][34]['heat']=1;s.observe()
+        self.assertEqual(s.telemetry()['sensor_radius'],10)
+        self.assertEqual(s.scout_telemetry()[0]['sensor_radius'],16)
+        self.assertNotIn(dict(x=34,y=20),s.drone['observed_fire'])
+        self.assertIn(dict(x=34,y=20),s.scouts[0]['observed_fire'])
+        self.assertIn(dict(x=34,y=20),s.observation)
+
+    def test_idle_scout_continues_search_when_shared_map_has_no_fire(self):
+        s=Simulation(fleet_counts=dict(scouts=1,extinguishers=0,trucks=0));scout=s.scouts[0]
+        scout.update(mode='patrol',status='on_scene',target=None,waypoints=[])
+        s.memory={};s.observation=[];start=(scout['x'],scout['y'])
+        s.update_scouts()
+        self.assertEqual(scout['mode'],'patrol');self.assertEqual(scout['status'],'en_route')
+        self.assertIsNotNone(scout['target']);self.assertTrue(scout['waypoints'])
+        s.update_scouts()
+        self.assertNotEqual((scout['x'],scout['y']),start)
+        self.assertTrue(any(entry['source']=='scout autopilot' for entry in s.history))
+
     def test_scout_confirms_original_focus_for_remote_extinguisher(self):
         s=Simulation(drone_count=2);s.ignite()
         x,y=s.report
@@ -74,7 +95,9 @@ class FleetTests(unittest.TestCase):
         for raw in [None,[],[dict(drone_id='unknown',command='hold',reason='test')]]:
             with self.assertRaises(ValueError):s.validate_scout_orders(raw)
         s.cells[20][20]['heat']=1;s.scouts[0].update(x=25.,y=20.);s.observe()
-        with self.assertRaises(ValueError):s.validate_scout_orders([dict(drone_id='scout-1',command='patrol',waypoints=[[20,20]],reason='test')])
+        order=s.validate_scout_orders([dict(drone_id='scout-1',command='patrol',waypoints=[[20,20]],reason='test')])[0]
+        self.assertNotEqual(order['waypoints'],[[20,20]])
+        self.assertNotIn(tuple(order['waypoints'][0]),s.danger_zone([(20,20)]))
 
     def test_return_waits_for_scout(self):
         s=Simulation(drone_count=2);s.ignited=True;s.scouts[0].update(x=20.,y=20.)
@@ -132,7 +155,7 @@ class FleetTests(unittest.TestCase):
         s.apply(self.mixed_orders(s),'fleet',s.incident_id,s.tick);s.step(10)
         self.assertNotEqual(s.extinguishers[0]['x'],s.extinguishers[1]['x'])
         self.assertNotEqual(s.trucks[0]['crew_target'],s.trucks[1]['crew_target'])
-        self.assertNotEqual(s.trucks[0]['x'],s.trucks[1]['x'])
+        self.assertNotEqual((s.trucks[0]['x'],s.trucks[0]['y']),(s.trucks[1]['x'],s.trucks[1]['y']))
         w=json.loads(s.payload()['world_state']);self.assertEqual(len(w['fleet']),4);self.assertEqual(len(w['fire_trucks']),2)
 
     def test_zero_roles_have_no_phantom_sensors_or_actions(self):
