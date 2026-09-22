@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CECOP · Situación</title><link rel="icon" href="/favicon.png" type="image/png"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/mapa.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CECOP · Situación</title><link rel="icon" href="/favicon.png" type="image/png"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/mapa.css"><link rel="stylesheet" href="/tour.css"></head>
 <body data-page="situacion">
 <div class="shell">
 <aside class="cecop-nav" aria-label="CECOP">
@@ -34,7 +34,7 @@
         <div class="gis-updated"><span data-i18n="lastUpdate">Última actualización</span><strong id="updatedAt">—</strong></div>
       </div>
       <div class="gis-row gis-row-ops">
-        <div class="duty gis-duty"><p id="connection" role="status" aria-live="polite" aria-atomic="true" data-i18n="connecting">Conectando…</p><a href="/incidente" class="duty-link" data-i18n="openIncident">Abrir sala de crisis</a></div>
+        <div class="duty gis-duty"><p id="connection" role="status" aria-live="polite" aria-atomic="true" data-i18n="connecting">Conectando…</p><a href="/incidente?demo=1" id="tourStart" class="duty-link" data-i18n="tourStart">Demo guiada</a></div>
         <div class="gis-counters" role="group" aria-label="Contadores operativos">
           <div class="counter counter-active"><i class="dot"></i><span data-i18n="cActive">Activos</span><strong id="countActive">—</strong></div>
           <div class="counter counter-risk"><i class="dot"></i><span data-i18n="cRisk">En riesgo</span><strong id="countRisk">—</strong><small data-i18n="cRiskUnit">núcleos</small></div>
@@ -47,6 +47,12 @@
         </div>
       </div>
     </header>
+    <div class="gis-onboard" id="onboard" role="note" hidden>
+      <span class="onboard-mark" aria-hidden="true">i</span>
+      <p id="onboardText" data-i18n="onboardText">Este es el tablero nacional. La simulación con drones vive en la sala de crisis.</p>
+      <button type="button" id="onboardTour" class="onboard-start" data-i18n="tourStart">Demo guiada</button>
+      <button type="button" id="onboardClose" class="onboard-close" data-i18n-aria-label="onboardClose" aria-label="Cerrar">×</button>
+    </div>
     <div class="gis-stage" id="gisStage">
       <div class="gis-map" id="gisMap" aria-label="Mapa de incendios forestales de España"></div>
       <aside class="glass gis-layers" aria-labelledby="layersHeading">
@@ -102,6 +108,28 @@
       <div class="gis-scale" aria-hidden="true"><svg id="scaleBar" viewBox="0 0 250 30" width="250" height="30"></svg></div>
       <div class="gis-credit" data-i18n="mapCredit">Base cartográfica derivada de Wikimedia Commons (NordNordWest) · CC BY-SA 3.0 · localizador esquemático, no cartografía oficial</div>
       <div id="tooltip" class="gis-tooltip" role="tooltip" hidden></div>
+      <aside class="glass gis-incident-card" id="incidentCard" aria-labelledby="incidentCardTitle" hidden>
+        <button type="button" id="incidentCardClose" class="card-close" data-i18n-aria-label="closeCard" aria-label="Cerrar">×</button>
+        <h3 id="incidentCardTitle"></h3>
+        <div id="incidentCardLines" class="card-lines"></div>
+        <p id="incidentCardNote" class="card-note"></p>
+        <button type="button" id="incidentCardSim" class="launch-btn launch-btn-sm" data-i18n="simulateFire">Simular este incendio</button>
+      </aside>
+      <aside class="glass gis-launch" id="launchCard" aria-labelledby="launchTitle">
+        <span class="launch-eyebrow" id="launchEyebrow">SIMULACRO CON DRONES</span>
+        <h3 id="launchTitle">Lanza un simulacro</h3>
+        <p id="launchLine">Elige un incendio del mapa o empieza en Brunete. Los agentes despliegan la flota y deciden a quién avisar.</p>
+        <div class="launch-row">
+          <div class="launch-wind" id="launchWind" role="group" data-i18n-aria-label="launchWind" aria-label="Viento">
+            <span data-i18n="launchWind">Viento</span>
+            <button type="button" id="windEast" class="wind-opt is-on" data-i18n="windEast" aria-pressed="true">Este</button>
+            <button type="button" id="windNorth" class="wind-opt" data-i18n="windNorth" aria-pressed="false">Norte</button>
+            <button type="button" id="windWest" class="wind-opt" data-i18n="windWest" aria-pressed="false">Oeste</button>
+            <button type="button" id="windCalm" class="wind-opt" data-i18n="windCalm" aria-pressed="false">Calma</button>
+          </div>
+          <button type="button" id="launchGo" class="launch-btn">▶ Iniciar simulacro</button>
+        </div>
+      </aside>
     </div>
     <footer class="gis-timeline">
       <div class="tl-controls">
@@ -125,7 +153,7 @@
       <article class="order-ticket event-live" id="bruneteEvent">
         <div class="order-label"><span class="eyebrow">ES-2026-BRUNETE</span><span id="eventThreat" class="event-status">—</span><span id="eventLevel" class="event-level">—</span></div>
         <div><h2>Brunete · Madrid</h2><p class="event-meta" id="eventMeta">—</p><p id="eventMission" class="event-mission">—</p><p id="eventPeople">—</p></div>
-        <a href="/incidente" data-i18n="openIncident">Abrir sala de crisis</a>
+        <a href="/incidente?demo=1" data-i18n="tourStart">Demo guiada</a>
       </article>
       <div id="watchList"></div>
     </div>
@@ -135,18 +163,18 @@
   </section>
   <section class="panel" aria-labelledby="dataHeading">
     <h2 id="dataHeading" data-i18n="salaHeading">Sala abierta</h2>
-    <p class="kpi-detail" data-i18n="salaHelp">Única sala simulada bajo mando CECOP. Las órdenes proceden de HappyRobot y se muestran sin traducir.</p>
-    <div class="data-grid"><div><span class="eyebrow" data-i18n="lastOrder">Última orden</span><p id="regionalMission">—</p><p class="kpi-detail" data-i18n="agentChain">HappyRobot · Central → Exploración / Extinción</p></div></div>
+    <p class="kpi-detail" data-i18n="salaHelp">Única sala simulada bajo mando CECOP. Las órdenes proceden de la política de decisión y se muestran sin traducir.</p>
+    <div class="data-grid"><div><span class="eyebrow" data-i18n="lastOrder">Última orden</span><p id="regionalMission">—</p><p class="kpi-detail" data-i18n="agentChain">Política de decisión · Central → Exploración / Extinción</p></div></div>
     <div class="data-grid"><div><span class="eyebrow" data-i18n="salaClock">Reloj de sala</span><p id="salaClock" class="sala-clock">T+0</p></div><div><span class="eyebrow" data-i18n="kAgents">Agentes</span><p id="salaRuns" class="sala-clock">0</p></div></div>
   </section>
 </main>
 <footer class="site-footer">
   <span data-i18n="demoBoard">Tablero de demostración: Brunete es la única sala simulada; el resto son expedientes estáticos de demostración.</span>
-  <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo HappyRobot</a>
+  <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo</a>
   <span data-i18n="baseMapCredit">Mapa base derivado de Wikimedia Commons (NordNordWest) · CC BY-SA 3.0. Localizador esquemático, no cartografía oficial. Incendios, perímetros, riesgo y viento son un escenario de demostración.</span>
 </footer>
 </div>
 </div>
-<script src="/chrome.js"></script><script src="/situacion.js"></script><script src="/mapa.js"></script>
+<script src="/chrome.js"></script><script src="/scenarios.js"></script><script src="/situacion.js"></script><script src="/mapa.js"></script><script src="/tour.js"></script>
 </body>
 </html>
