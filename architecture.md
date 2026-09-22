@@ -69,9 +69,9 @@ The Durable Object is request-driven. It does not run a Python background thread
 
 ### Retire the separate KV state API from the web deployment
 
-The current `state-api/` Worker exists to exchange incident state with HappyRobot. Once HappyRobot is removed, that network hop, bearer token and KV writes are unnecessary.
+The former `state-api/` Worker exchanged incident state with HappyRobot. That network hop, bearer token and KV writes are removed from this repository and deployment.
 
-The deployed app builds archive/shared-state views directly from the session's `Simulation` using `build_state()`. The existing `state-api/` source may remain temporarily as historical/legacy code, but production does not call it and no `STATE_API_TOKEN` is required.
+The app builds archive/shared-state views directly from the session's `Simulation` using `operational_state.build_state()`. No `STATE_API_TOKEN`, external state service or separate Worker is required.
 
 ### Client-side replay
 

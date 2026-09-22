@@ -260,7 +260,7 @@ class Simulation:
         return sim
 
     def emit(self, kind, source, x=None, y=None, **extra):
-        """Queue a field event for the shared state API (drained by StateStore). Never blocks."""
+        """Queue a field event for the session's operational history."""
         event=dict(kind=kind,source=source,sim_time=self.tick,incident_id=self.incident_id,
                    x=None if x is None else int(round(x)),y=None if y is None else int(round(y)),**extra)
         self.pending_events.append(event)

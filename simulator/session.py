@@ -41,8 +41,7 @@ class SimulatorSession:
             replay=False,live_tick=self.sim.tick,connected=True,error=self.error,workflow_url=None,
             workflow_calls=self.decision_count,decisions=copy.deepcopy(self.decision_log[-100:]),
             latency=0,run_evidence=json.dumps(self.last_decision,ensure_ascii=False,indent=2) if self.last_decision else '',
-            timings={},optimistic=self.optimistic,state_store=dict(enabled=False,url=None,published=0,events_sent=0,inbox_published=0,last_published=None,error=None),
-            policy_mode='deterministic',dispatcher_loop=False)
+            timings={},optimistic=self.optimistic,policy_mode='deterministic')
 
     def shared_state(self):return build_state(self.sim)
 

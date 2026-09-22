@@ -8,22 +8,8 @@ import threading
 import zlib
 from urllib.parse import urlparse
 
-from .geo import PLACE
 from .session import SimulatorSession
 from .operational_state import build_state
-
-ROOT=Path(__file__).resolve().parents[1]
-
-
-def _env_file():
-    values={};path=ROOT/'.env'
-    if not path.exists():return values
-    for line in path.read_text(encoding='utf-8').splitlines():
-        line=line.strip()
-        if not line or line.startswith('#') or '=' not in line:continue
-        key,value=line.split('=',1);values[key.strip()]=value.strip().strip('"').strip("'")
-    return values
-
 
 def local_host(host_header):
     return (host_header or '').split(':')[0] in {'127.0.0.1','localhost'}
@@ -105,7 +91,7 @@ class Controller:
 def serve(port=8765):
     controller=Controller();static=Path(__file__).parent/'static'
     pages={'/':'situacion.html','/situacion':'situacion.html','/incidente':'incidente.html','/incidente/brunete':'incidente.html','/medios':'medios.html','/archivo':'archivo.html','/favicon.ico':'favicon.png'}
-    assets={'/app.js','/ops.js','/chrome.js','/situacion.js','/medios.js','/archivo.js','/mapa.js','/mapa.css','/observation-map.js','/vendor/bootstrap-icons.js','/style.css','/favicon.png','/cursors/flamethrower-hover.svg','/cursors/flamethrower-active.svg','/maps/brunete.jpg','/maps/brunete-illustrated.png','/maps/spain-location.svg'}
+    assets={'/app.js','/chrome.js','/situacion.js','/medios.js','/archivo.js','/mapa.js','/mapa.css','/observation-map.js','/vendor/bootstrap-icons.js','/style.css','/favicon.png','/cursors/flamethrower-hover.svg','/cursors/flamethrower-active.svg','/maps/brunete.jpg','/maps/brunete-illustrated.png','/maps/spain-location.svg'}
 
     class Handler(BaseHTTPRequestHandler):
         def reply(self,code,body,content_type='application/json'):
@@ -124,7 +110,7 @@ def serve(port=8765):
             elif path=='/api/shared':self.reply(200,controller.shared_snapshot())
             elif path=='/api/config':
                 if not local_host(self.headers.get('Host')):self.reply(403,{'error':'Local config only.'});return
-                env=_env_file();self.reply(200,dict(cesium_token=env.get('CESIUM_API_KEY') or None,nasa_key=env.get('NASA_KEY') or None,place=dict(PLACE)))
+                self.reply(200,{})
             elif path in pages or path in assets:
                 name=pages[path] if path in pages else path[1:]
                 types={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.jpg':'image/jpeg','.png':'image/png','.svg':'image/svg+xml'}

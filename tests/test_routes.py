@@ -43,7 +43,7 @@ class PageRouteTests(unittest.TestCase):
         paths = {'chrome.js': 'text/javascript', 'situacion.js': 'text/javascript',
                  'medios.js': 'text/javascript', 'archivo.js': 'text/javascript',
                  'mapa.js': 'text/javascript', 'mapa.css': 'text/css',
-                 'app.js': 'text/javascript', 'ops.js': 'text/javascript',
+                 'app.js': 'text/javascript',
                  'observation-map.js': 'text/javascript', 'vendor/bootstrap-icons.js': 'text/javascript',
                  'style.css': 'text/css', 'favicon.png': 'image/png',
                  'cursors/flamethrower-hover.svg': 'image/svg+xml',
@@ -102,12 +102,9 @@ class PageRouteTests(unittest.TestCase):
         handler.send_response.assert_called_once_with(304)
         handler.wfile.write.assert_not_called()
 
-    def test_nonlocal_config_request_does_not_read_secrets(self):
-        handler = self.handler('/api/config', {'Host': 'evil.example'})
-        with patch.object(server, '_env_file') as env:
-            handler.do_GET()
-        env.assert_not_called()
-        self.assertEqual(handler.reply.call_args.args[0], 403)
+    def test_nonlocal_config_request_is_rejected(self):
+        handler=self.handler('/api/config',{'Host':'evil.example'});handler.do_GET()
+        self.assertEqual(handler.reply.call_args.args[0],403)
 
     def test_post_origin_is_host_based_not_page_based(self):
         body = json.dumps({'action': 'fleet', 'counts': {'trucks': 2, 'scouts': 0, 'extinguishers': 1}}).encode()

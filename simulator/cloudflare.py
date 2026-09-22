@@ -121,7 +121,7 @@ class Default(WorkerEntrypoint):
             if request.method=='GET' and path=='/api/state':value=json.loads(await stub.get_state(int(time.time()*1000)))
             elif request.method=='GET' and path=='/api/shared':value=json.loads(await stub.shared())
             elif request.method=='GET' and path=='/api/recording':value=json.loads(await stub.recording())
-            elif request.method=='GET' and path=='/api/config':value=dict(cesium_token=getattr(self.env,'PUBLIC_CESIUM_TOKEN',None),nasa_key=getattr(self.env,'PUBLIC_NASA_KEY',None))
+            elif request.method=='GET' and path=='/api/config':value={}
             elif request.method=='POST' and path=='/api/action':
                 if request.headers.get('X-Simulator-Request')!='1' or not same_origin(request):return reply(dict(error='Use the same-origin simulator interface.'),403)
                 if not (request.headers.get('Content-Type') or '').lower().startswith('application/json'):return reply(dict(error='Content-Type must be application/json.'),415)
