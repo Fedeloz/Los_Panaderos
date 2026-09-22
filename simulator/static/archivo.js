@@ -114,6 +114,7 @@
   }
 
   async function pollShared(){
+    if(document.hidden)return;
     try{
       const response=await fetch('/api/shared');
       if(response.ok){shared=await response.json();renderShared()}
@@ -169,6 +170,8 @@
     }catch(e){c.setError(e)}
   };
   c.subscribe(render);render(c.state);
-  renderShared();pollShared();setInterval(pollShared,3000);
+  // setTimeout loop instead of setInterval: pauses while the tab is hidden and never overlaps requests.
+  async function sharedLoop(){await pollShared();setTimeout(sharedLoop,10000)}
+  renderShared();sharedLoop();
   c.onLanguageChange(renderShared);
 })();

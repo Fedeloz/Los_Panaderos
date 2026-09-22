@@ -69,9 +69,11 @@ test('nav aliases and stored language apply without extra incident polling', asy
     const h = await harness(page, {pathname, savedLang: 'en'});
     const active = h.nodes.filter(n => n.getAttribute('aria-current') === 'page');
     assert.equal(active.length, 1); assert.equal(active[0].dataset.nav, nav); assert.equal(h.document.documentElement.lang, 'en');
-    assert.equal(h.requests.length, page === 'incidente' ? 0 : 1);
+    // The archive page also fetches /api/shared once on load.
+    const expectedRequests = page === 'incidente' ? 0 : page === 'archivo' ? 2 : 1;
+    assert.equal(h.requests.length, expectedRequests);
     h.events.DOMContentLoaded(); await flush();
-    assert.equal(h.requests.length, page === 'incidente' ? 0 : 1);
+    assert.equal(h.requests.length, expectedRequests);
     assert.equal([...h.timers.values()].filter(t => t.ms === 1000).length, page === 'incidente' ? 0 : 1);
   }
 });

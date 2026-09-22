@@ -23,7 +23,7 @@ window.cecop=(()=>{
   // Equirectangular frame of maps/spain-location.svg (NordNordWest): top 44.4, bottom 34.7, left -9.9, right 4.8.
   const MAP={width:1183.5554,height:1015.8372,top:44.4,bottom:34.7,left:-9.9,right:4.8};
   function project(lon,lat){return {x:(lon-MAP.left)/(MAP.right-MAP.left)*MAP.width,y:(MAP.top-lat)/(MAP.top-MAP.bottom)*MAP.height}}
-  // Frozen demonstration dossiers. Only ES-2026-BRUNETE is simulated; the rest never move and never call HappyRobot.
+  // Frozen demonstration dossiers. Only ES-2026-BRUNETE is simulated; the rest never move and never trigger policy decisions.
   const catalog=[
     {id:'ES-2026-BRUNETE',place:'Brunete · Madrid',ccaa:'madrid',lon:-3.999,lat:40.405,status:'live',level:'observacion',people:0,year:2026,href:'/incidente'},
     {id:'ES-2026-GATA',place:'Sierra de Gata · Cáceres',ccaa:'extremadura',lon:-6.6,lat:40.24,label:'left',status:'watch',level:'observacion',people:0,year:2026,noteKey:'dossierGata'},
@@ -105,7 +105,7 @@ window.cecop=(()=>{
     document.body.classList.toggle('is-active',!!(s.ignited&&s.burning));
     renderError();
   }
-  function publish(s){currentState=s;renderDuty(s);if($('workflow'))$('workflow').href=s.workflow_url;listeners.forEach(fn=>fn(s));if(typeof CustomEvent!=='undefined')window.dispatchEvent?.(new CustomEvent('cecop:state',{detail:s}))}
+  function publish(s){currentState=s;renderDuty(s);if($('workflow')){$('workflow').hidden=!s.workflow_url;if(s.workflow_url)$('workflow').href=s.workflow_url}listeners.forEach(fn=>fn(s));if(typeof CustomEvent!=='undefined')window.dispatchEvent?.(new CustomEvent('cecop:state',{detail:s}))}
   function setLang(next,persist=true){
     if(next!=='es'&&next!=='en')return;
     language=next;
