@@ -53,7 +53,7 @@ class PageRouteTests(unittest.TestCase):
                  'hackspain.css': 'text/css', 'hackspain/hackspain-symbol-color.svg': 'image/svg+xml',
                  'hackspain/hackspain-wordmark-color.svg': 'image/svg+xml',
                  'hackspain/hackspain-wordmark-black.svg': 'image/svg+xml',
-                 'hackspain/sala-de-crisis.png': 'image/png', 'scenarios.js': 'text/javascript', 'tour.js': 'text/javascript', 'tour.css': 'text/css'}
+                 'hackspain/sala-de-crisis.png': 'image/png', 'hackspain/dashboard.png': 'image/png', 'scenarios.js': 'text/javascript', 'tour.js': 'text/javascript', 'tour.css': 'text/css'}
         for path, expected in paths.items():
             with self.subTest(path=path):
                 handler = self.handler('/' + path)

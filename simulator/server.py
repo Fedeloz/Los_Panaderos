@@ -91,7 +91,7 @@ class Controller:
 def serve(port=8765):
     controller=Controller();static=Path(__file__).parent/'static'
     pages={'/':'situacion.html','/situacion':'situacion.html','/incidente':'incidente.html','/incidente/brunete':'incidente.html','/medios':'medios.html','/archivo':'archivo.html','/hackspain':'hackspain.html','/proyecto':'hackspain.html','/favicon.ico':'favicon.png'}
-    assets={'/app.js','/chrome.js','/situacion.js','/medios.js','/archivo.js','/mapa.js','/mapa.css','/observation-map.js','/vendor/bootstrap-icons.js','/style.css','/favicon.png','/cursors/flamethrower-hover.svg','/cursors/flamethrower-active.svg','/maps/brunete.jpg','/maps/brunete-illustrated.png','/maps/spain-location.svg','/hackspain.css','/hackspain/hackspain-symbol-color.svg','/hackspain/hackspain-wordmark-color.svg','/hackspain/hackspain-wordmark-black.svg','/hackspain/sala-de-crisis.png','/scenarios.js','/tour.js','/tour.css'}
+    assets={'/app.js','/chrome.js','/situacion.js','/medios.js','/archivo.js','/mapa.js','/mapa.css','/observation-map.js','/vendor/bootstrap-icons.js','/style.css','/favicon.png','/cursors/flamethrower-hover.svg','/cursors/flamethrower-active.svg','/maps/brunete.jpg','/maps/brunete-illustrated.png','/maps/spain-location.svg','/hackspain.css','/hackspain/hackspain-symbol-color.svg','/hackspain/hackspain-wordmark-color.svg','/hackspain/hackspain-wordmark-black.svg','/hackspain/sala-de-crisis.png','/hackspain/dashboard.png','/scenarios.js','/tour.js','/tour.css'}
 
     class Handler(BaseHTTPRequestHandler):
         def reply(self,code,body,content_type='application/json'):
