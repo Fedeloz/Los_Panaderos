@@ -34,7 +34,7 @@
   </section>
   <section class="panel shared-panel" aria-labelledby="sharedHeading">
     <h2 id="sharedHeading" data-i18n="sharedHeading">Estado compartido · Cloudflare KV</h2>
-    <p class="kpi-detail" data-i18n="sharedHelp">Documento que el simulador publica y los agentes de HappyRobot leen. Se consulta desde el servidor: el navegador nunca recibe el token.</p>
+    <p class="kpi-detail" data-i18n="sharedHelp">Documento que el simulador publica y los agentes leen. Se consulta desde el servidor: el navegador nunca recibe el token.</p>
     <div class="shared-meta" id="sharedMeta"></div>
     <h2 class="inventory-heading" data-i18n="sharedDistrictsHeading">Distritos y nivel de peligro</h2>
     <div id="sharedDistricts" class="event-list"></div>
@@ -49,10 +49,10 @@
       <button id="archiveStopRecord" data-i18n="archiveStopRecord" disabled>Detener grabación</button>
       <button id="archiveDownloadRecord" data-i18n="archiveDownloadRecord" disabled>Descargar</button>
     </section>
-    <p data-i18n="recordingEffect">Ejecutar y grabar inicia el incidente y las decisiones de HappyRobot.</p>
+    <p data-i18n="recordingEffect">Ejecutar y grabar inicia el incidente y las decisiones de la política de decisión.</p>
     <p data-i18n="stopEffect">Detener pausa el reloj; una deliberación en curso puede terminar.</p>
     <h2 id="playbackHeading" class="inventory-heading" data-i18n="playbackHeading">Reproducción</h2>
-    <p data-i18n="archiveHelp">Reproducir abre la grabación del servidor en Sala de crisis. Abrir archivo lleva al selector de archivos de esa sala (máx. 100 MB). La reproducción no llama a HappyRobot.</p>
+    <p data-i18n="archiveHelp">Reproducir abre la grabación del servidor en Sala de crisis. Abrir archivo lleva al selector de archivos de esa sala (máx. 100 MB). La reproducción no vuelve a decidir.</p>
     <section class="toolbar">
       <button id="archivePlayRecord" data-i18n="archivePlayRecord" disabled>Reproducir</button>
       <button id="archiveOpenRecording" data-i18n="archiveOpenRecording" disabled>Abrir archivo</button>
@@ -63,7 +63,7 @@
 </main>
 <footer class="site-footer">
   <span data-i18n="demoBoard">Tablero de demostración: Brunete es la única sala simulada; el resto son expedientes estáticos de demostración.</span>
-  <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo HappyRobot</a>
+  <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo</a>
 </footer>
 </div>
 </div>
