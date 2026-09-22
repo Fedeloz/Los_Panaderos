@@ -1,6 +1,5 @@
 """Run with python3 -m simulator.server; open http://127.0.0.1:8765."""
 import argparse
-import atexit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -11,25 +10,10 @@ import uuid
 import zlib
 from urllib.parse import urlparse
 
-from .contacts import directory as contact_directory, load_env
 from .engine import Simulation
 from .geo import PLACE
-from .happyrobot import HappyRobot, EDITOR
+from .policy import DeterministicFleetPolicy
 from .state_store import StateStore, build_state
-
-
-def happyrobot_mode():
-    load_env()
-    return (os.environ.get('HAPPYROBOT_MODE', 'push') or 'push').strip().lower()
-
-
-def dispatch_incident_id():
-    load_env()
-    return (os.environ.get('DISPATCH_INCIDENT_ID', 'brunete-demo') or 'brunete-demo').strip() or 'brunete-demo'
-
-
-def loop_mode():
-    return happyrobot_mode() == 'loop'
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -72,10 +56,10 @@ def action_origin_allowed(origin, host_header, port):
 class Controller:
     def __init__(self):
         self.lock = threading.RLock()
-        self.loop = loop_mode()
-        self.sim = Simulation(drone_count=2, incident_id=dispatch_incident_id() if self.loop else None)
-        self.robot = HappyRobot()
-        self.store = StateStore()
+        self.loop = False
+        self.sim = Simulation(drone_count=2)
+        self.policy = DeterministicFleetPolicy()
+        self.store = StateStore('', '')
         self.busy = False
         self.pending_fires = []
         self.reset_pending = False
@@ -93,8 +77,8 @@ class Controller:
         self.cursor = None
         self.next_decision = 0
         self.repair_attempts = 0
-        # Optimistic clock: keep simulating while HappyRobot deliberates and apply the
-        # decision to the live tick on arrival (validation still rejects unsafe stale orders).
+        # Optimistic clock keeps simulating during policy evaluation and validates
+        # the resulting order against the live observations on arrival.
         self.optimistic = False
         self._cache_key = None
         self._cache_body = b''
@@ -153,7 +137,7 @@ class Controller:
         command_id = str(command.get('command_id') or command.get('event_id') or '')
         if not command_id or command_id == self._applied_command_id:
             return
-        decision = HappyRobot.normalize(command) or (command if 'command' in command and 'mission' in command else None)
+        decision = command if ('command' in command or 'extinguisher_orders' in command) and 'mission' in command else None
         if decision is None:
             return
         try:
@@ -192,27 +176,19 @@ class Controller:
                     communications_sent=(doc.get('communications_sent') or [])[-20:])
 
     def shared_snapshot(self):
-        """Read-only view of the shared incident document for the archive screen.
-
-        The read happens here and not in the page because /state needs the bearer token
-        and the browser is never given credentials. Cached for SHARED_TTL: the screen
-        polls, and every miss is a KV read billed on the Worker.
-        """
+        """Read-only operational view generated directly from the local simulation."""
         now = time.monotonic()
         with self.lock:
             if self._shared is not None and now-self._shared_at < self.SHARED_TTL:
                 return self._shared
-            incident, status = self.sim.incident_id, self.store.status()
-        snapshot = dict(incident_id=incident, status=status, document=None, error=None,
-                        fetched_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
-        if self.store.enabled:
-            try:
-                snapshot['document'] = self.trim_shared(self.store.get(incident))
-            except Exception as exc:
-                # A fresh incident has nothing published yet; that is a state, not a failure.
-                snapshot['error'] = str(exc)[:200]
+            incident=self.sim.incident_id
+            document=self.trim_shared(build_state(self.sim))
+        status=dict(enabled=True,url=None,published=0,events_sent=len(self.sim.event_log),
+                    inbox_published=0,last_published=self.sim.tick,error=None)
+        snapshot=dict(incident_id=incident,status=status,document=document,error=None,
+                      fetched_at=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()))
         with self.lock:
-            self._shared, self._shared_at = snapshot, time.monotonic()
+            self._shared,self._shared_at=snapshot,time.monotonic()
         return snapshot
 
     def wipe_shared_session(self, incident_id):
@@ -299,19 +275,18 @@ class Controller:
                         frame_index=len(self.frames)-1 if self.cursor is None else self.cursor,
                         recording=self.recording,recorded_frames=len(self.recorded_frames),
                         frame_count=len(self.frames),replay=self.cursor is not None,live_tick=self.sim.tick,
-                        connected=self.robot.connected, error=self.error, workflow_url=EDITOR,
+                        connected=True, error=self.error, workflow_url=None,
                         workflow_calls=self.calls, latency=self.latency, run_evidence=self.run_evidence,
-                        timings=getattr(self.robot,'last_timings',{}), optimistic=self.optimistic,
-                        state_store=self.store.status(), happyrobot_mode='loop' if self.loop else 'push',
-                        dispatcher_loop=self.loop)
+                        timings={}, optimistic=self.optimistic,
+                        state_store=self.store.status(), policy_mode='deterministic',
+                        dispatcher_loop=False)
 
     def state_bytes(self):
-        """Serialized state with an ETag. Re-serializes only when something observable changed,
-        so the 600 ms browser poll costs nothing while HappyRobot deliberates."""
+        """Serialized state with an ETag. Re-serializes only when something observable changed."""
         with self.lock:
             key = (len(self.frames), self.sim.tick, self.sim.incident_id, self.cursor, self.busy, self.running, self.auto,
                    self.error, self.calls, self.recording, len(self.recorded_frames), self.reset_pending,
-                   len(self.pending_fires), self.speed, self.robot.connected, self.optimistic, self.latency,
+                   len(self.pending_fires), self.speed, self.optimistic, self.latency,
                    json.dumps(self.store.status(), sort_keys=True, default=str))
             if key != self._cache_key:
                 self._cache_body = json.dumps(self.state()).encode()
@@ -324,24 +299,11 @@ class Controller:
             raise ValueError('Fire is out; vehicles are returning or at station.')
         if self.cursor is not None:
             raise ValueError('Return to Live before requesting decisions.')
-        if self.loop:
-            if not self.store.enabled:
-                raise ValueError('Loop mode requires STATE_API_URL and STATE_API_TOKEN. Use HAPPYROBOT_MODE=push for direct Despacho planning.')
-            if not self.sim.called:
-                raise ValueError('Send the farmer report first.')
-            self.sim.pending_decision_event = None
-            self.error = None
-            self.publish_inbox(event, force=True)
-            self.next_decision = self.sim.tick + 16
-            return
         if self.busy:
             raise ValueError('A decision is already running.')
         if not self.sim.called:
             raise ValueError('Send the farmer report first.')
-        if event != 'command_rejected':
-            self.repair_attempts = 0
         payload = self.sim.payload(event)
-        payload['shared_state'] = json.dumps(build_state(self.sim), ensure_ascii=False)
         self.sim.pending_decision_event = None
         self.busy = True
         self.error = None
@@ -349,43 +311,27 @@ class Controller:
 
     def _decide(self, payload, tick):
         start = time.monotonic()
-        retry = False
         try:
-            decision, evidence = self.robot.decide(payload)
+            decision = self.policy.decide(self.sim)
+            evidence = json.dumps(decision, ensure_ascii=False, indent=2)
             with self.lock:
                 if self.reset_pending:return
                 self.calls += 1
-                self.latency = round(time.monotonic()-start, 1)
+                self.latency = round(time.monotonic()-start, 3)
                 self.run_evidence = evidence
-                # Communications and the dispatch summary are facts about what Central already did;
-                # record them even if the drone mission is later rejected by validation.
-                if self.sim.incident_id==payload['incident_id']:
-                    self.sim.record_dispatch(getattr(self.robot,'last_dispatch',None))
-                    self.sim.apply_communications(getattr(self.robot,'last_communications',None))
-                if decision is not None:
-                    if self.optimistic and self.sim.tick!=tick:
-                        self.sim.log('system',f'Optimistic clock: applying decision made at T+{tick} to live T+{self.sim.tick}; safety validation uses current observations.')
-                        tick=self.sim.tick
-                    self.sim.apply(decision,payload['event_id'],payload['incident_id'],tick)
-                else:
-                    self.sim.log('central','No drone mission issued this round; vehicles keep their current orders.')
+                if self.optimistic and self.sim.tick!=tick:
+                    self.sim.log('system',f'Optimistic clock: applying decision made at T+{tick} to live T+{self.sim.tick}; safety validation uses current observations.')
+                    tick=self.sim.tick
+                self.sim.apply(decision,payload['event_id'],payload['incident_id'],tick)
+                self.sim.record_dispatch(dict(decision='deterministic_fleet_policy',justificacion=decision['reason'],criticidad='rule-based',avisos_lanzados=[],destinatarios=[]))
                 self.next_decision = self.sim.tick + 16
                 self.record()
-                self.publish_state(force=True)
         except Exception as exc:
             with self.lock:
                 if self.reset_pending:return
-                message = str(exc)[:800]
-                if isinstance(exc, ValueError) and self.repair_attempts < 1 and self.cursor is None and os.environ.get('HAPPYROBOT_SINGLE_DECISION') != '1':
-                    self.repair_attempts += 1
-                    retry = True
-                    self.sim.last_result = dict(status='rejected',reason=message,
-                        instruction='Choose a new valid command using CURRENT observations. For contain use an exact x,y pair from drone_telemetry.safe_containment_positions, not a burning cell.')
-                    self.sim.log('system','Command rejected; requesting one corrected HappyRobot decision. '+message)
-                else:
-                    self.error = message
-                    self.running = self.auto = False
-                    self.sim.log('system',self.error)
+                self.error = str(exc)[:800]
+                self.running = self.auto = False
+                self.sim.log('system',self.error)
                 self.record()
         finally:
             with self.lock:
@@ -397,7 +343,6 @@ class Controller:
                         self.sim.add_fire(x,y)
                     if self.pending_fires:self.record()
                     self.pending_fires.clear()
-                    if retry:self.request_decision('command_rejected')
 
     def action(self, action, data):
         with self.lock:
@@ -422,7 +367,7 @@ class Controller:
                 self.cursor = None
                 return
             if self.cursor is not None and action != 'reset':
-                raise ValueError('Return to Live to change the simulation. Replay never reruns AI.')
+                raise ValueError('Return to Live to change the simulation. Replay never reruns the policy.')
             if self.busy and action == 'reset':
                 self.reset_pending=True
                 self.running=self.auto=False
@@ -433,14 +378,14 @@ class Controller:
                 if (x,y) not in self.pending_fires:self.pending_fires.append((x,y))
                 return
             if self.busy:
-                raise ValueError('HappyRobot is deciding. You can pause or inspect the timeline.')
+                raise ValueError('The policy is deciding. You can pause or inspect the timeline.')
             if action == 'reset':
                 self.wipe_shared_session(self.sim.incident_id)
                 self.reset_pending=False
                 self.pending_fires.clear()
                 self.repair_attempts=0
                 self.cursor = None
-                self.sim = Simulation(fleet_counts=self.sim.fleet_counts(), incident_id=dispatch_incident_id() if self.loop else None)
+                self.sim = Simulation(fleet_counts=self.sim.fleet_counts())
                 self.recording=False
                 self.error = None
                 self.auto = self.running = False
@@ -501,7 +446,6 @@ class Controller:
 
 def serve(port=8765):
     controller = Controller()
-    atexit.register(controller.robot.close)
     static = Path(__file__).parent/'static'
     pages = {'/': 'situacion.html', '/situacion': 'situacion.html',
              '/incidente': 'incidente.html', '/incidente/brunete': 'incidente.html',
@@ -562,7 +506,6 @@ def serve(port=8765):
                 self.reply(404, {'error': 'Not found'})
 
         def do_POST(self):
-            # Reject cross-origin requests to the local authenticated MCP bridge.
             # Cloudflare tunnels are same-origin: Origin matches the public Host header.
             if self.headers.get('X-Simulator-Request') != '1' or not action_origin_allowed(
                     self.headers.get('Origin'), self.headers.get('Host'), port):
@@ -588,21 +531,13 @@ def serve(port=8765):
 
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     print(f'Los Panaderos: http://127.0.0.1:{port}', flush=True)
-    mode = 'loop (sim writes KV inbox; click Run on Despacho in HappyRobot development)' if loop_mode() else 'push (each decision calls Despacho; HappyRobot reads/writes Cloudflare)'
-    print(f'HappyRobot mode={happyrobot_mode()}: {mode}', flush=True)
-    if loop_mode():
-        print(f'Dispatcher session key: {dispatch_incident_id()} — click Run on Despacho Central (development).', flush=True)
-    print('Farmer call is a simulated transcript.', flush=True)
-    missing = contact_directory().get('missing', [])
-    if missing:
-        print('Demo contacts without phone/Telegram IDs (set DEMO_* in .env): '+', '.join(missing), flush=True)
+    print('Deterministic fleet policy; farmer call and communications are simulated.', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         controller.stop.set()
-        controller.robot.close()
         server.server_close()
 
 

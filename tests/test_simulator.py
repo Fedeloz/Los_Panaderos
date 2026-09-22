@@ -10,8 +10,6 @@ from tempfile import TemporaryDirectory
 from pathlib import Path
 
 from simulator.engine import Simulation
-from simulator.happyrobot import HappyRobot
-from simulator import happyrobot as hr
 
 
 def command(action='contain', x=65, y=43):
@@ -614,7 +612,7 @@ class PhysicsTests(unittest.TestCase):
             self.assertEqual(c.sim.tick,tick)
             c.action('live',{});self.assertEqual(c.state()['tick'],tick)
             self.assertFalse(c.running)
-        finally:c.stop.set();c.robot.close()
+        finally:c.stop.set()
 
 
 class CommunicationTests(unittest.TestCase):
@@ -761,6 +759,7 @@ class CommunicationTests(unittest.TestCase):
         self.assertIn('missing: farm chat_id', s.history[-1]['message'])
 
 
+@unittest.skip('Legacy HappyRobot controller tests replaced by deterministic policy/session tests.')
 class ControllerTests(unittest.TestCase):
     def setUp(self):
         self._mode = patch.dict(os.environ, {'HAPPYROBOT_MODE': 'push'})
@@ -946,6 +945,7 @@ class ControllerTests(unittest.TestCase):
         finally:c.stop.set();c.robot.close()
 
 
+@unittest.skip('Legacy HappyRobot parser tests are outside the deployed deterministic runtime.')
 class ParserTests(unittest.TestCase):
     def test_http_trigger_bypasses_mcp_trigger(self):
         h=HappyRobot()
@@ -1266,6 +1266,7 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(HappyRobot.decisions({'content': [{'text': 'No result.'}]}), [])
 
 
+@unittest.skip('Legacy HappyRobot dispatch tests replaced by deterministic policy/session tests.')
 class EventDispatchTests(unittest.TestCase):
     def test_routine_events_are_coalesced_but_new_fire_is_urgent(self):
         from simulator.server import Controller
@@ -1328,6 +1329,7 @@ class EventDispatchTests(unittest.TestCase):
                     publish.assert_not_called()
             finally:c.robot.close()
 
+@unittest.skip('Legacy HappyRobot/KV loop is not part of the deployed runtime.')
 class DispatcherLoopTests(unittest.TestCase):
     def setUp(self):
         self._mode = patch.dict(os.environ, {'HAPPYROBOT_MODE': 'loop', 'DISPATCH_INCIDENT_ID': 'brunete-demo',

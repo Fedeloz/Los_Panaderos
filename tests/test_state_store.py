@@ -310,18 +310,18 @@ class StateStoreClientTests(unittest.TestCase):
 
 
 class ControllerPublishTests(unittest.TestCase):
-    def test_push_controller_leaves_cloudflare_writes_to_happyrobot(self):
+    def test_controller_disables_the_legacy_external_state_api(self):
         from simulator.server import Controller
-        c = Controller(); c.stop.set()
-        published = []
-        c.store = StateStore('http://127.0.0.1:9', 'secret')
-        with patch.object(c.store, 'publish', side_effect=lambda state, force=False, wait=False, events=None: published.append((state['sim_time'], force, events)) or True):
-            c.sim.ignite(); c.sim.farmer_call()
-            with patch.object(c.robot, 'decide', return_value=(None, 'ev')):
-                c.busy = True; c._decide(c.sim.payload('farmer_call'), c.sim.tick)
-        self.assertFalse(c.loop)
-        self.assertEqual(published, [])  # Despacho owns writes in push mode
-        c.robot.close()
+        c=Controller();c.stop.set()
+        try:
+            self.assertFalse(c.loop)
+            self.assertFalse(c.store.enabled)
+            c.sim.ignite();c.sim.farmer_call();c.busy=True
+            c._decide(c.sim.payload('farmer_call'),c.sim.tick)
+            self.assertEqual(c.calls,1)
+            self.assertIsNone(c.error)
+            self.assertEqual(c.sim.dispatch['decision'],'deterministic_fleet_policy')
+        finally:c.stop.set()
 
 
 if __name__ == '__main__':

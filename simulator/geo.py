@@ -1,4 +1,4 @@
-"""Georeference the 80×56 HappyRobot grid onto Sierra de Gata (PR #1 bbox)."""
+"""Georeference the 80×56 simulation grid onto Sierra de Gata (PR #1 bbox)."""
 
 # Same bbox as geo/config.py on wildfire-system (EPSG:4326).
 WEST, SOUTH, EAST, NORTH = -6.82, 40.13, -6.55, 40.32

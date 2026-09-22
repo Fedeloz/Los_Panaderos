@@ -6,8 +6,12 @@ import math
 import random
 import uuid
 from pathlib import Path
-from .terrain import PROFILES, make_cells
-from .contacts import directory as contact_directory
+try:
+    from .terrain import PROFILES, make_cells
+    from .contacts import directory as contact_directory
+except ImportError:
+    from terrain import PROFILES, make_cells
+    from contacts import directory as contact_directory
 
 GEOGRAPHY = json.loads((Path(__file__).parent / "static/maps/brunete-illustrated.json").read_text(encoding="utf-8"))
 
@@ -83,7 +87,7 @@ class Simulation:
                 count=zone['population'],population_basis=zone['population_basis'],
                 burnt=0,status='unwarned',refuge=zone['refuge'][:])
             for zone in GEOGRAPHY['observation_zones']}
-        self.rules['evacuation'] = ('Each population district is independent. Use evacuate_town with target_x/y equal to the chosen unwarned town district home coordinates from people; use evacuate_farm for the single farm district. Always supply district_id copied from evacuation_targets. The HappyRobot agent selects the district explicitly; missing/invalid IDs are rejected, never replaced with a nearest district. One warning evacuates ONLY that district, never the whole town. After delivery choose the next threatened unwarned district, or help the truck. Never repeat a warning for evacuating/blocked/safe/burnt people. District counts are scenario allocations of the official municipal total; farm occupancy is assumed.')
+        self.rules['evacuation'] = ('Each population district is independent. Use evacuate_town with target_x/y equal to the chosen unwarned town district home coordinates from people; use evacuate_farm for the single farm district. Always supply district_id copied from evacuation_targets. The decision policy selects the district explicitly; missing/invalid IDs are rejected, never replaced with a nearest district. One warning evacuates ONLY that district, never the whole town. After delivery choose the next threatened unwarned district, or help the truck. Never repeat a warning for evacuating/blocked/safe/burnt people. District counts are scenario allocations of the official municipal total; farm occupancy is assumed.')
         self.configure_fleet(drone_count, **(fleet_counts or {}))
         self.observe()
 
@@ -215,6 +219,45 @@ class Simulation:
     def log(self, source, message, **extra):
         self.history.append(dict(tick=self.tick, source=source, message=message, **extra))
         self.history = self.history[-100:]
+
+    def checkpoint(self):
+        state=copy.deepcopy(self.__dict__)
+        state.pop('rng');state.pop('suppression_rng')
+        state['rng_state']=self.rng.getstate()
+        state['suppression_rng_state']=self.suppression_rng.getstate()
+        state['wind']=list(self.wind)
+        state['roads']=[list(point) for point in sorted(self.roads)]
+        state['seen_commands']=sorted(self.seen_commands)
+        state['_fire_reported_by']=sorted(self._fire_reported_by)
+        state['_truck_milestones']=[[list(key),value] for key,value in self._truck_milestones.items()]
+        return dict(version=1,state=state)
+
+    @classmethod
+    def restore(cls, value):
+        if not isinstance(value,dict) or value.get('version')!=1 or not isinstance(value.get('state'),dict):
+            raise ValueError('Unsupported simulation checkpoint version.')
+        state=copy.deepcopy(value['state'])
+        required={'incident_id','tick','wind','cells','extinguishers','scouts','trucks','roads','groups','rng_state','suppression_rng_state'}
+        if not required<=state.keys():raise ValueError('Incomplete simulation checkpoint.')
+        def tuples(item):
+            return tuple(tuples(v) for v in item) if isinstance(item,list) else item
+        rng_state=tuples(state.pop('rng_state'));suppression_state=tuples(state.pop('suppression_rng_state'))
+        state['wind']=tuple(state['wind'])
+        state['roads']={tuple(point) for point in state['roads']}
+        state['seen_commands']=set(state.get('seen_commands',[]))
+        state['_fire_reported_by']=set(state.get('_fire_reported_by',[]))
+        state['_truck_milestones']={tuple(key):tick for key,tick in state.get('_truck_milestones',[])}
+        for satellite in [state.get('satellite'),*state.get('satellite_queue',[])]:
+            if satellite:satellite['blocks']=[tuple(point) for point in satellite.get('blocks',[])]
+        sim=cls.__new__(cls);sim.__dict__.update(state)
+        sim.rng=random.Random();sim.rng.setstate(rng_state)
+        sim.suppression_rng=random.Random();sim.suppression_rng.setstate(suppression_state)
+        sim.drone=sim.extinguishers[0] if sim.extinguishers else sim.drone
+        sim.truck=sim.trucks[0] if sim.trucks else sim.truck
+        if sim.trucks:
+            sim.crew_target=sim.truck.get('crew_target')
+            sim.crew_due=sim.truck.get('crew_due')
+        return sim
 
     def emit(self, kind, source, x=None, y=None, **extra):
         """Queue a field event for the shared state API (drained by StateStore). Never blocks."""
@@ -484,7 +527,7 @@ class Simulation:
             if vehicle.get('reported_blocked_target')!=list(target):
                 vehicle['reported_blocked_target']=list(target)
                 self.pending_decision_event=self.pending_decision_event or 'route_blocked'
-                self.log('autopilot',f"{vehicle.get('drone_id','drone')} cannot reach {target} using shared remembered fire; HappyRobot must choose a new safe approach or containment position.")
+                self.log('autopilot',f"{vehicle.get('drone_id','drone')} cannot reach {target} using shared remembered fire; The decision policy must choose a new safe approach or containment position.")
             return
         vehicle.pop('reported_blocked_target',None)
         budget=speed+vehicle.get('travel_credit',0)
@@ -513,7 +556,7 @@ class Simulation:
                     coverage=sum(math.hypot(f['x']-p[0],f['y']-p[1])<=self.rules['drone_suppression_range'] for f in leading)
                     offset=projection(p)-front if strength else 0
                     distance=math.hypot(p[0]-drone['x'],p[1]-drone['y'])
-                    # Supply safe tactical options; HappyRobot still chooses the mission and target.
+                    # Supply safe tactical options; the policy still chooses the mission and target.
                     rank=(-coverage,-int(offset>=0) if strength else 0,-fires,distance,p)
                     candidates.append((rank,dict(x=p[0],y=p[1],downwind_front_reachable=coverage,
                                                  downwind_offset=round(offset,2))))
@@ -800,8 +843,8 @@ class Simulation:
         return 'inform','default'
 
     def apply_communications(self, communications):
-        """Record calls/Telegram alerts HappyRobot actually sent. A zone alert either ORDERS its
-        district to evacuate or INFORMS it; a call reaches one person."""
+        """Record simulated calls and alerts. A zone alert either orders its
+        district to evacuate or informs it; a call reaches one person."""
         applied=[]
         for item in communications or []:
             if not isinstance(item,dict):continue

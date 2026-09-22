@@ -12,8 +12,7 @@ class PageRouteTests(unittest.TestCase):
         self.controller = Mock()
         self.controller.state.return_value = {'tick': 0, 'busy': False}
         with patch.object(server, 'Controller', return_value=self.controller) as constructor, \
-                patch.object(server, 'ThreadingHTTPServer') as http, \
-                patch.object(server.atexit, 'register'), patch('builtins.print'):
+                patch.object(server, 'ThreadingHTTPServer') as http, patch('builtins.print'):
             server.serve()
         constructor.assert_called_once_with()
         self.handler_class = http.call_args.args[1]

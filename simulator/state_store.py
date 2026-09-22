@@ -1,4 +1,4 @@
-"""Shared incident state: the simulator publishes it, HappyRobot reads/updates it.
+"""Legacy shared incident state client for external integrations.
 
 Backed by the Cloudflare Worker in `state-api/` (KV). Configure with
 STATE_API_URL and STATE_API_TOKEN (see .env.example). When unset, publishing
@@ -24,7 +24,10 @@ import time
 import urllib.error
 import urllib.request
 
-from .contacts import directory as contact_directory, load_env
+try:
+    from .contacts import directory as contact_directory, load_env
+except ImportError:
+    from contacts import directory as contact_directory, load_env
 
 LEVELS = ('none', 'watch', 'warning', 'critical')
 
@@ -113,8 +116,8 @@ class StateStore:
 
     def __init__(self, url=None, token=None, timeout=6, min_interval=2.0):
         load_env()
-        self.url = (url or os.environ.get('STATE_API_URL', '')).rstrip('/')
-        self.token = token or os.environ.get('STATE_API_TOKEN', '')
+        self.url = (os.environ.get('STATE_API_URL', '') if url is None else url).rstrip('/')
+        self.token = os.environ.get('STATE_API_TOKEN', '') if token is None else token
         self.timeout = timeout
         self.min_interval = min_interval  # KV allows ~1 write/s per key; coalesce tick updates.
         self.lock = threading.Lock()
