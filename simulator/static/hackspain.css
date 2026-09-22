@@ -1,0 +1,118 @@
+/* Crónica de Los Panaderos en HackSpain 2026.
+   Inspirada en el brand kit de HackSpain (hackspain.com/brand): paleta papel/tinta/oro/turquesa,
+   Bungee para titulares cortos y DM Sans para leer. Formato artículo, no copia del mosaico. */
+:root{
+  --paper:#f4ecd8;--sand:#e8dcc4;--ink:#2a170f;--gold:#eab619;--orange:#d96b2a;--red:#cc291f;
+  --teal:#35858a;--navy:#1e3958;--hs-red:#ca0005;--hs-orange:#f29100;
+  --line:2px;--measure:68ch;
+  --display:"Bungee",ui-sans-serif,system-ui,sans-serif;--text:"DM Sans",ui-sans-serif,system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{color-scheme:light;scroll-behavior:smooth}
+body.hs{font:18px/1.6 var(--text);color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased}
+a{color:inherit}
+:focus-visible{outline:3px solid var(--red);outline-offset:2px}
+.skip{position:absolute;left:-999px;top:12px;padding:8px 12px;background:var(--gold);border:var(--line) solid var(--ink);font-weight:900;z-index:9}
+.skip:focus{left:12px}
+
+/* Franja superior de colores de marca (guiño, no logotipo). */
+.stripe{display:grid;grid-template-columns:1fr 1fr;height:6px}
+.stripe i:nth-child(1){background:var(--hs-red)}.stripe i:nth-child(2){background:var(--hs-orange)}
+
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:20px;max-width:1100px;margin:0 auto;padding:20px 28px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:900;letter-spacing:.02em}
+.brand-mark{display:grid;place-items:center;width:34px;height:34px;background:var(--red);color:var(--paper);font-family:var(--display);font-size:13px;border:var(--line) solid var(--ink)}
+.topbar-links{display:flex;align-items:center;gap:22px;font-weight:700;font-size:15px}
+.topbar-links a:not(.btn){text-decoration:none;border-bottom:var(--line) solid transparent}
+.topbar-links a:not(.btn):hover{border-color:var(--red);color:var(--red)}
+
+/* Botones al estilo HackSpain: oro, borde de tinta, Bungee, sombra dura. */
+.btn{display:inline-block;padding:11px 20px;background:var(--gold);color:var(--ink);text-decoration:none;font-family:var(--display);font-size:15px;letter-spacing:.03em;line-height:1.2;border:var(--line) solid var(--ink);box-shadow:4px 4px 0 var(--ink);transition:transform .12s,box-shadow .12s,background .12s;white-space:nowrap}
+.btn:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--ink);background:#f2c53a}
+.btn:active{transform:translate(2px,2px);box-shadow:2px 2px 0 var(--ink)}
+.btn-sm{padding:8px 14px;font-size:12px;box-shadow:3px 3px 0 var(--ink)}
+.btn-lg{padding:16px 30px;font-size:19px;box-shadow:6px 6px 0 var(--ink)}
+.btn-ghost{background:transparent;color:var(--ink)}
+.btn-ghost:hover{background:var(--sand)}
+
+/* Cabecera del artículo con el logo de HackSpain grande. */
+.hero{max-width:880px;margin:36px auto 0;padding:0 28px 56px;text-align:center;border-bottom:var(--line) solid var(--ink)}
+.kicker{font-size:12px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:var(--hs-red)}
+.hero-logo{display:block;width:min(560px,86%);height:auto;margin:22px auto 30px}
+.hero h1{font-family:var(--display);font-size:clamp(26px,3.6vw,44px);line-height:1.12;text-wrap:balance;max-width:24ch;margin:0 auto}
+.lede{font-size:clamp(18px,1.6vw,21px);line-height:1.5;max-width:60ch;margin:24px auto 0;color:#4a3a30}
+.hero-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:16px;margin-top:34px}
+
+/* Cuerpo del artículo: una columna legible con acentos de marca. */
+.article{max-width:var(--measure);margin:0 auto;padding:40px 28px 24px}
+.article section{margin:0 0 48px}
+.article h2{font-family:var(--display);font-size:clamp(22px,2.4vw,30px);line-height:1.15;margin:0 0 18px;padding-top:8px;position:relative}
+.article h2::before{content:"";display:block;width:44px;height:6px;background:var(--red);margin-bottom:14px}
+.article h3{font-size:19px;font-weight:900;margin:28px 0 8px}
+.article p{margin:0 0 16px}
+.article em{font-style:italic}
+.article strong{font-weight:900}
+
+.callout{margin:0 0 48px;padding:22px 26px;border:var(--line) solid var(--ink);box-shadow:6px 6px 0 var(--ink);font-size:17px}
+.callout p{margin:0}
+.callout-label{font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px!important}
+.callout-gold{background:var(--gold)}
+.callout-orange{background:var(--hs-orange);color:var(--ink)}
+
+.steps{list-style:none;display:grid;gap:14px;margin:22px 0 26px}
+.steps li{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:start;padding:16px 18px;background:var(--sand);border:var(--line) solid var(--ink)}
+.step-n{font-family:var(--display);font-size:22px;line-height:1;color:var(--red);padding-top:2px}
+.steps h3{margin:0 0 4px;font-size:17px}
+.steps p{margin:0;font-size:16px}
+.steps li:nth-child(2) .step-n{color:var(--hs-orange)}.steps li:nth-child(3) .step-n{color:var(--gold)}.steps li:nth-child(4) .step-n{color:var(--ink)}
+
+.shot{margin:0 auto 52px;max-width:1100px;padding:0 28px;width:100%}
+.shot img{display:block;width:100%;height:auto;border:var(--line) solid var(--ink);box-shadow:8px 8px 0 var(--ink)}
+.shot figcaption{margin-top:18px;font-size:14px;color:#5a4a40;text-align:center}
+.article .shot{margin-left:calc(50% - min(50vw,550px));margin-right:calc(50% - min(50vw,550px));width:min(100vw,1100px)}
+
+.fleet{display:grid;gap:0;margin:14px 0 22px;border:var(--line) solid var(--ink)}
+.fleet>div{display:grid;grid-template-columns:minmax(150px,.7fr) 2fr;gap:14px;padding:14px 18px;border-top:var(--line) solid var(--ink)}
+.fleet>div:first-child{border-top:0}
+.fleet>div:nth-child(odd){background:var(--sand)}
+.fleet dt{font-weight:900}
+.fleet dd{font-size:16px}
+
+.try{padding:30px 30px 34px;background:var(--ink);color:var(--paper);border:var(--line) solid var(--ink);box-shadow:8px 8px 0 var(--ink)}
+.try h2::before{background:var(--gold)}
+.try p{color:#e6dcc6}
+.howto{margin:8px 0 26px 0;padding-left:0;list-style:none;counter-reset:how;display:grid;gap:10px}
+.howto li{counter-increment:how;position:relative;padding-left:44px;font-size:17px}
+.howto li::before{content:counter(how,decimal-leading-zero);position:absolute;left:0;top:.2em;font-family:var(--display);color:var(--gold);font-size:15px}
+.try-actions{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
+.try .btn-ghost{color:var(--paper);border-color:var(--paper);box-shadow:4px 4px 0 var(--paper)}
+.try .btn-ghost:hover{background:#3d2a21;box-shadow:6px 6px 0 var(--paper)}
+
+
+.foot{position:relative;margin-top:32px;background:var(--sand);border-top:var(--line) solid var(--ink)}
+.foot-inner{max-width:1100px;margin:0 auto;padding:28px 28px 34px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:20px 40px;font-size:14px}
+.foot-note{max-width:56ch;color:#5a4a40;margin-top:6px}
+.foot-note a{font-weight:700}
+.foot-links{display:flex;flex-wrap:wrap;gap:8px 20px;font-weight:700;align-content:flex-start}
+.foot-links a{text-decoration:none;border-bottom:var(--line) solid var(--ink)}
+.foot-links a:hover{color:var(--red);border-color:var(--red)}
+.foot-symbol{position:absolute;right:28px;bottom:-14px;width:56px;height:auto;opacity:.9}
+
+@media(max-width:760px){
+  body.hs{font-size:17px}
+  .topbar{padding:14px 18px}
+  .topbar-links a:not(.btn){display:none}
+  .hero{padding:0 18px 40px;margin-top:20px}
+  .hero-logo{width:92%}
+  .article,.shot{padding-left:18px;padding-right:18px}
+  .article .shot{margin-left:-18px;margin-right:-18px;width:auto;padding:0}
+  .shot img{border-left:0;border-right:0;box-shadow:none}
+  .fleet>div{grid-template-columns:1fr;gap:4px}
+  .try{padding:22px 18px 26px;box-shadow:none}
+  .callout{box-shadow:none}
+  .foot-symbol{display:none}
+}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn{transition:none}}
+
+.shot-inline{margin:22px 0 26px;padding:0;width:100%}.article .shot-inline{margin-left:0;margin-right:0;width:100%}
+.coming-soon{font-family:var(--display);font-size:clamp(22px,3vw,34px);color:var(--hs-orange);letter-spacing:.02em}

@@ -42,7 +42,7 @@ async function harness(page, options = {}) {
   let timerId = 0;
   const h = {nodes, elements, events, timers, local, session, observers, requests: [], writes: [], navigations: [], state: state(), handler: null};
   const storage = (map, name) => ({getItem: key => {if (options.storageBlocked) throw Error('Storage unavailable'); return map.get(key) ?? null;}, setItem: (key, value) => {if (options.storageBlocked) throw Error('Storage unavailable'); map.set(key, value); h.writes.push([name, key, value]);}, removeItem: key => map.delete(key)});
-  const document = {readyState: 'loading', documentElement: {}, body: nodes.find(n => n.tagName === 'BODY'), title: '',
+  const document = {readyState: 'loading', hidden: false, documentElement: {}, body: nodes.find(n => n.tagName === 'BODY'), title: '',
     getElementById: id => elements.get(id), createElement: tag => new Element(tag),
     querySelectorAll: selector => selector === '[data-i18n]' ? nodes.filter(n => n.dataset.i18n) : selector === '[data-i18n-aria-label]' ? nodes.filter(n => n.dataset.i18nAriaLabel) : selector === '[data-nav]' ? nodes.filter(n => n.dataset.nav) : [],
     querySelector: selector => selector === '.record-tools' ? nodes.find(n => n.className.split(' ').includes('record-tools')) : null,
@@ -51,7 +51,7 @@ async function harness(page, options = {}) {
     URL: {createObjectURL: () => 'blob:unit-test', revokeObjectURL: () => {}},
     localStorage: storage(local, 'local'), sessionStorage: storage(session, 'session'),
     location: {pathname: options.pathname || (page === 'situacion' ? '/' : '/' + page), assign: target => h.navigations.push(target)},
-    setTimeout: (fn, ms) => {const id = ++timerId; timers.set(id, {fn, ms}); return id;},
+    setTimeout: (fn, ms) => {const id = ++timerId; timers.set(id, {fn, ms}); return id;}, clearTimeout: id => timers.delete(id),
     addEventListener: (event, fn) => {events[event] = fn;},
     MutationObserver: class {constructor(fn) {this.fn = fn; observers.push(this);} observe(target) {this.target = target;} disconnect() {this.disconnected = true;}},
     fetch: async (url, args = {}) => {const request = {url, method: args.method || 'GET', headers: args.headers, body: args.body ? JSON.parse(args.body) : null}; h.requests.push(request); if (h.handler) return h.handler(request); if (url === '/api/state' || url === '/api/action') return response(h.state); if (url === '/api/recording') return response({format: 'los-panaderos-recording-v1', frames: []}); throw Error('Unexpected request');}};
@@ -69,10 +69,12 @@ test('nav aliases and stored language apply without extra incident polling', asy
     const h = await harness(page, {pathname, savedLang: 'en'});
     const active = h.nodes.filter(n => n.getAttribute('aria-current') === 'page');
     assert.equal(active.length, 1); assert.equal(active[0].dataset.nav, nav); assert.equal(h.document.documentElement.lang, 'en');
-    assert.equal(h.requests.length, page === 'incidente' ? 0 : 1);
+    // The archive page also fetches /api/shared once on load.
+    const expectedRequests = page === 'incidente' ? 0 : page === 'archivo' ? 2 : 1;
+    assert.equal(h.requests.length, expectedRequests);
     h.events.DOMContentLoaded(); await flush();
-    assert.equal(h.requests.length, page === 'incidente' ? 0 : 1);
-    assert.equal([...h.timers.values()].filter(t => t.ms === 600).length, page === 'incidente' ? 0 : 1);
+    assert.equal(h.requests.length, expectedRequests);
+    assert.equal([...h.timers.values()].filter(t => t.ms === 1000).length, page === 'incidente' ? 0 : 1);
   }
 });
 

@@ -54,9 +54,9 @@ async function harness() {
   const intervals = new Map(), timeouts = new Map(); let nextTimer = 0;
   const h = {elements, live, intervals, timeouts, requests: [], server: frame(), handler: null};
   const sandbox = {console, URL, Blob, Date, Set, Map, Number, JSON, Math, Error, performance: {now: () => 0},
-    document: {getElementById: id => elements.get(id), createElement: () => new Element(), body: new Element(), documentElement: {},
+    document: {hidden: false, getElementById: id => elements.get(id), createElement: () => new Element(), body: new Element(), documentElement: {},
       querySelectorAll: selector => selector === '[data-action]' ? actions : selector.startsWith('.toolbar') ? toolbar : [],
-      querySelector: selector => selector === '[data-action="live"]' ? live : null},
+      querySelector: selector => selector === '[data-action="live"]' ? live : null, addEventListener: () => {}},
     setTimeout: (fn, ms) => {const id = ++nextTimer; timeouts.set(id, {fn, ms}); return id;}, clearTimeout: id => timeouts.delete(id),
     setInterval: (fn, ms) => {const id = ++nextTimer; intervals.set(id, {fn, ms}); return id;}, clearInterval: id => intervals.delete(id),
     fetch: async (url, options = {}) => {const request = {url, options, body: options.body ? JSON.parse(options.body) : null}; h.requests.push(request); if (h.handler) return h.handler(request); if (url === '/api/state' || url === '/api/action') return response(h.server); if (url === '/api/recording') return response(recording([])); throw Error('Unexpected request: ' + url);},
@@ -76,8 +76,8 @@ test('late live poll cannot overwrite local replay', async () => {
   const h = await harness(), gate = deferred();
   h.handler = () => gate.promise;
   const poll = h.run('poll()');
-  h.put('frames', [frame({tick: 5, mission: 'Recorded'})]);
-  h.run('recordingPlayback=frames; showRecorded(0)');
+  h.put('input', [frame({tick: 5, mission: 'Recorded'})]);
+  h.run("frames=input; playbackMode='local'; showRecorded(0)");
   gate.resolve(response(frame({tick: 77, running: true})));
   await poll;
   assert.equal(h.run('state.tick'), 5);
@@ -115,23 +115,27 @@ test('client errors survive polling and clear on a successful action', async () 
   assert.equal(h.elements.get('error').hidden, true);
 });
 
-test('failed Live retains the current recording', async () => {
+test('failed Live retains the current local replay', async () => {
   const h = await harness();
-  h.put('frames', [frame({tick: 8})]); h.run('recordingPlayback=frames;showRecorded(0)');
+  h.put('input', [frame({tick: 8})]); h.run("frames=input;playbackMode='local';showRecorded(0)");
   h.handler = () => response({error: 'Live failed'}, 500);
+  const before = h.requests.length;
   assert.equal(await h.run("act('live')"), false);
-  assert.equal(h.run('recordingPlayback.length'), 1);
+  assert.equal(h.requests.length, before + 1);
+  assert.equal(h.requests.at(-1).url, '/api/state');
+  assert.equal(h.run('playbackMode'), 'local');
   assert.equal(h.run('state.tick'), 8);
 });
 
-test('double replay click cancels a pending start without leaking intervals', async () => {
-  const h = await harness(), gate = deferred();
-  h.handler = () => gate.promise;
-  const first = h.elements.get('replayPlay').onclick();
-  const second = h.elements.get('replayPlay').onclick();
-  gate.resolve(response(frame({replay: true})));
-  await Promise.all([first, second]);
+test('double replay click starts then cancels the local interval without fetching', async () => {
+  const h = await harness();
+  h.put('input', [frame(), frame({tick: 1})]); h.run('frames=input');
+  const before = h.requests.length;
+  await h.elements.get('replayPlay').onclick();
+  assert.equal(h.intervals.size, 1);
+  h.elements.get('replayPlay').onclick();
   assert.equal(h.intervals.size, 0);
+  assert.equal(h.requests.length, before);
 });
 
 test('stale action responses cannot replace a newer accepted view', async () => {
@@ -155,12 +159,13 @@ test('poll HTTP errors are visible and recovery does not erase action errors', a
   assert.match(h.elements.get('error').textContent, /Action failed/);
 });
 
-test('recording download failure is handled without pausing', async () => {
+test('recording download serialises local frames without a server request', async () => {
   const h = await harness();
-  h.handler = request => request.url === '/api/recording' ? response({error: 'No recording'}, 500) : response(h.server);
-  await assert.doesNotReject(async () => h.elements.get('playRecord').onclick());
-  assert.equal(h.requests.filter(request => request.body?.action === 'pause').length, 0);
-  assert.equal(h.elements.get('error').hidden, false);
+  h.put('input', [frame(), frame({tick: 1})]); h.run('frames=input;render(state)');
+  const before = h.requests.length;
+  await assert.doesNotReject(async () => h.elements.get('downloadRecord').onclick());
+  assert.equal(h.requests.length, before);
+  assert.equal(h.requests.some(request => request.url === '/api/recording'), false);
 });
 
 test('unexpected recording-render failure rolls back playback and displayed state', async () => {
@@ -222,20 +227,21 @@ test('backend errors remain visible after a successful client action', async () 
   assert.match(h.elements.get('error').textContent, /HappyRobot error/);
 });
 
-test('network pause failure also blocks server-recording playback', async () => {
+test('local recording playback never requests the server recording endpoint', async () => {
   const h = await harness();
-  h.handler = request => {if (request.url === '/api/recording') return response(recording([frame()])); throw Error('Network unavailable');};
+  h.put('input', [frame(), frame({tick: 1})]); h.run('frames=input;render(state)');
+  const before = h.requests.length;
   await h.elements.get('playRecord').onclick();
-  assert.equal(h.run('recordingPlayback===null'), true);
-  assert.equal(h.intervals.size, 0);
-  assert.match(h.elements.get('error').textContent, /Network unavailable/);
+  assert.equal(h.run('playbackMode'), 'local');
+  assert.equal(h.intervals.size, 1);
+  assert.equal(h.requests.length, before);
+  assert.equal(h.requests.some(request => request.url === '/api/recording'), false);
 });
 
 test('bad JSON, empty recordings, and oversized uploads never pause the world', async () => {
-  for (const body of [null, recording([]), {format: 'wrong-format', frames: [frame()]}]) {
+  for (const body of ['not json', JSON.stringify(recording([])), JSON.stringify({format: 'wrong-format', frames: [frame()]})]) {
     const h = await harness();
-    h.handler = () => body === null ? {ok: true, json: async () => {throw Error('Invalid JSON');}} : response(body);
-    await h.elements.get('playRecord').onclick();
+    await h.elements.get('openRecording').onchange({target: {files: [{size: body.length, text: async () => body}], value: 'bad.json'}});
     assert.equal(h.requests.filter(request => request.body?.action === 'pause').length, 0);
     assert.equal(h.elements.get('error').hidden, false);
   }
@@ -276,28 +282,29 @@ test('read-only local replay never posts a decision and Live success resumes pol
   assert.equal(h.requests.length, liveCount + 1);
 });
 
-test('failed initial and subsequent replay seeks leave no timer running', async () => {
+test('timeline, back, forward, and replay interval seek only local frames', async () => {
   const h = await harness();
-  h.handler = () => response({error: 'Seek failed'}, 400);
+  h.put('input', [frame(), frame({tick: 1}), frame({tick: 2})]); h.run('frames=input;render(state)');
+  const before = h.requests.length;
+  h.elements.get('timeline').oninput({target: {value: '1'}});
+  assert.equal(h.run('state.tick'), 1);
+  h.elements.get('back').onclick(); assert.equal(h.run('state.tick'), 0);
+  h.elements.get('forward').onclick(); assert.equal(h.run('state.tick'), 1);
   await h.elements.get('replayPlay').onclick();
-  assert.equal(h.intervals.size, 0);
-  h.handler = () => response(frame({replay: true}));
-  await h.elements.get('replayPlay').onclick();
-  assert.equal(h.intervals.size, 1);
-  h.handler = () => response({error: 'Seek failed'}, 400);
   await [...h.intervals.values()][0].fn();
-  assert.equal(h.intervals.size, 0);
-  assert.equal(h.run('pending'), false);
+  assert.equal(h.run('state.tick'), 2);
+  assert.equal(h.requests.length, before);
+  h.run('stopReplay()');
 });
 
-test('modern fleet arrays provide aliases without inheriting live vehicles or links', async () => {
+test('modern fleet arrays provide replay aliases without a workflow-link dependency', async () => {
   const h = await harness(); const recorded = frame({tick: 4});
   delete recorded.drone; delete recorded.truck;
   recorded.workflow_url = '/recorded-workflow';
   await h.import([recorded]);
   assert.equal(h.run('state.drone.drone_id'), 'drone-1');
   assert.equal(h.run('state.truck.truck_id'), 'engine-1');
-  assert.equal(h.run('state.workflow_url'), '/workflow');
+  assert.equal(h.elements.has('workflow'), false);
 });
 
 test('state-dependent controls are safe before the first state arrives', async () => {
@@ -314,7 +321,28 @@ test('unknown status and radio-source names do not read inherited dictionary pro
   assert.equal(h.elements.get('trail').children[0].children[1].textContent, 'CONSTRUCTOR');
 });
 
-test('belief toasts seed silently then show every new trail source', async () => {
+test('agent decisions render newest first and rejected decisions expose Resume', async () => {
+  const h = await harness();
+  h.put('input', frame({running: false, error: 'Rejected command', decisions: [
+    {tick: 2, trigger: 'farmer_call', status: 'accepted', mission: 'Scout', reason: 'Smoke', orders: {extinguishers: [], scouts: [], trucks: []}},
+    {tick: 4, trigger: 'command_rejected', status: 'rejected', mission: 'Correct', reason: 'Unsafe', orders: {extinguishers: [{drone_id: 'drone-1', command: 'attack_sector', target_x: 4, target_y: 5, reason: 'Observed'}], scouts: [], trucks: []}},
+  ]}));
+  h.run('render(input)');
+  assert.equal(h.elements.get('runs').textContent, '2');
+  assert.equal(h.elements.get('decisions').children.length, 2);
+  assert.match(h.elements.get('decisions').children[0].children[0].children[0].textContent, /T\+4.*Corrección/);
+  assert.equal(h.elements.get('resumeSim').hidden, false);
+});
+
+test('an unexpected incident id clears local history and shows the session notice', async () => {
+  const h = await harness();
+  h.put('input', frame({tick: 1})); h.run('render(input)');
+  h.put('input', frame({incident_id: 'server-reset', tick: 0})); h.run('render(input)');
+  assert.equal(h.run('frames.length'), 1);
+  assert.equal(h.elements.get('connection').textContent, h.run('I18N[lang].sessionReset'));
+});
+
+test('belief toasts seed silently and only show whitelisted events without sequence numbers', async () => {
   const h = await harness();
   const host = h.elements.get('beliefToasts');
   assert.ok(host);
@@ -327,11 +355,10 @@ test('belief toasts seed silently then show every new trail source', async () =>
     {tick: 0, source: 'simulation', message: 'Fire ignited.'},
   ]}));
   h.run('render(input)');
-  assert.equal(host.children.length, 3);
+  assert.equal(host.children.length, 2);
   assert.match(host.children[0].className, /source-human/);
-  assert.equal(host.children[0].textContent, '01 Smoke at (76, 41)');
-  assert.equal(host.children[1].textContent, '02 Truck mobilizing');
-  assert.equal(host.children[2].textContent, '03 Fire ignited.');
+  assert.equal(host.children[0].textContent, '📞 Humo en (76, 41)');
+  assert.equal(host.children[1].textContent, '🚒 Camión movilizándose');
   h.put('input', frame({history: [
     {tick: 0, source: 'farmer', message: 'Smoke column at (76, 41).'},
     {tick: 0, source: 'dispatch', message: 'Truck mobilizing.'},
@@ -341,7 +368,42 @@ test('belief toasts seed silently then show every new trail source', async () =>
   ]}));
   h.run('render(input)');
   assert.equal(host.children.length, 3);
-  assert.match(host.children[1].className, /source-drone/);
-  assert.equal(host.children[1].textContent, '04 Prado Alto · 2815 moving');
-  assert.equal(host.children[2].textContent, '05 Hold the southern edge.');
+  assert.match(host.children[2].className, /source-drone/);
+  assert.equal(host.children[2].textContent, '📣 Prado Alto · 2815 en evacuación');
+});
+
+test('dispatch decisions group orders and milestones show spreading and extinguished once', async () => {
+  const h = await harness(), toasts = h.elements.get('beliefToasts'), banner = h.elements.get('beliefBanner');
+  const scouts = [
+    {drone_id: 'scout-1', command: 'patrol', district_id: '', waypoints: []},
+    {drone_id: 'scout-2', command: 'patrol', district_id: '', waypoints: []},
+  ];
+  const decision = tick => ({tick, trigger: 'local_observation', status: 'accepted', mission: 'Patrol', reason: 'Observe', orders: {extinguishers: [], scouts: copy(scouts), trucks: []}});
+  h.put('input', frame({tick: 1, decisions: [decision(1)]}));
+  h.run('render(input)');
+  assert.equal(toasts.children.length, 1);
+  assert.match(toasts.children[0].className, /toast-dispatch/);
+  assert.match(toasts.children[0].textContent, /^DESPACHO · T\+1\n🔎 Scout-1, Scout-2 → patrullando alrededores$/);
+  toasts.replaceChildren();
+  h.put('input', frame({tick: 2, decisions: [decision(1), decision(2)]}));
+  h.run('render(input)');
+  assert.equal(toasts.children.length, 0);
+
+  h.put('input', frame({tick: 12, called: true, ignited: true, burning: 60, phase: 'active', decisions: [decision(1), decision(2)]}));
+  h.run('render(input)');
+  assert.equal(banner.hidden, false);
+  assert.equal(banner.children[0].textContent, '🔥 Incendio en expansión');
+  assert.match(banner.children[1].textContent, /60 celdas ardiendo · T\+12/);
+  banner.replaceChildren(); banner.hidden = true;
+  h.put('input', frame({tick: 13, called: true, ignited: true, burning: 60, phase: 'active', decisions: [decision(1), decision(2)]}));
+  h.run('render(input)');
+  assert.equal(banner.hidden, true);
+  h.put('input', frame({tick: 14, called: true, ignited: true, burning: 8, phase: 'active', decisions: [decision(1), decision(2)]}));
+  h.run('render(input)');
+  h.put('input', frame({tick: 15, called: true, ignited: true, burning: 0, phase: 'finished', extinguished: 42, crew_extinguished: 9, people: {farm: {x: 73, y: 21, count: 100, burnt: 0, status: 'safe', kind: 'farm'}}, decisions: [decision(1), decision(2)]}));
+  h.run('render(input)');
+  assert.equal(banner.hidden, false);
+  assert.equal(banner.children[0].textContent, '✅ Incendio extinguido');
+  assert.match(banner.children[1].textContent, /42 celdas por drones · 9 por camiones · 100 personas a salvo/);
+  assert.equal(h.elements.get('connection').textContent, 'Incendio extinguido · T+15');
 });

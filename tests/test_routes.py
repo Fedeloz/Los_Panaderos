@@ -28,7 +28,8 @@ class PageRouteTests(unittest.TestCase):
     def test_page_aliases_serve_the_correct_documents(self):
         pages = {'/': 'situacion.html', '/situacion': 'situacion.html',
                  '/incidente': 'incidente.html', '/incidente/brunete': 'incidente.html',
-                 '/medios': 'medios.html', '/archivo': 'archivo.html'}
+                 '/medios': 'medios.html', '/archivo': 'archivo.html',
+                 '/hackspain': 'hackspain.html', '/proyecto': 'hackspain.html'}
         for route, filename in pages.items():
             with self.subTest(route=route):
                 handler = self.handler(route)
@@ -48,7 +49,11 @@ class PageRouteTests(unittest.TestCase):
                  'style.css': 'text/css', 'favicon.png': 'image/png',
                  'cursors/flamethrower-hover.svg': 'image/svg+xml',
                  'cursors/flamethrower-active.svg': 'image/svg+xml',
-                 'maps/brunete.jpg': 'image/jpeg', 'maps/brunete-illustrated.png': 'image/png'}
+                 'maps/brunete.jpg': 'image/jpeg', 'maps/brunete-illustrated.png': 'image/png',
+                 'hackspain.css': 'text/css', 'hackspain/hackspain-symbol-color.svg': 'image/svg+xml',
+                 'hackspain/hackspain-wordmark-color.svg': 'image/svg+xml',
+                 'hackspain/hackspain-wordmark-black.svg': 'image/svg+xml',
+                 'hackspain/sala-de-crisis.png': 'image/png', 'hackspain/dashboard.png': 'image/png', 'scenarios.js': 'text/javascript', 'tour.js': 'text/javascript', 'tour.css': 'text/css'}
         for path, expected in paths.items():
             with self.subTest(path=path):
                 handler = self.handler('/' + path)
