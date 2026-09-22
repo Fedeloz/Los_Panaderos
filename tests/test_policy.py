@@ -80,6 +80,17 @@ class SessionTests(unittest.TestCase):
         self.assertGreater(restored.decision_count,1)
         self.assertTrue(all(item['status']=='accepted' for item in restored.decision_log))
 
+    def test_farmer_call_dispatches_and_moves_the_scout(self):
+        session=SimulatorSession(now_ms=0);session.action('ignite',now_ms=0)
+        start=(session.sim.scouts[0]['x'],session.sim.scouts[0]['y'])
+        state=session.action('call',now_ms=0)
+        scout_order=state['decisions'][-1]['orders']['scouts'][0]
+        self.assertEqual(scout_order['command'],'patrol')
+        self.assertEqual(session.sim.scouts[0]['mode'],'patrol')
+        session.action('step',now_ms=0)
+        self.assertNotEqual((session.sim.scouts[0]['x'],session.sim.scouts[0]['y']),start)
+        self.assertEqual(session.sim.scouts[0]['status'],'en_route')
+
     def test_paused_session_does_no_background_work(self):
         session=SimulatorSession(now_ms=1000);session.action('ignite',now_ms=1000)
         self.assertEqual(session.catch_up(100000),0)
