@@ -1,0 +1,49 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "los-panaderos",
+  "main": "simulator/cloudflare.py",
+  "compatibility_date": "2026-09-22",
+  "compatibility_flags": ["python_workers"],
+  "workers_dev": true,
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["static/maps/brunete-illustrated.json"],
+      "fallthrough": true
+    }
+  ],
+  "assets": {
+    "directory": "./simulator/static",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*",
+      "/",
+      "/situacion",
+      "/incidente",
+      "/incidente/*",
+      "/medios",
+      "/archivo",
+      "/favicon.ico"
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SIMULATIONS",
+        "class_name": "SimulationSession"
+      }
+    ]
+  },
+  "exports": {
+    "SimulationSession": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "limits": {
+    "cpu_ms": 1000
+  },
+  "observability": {
+    "enabled": true
+  }
+}

@@ -1,4 +1,4 @@
-"""Demo contact directory shared with HappyRobot's Despacho Central.
+"""Demo contact directory for simulated dispatch communications.
 
 Names, roles and locations are fictional demo personas. Phone numbers stay
 null unless DEMO_*_PHONE is set in .env (never invent them). District Telegram

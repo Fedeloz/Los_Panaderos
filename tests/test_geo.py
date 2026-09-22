@@ -28,7 +28,7 @@ class GeoTests(unittest.TestCase):
             c.action('place_fire', dict(x=65, y=43))
             self.assertEqual(c.sim.report, (65, 43))
         finally:
-            c.stop.set(); c.robot.close()
+            c.stop.set()
 
     def test_controller_rejects_legacy_lonlat_ignition(self):
         from simulator.server import Controller
@@ -39,7 +39,7 @@ class GeoTests(unittest.TestCase):
                 c.action('place_fire', dict(lon=-6.6, lat=40.2))
             self.assertEqual(c.sim.report, before)
         finally:
-            c.stop.set(); c.robot.close()
+            c.stop.set()
 
     def test_out_of_bbox_lonlat_clamps_to_rejected_edge(self):
         from simulator.server import Controller
@@ -50,7 +50,7 @@ class GeoTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 c.action('place_fire', dict(x=x, y=y))
         finally:
-            c.stop.set(); c.robot.close()
+            c.stop.set()
 
     def test_local_host(self):
         from simulator.server import local_host
