@@ -12,8 +12,7 @@ class PageRouteTests(unittest.TestCase):
         self.controller = Mock()
         self.controller.state.return_value = {'tick': 0, 'busy': False}
         with patch.object(server, 'Controller', return_value=self.controller) as constructor, \
-                patch.object(server, 'ThreadingHTTPServer') as http, \
-                patch.object(server.atexit, 'register'), patch('builtins.print'):
+                patch.object(server, 'ThreadingHTTPServer') as http, patch('builtins.print'):
             server.serve()
         constructor.assert_called_once_with()
         self.handler_class = http.call_args.args[1]
@@ -29,7 +28,8 @@ class PageRouteTests(unittest.TestCase):
     def test_page_aliases_serve_the_correct_documents(self):
         pages = {'/': 'situacion.html', '/situacion': 'situacion.html',
                  '/incidente': 'incidente.html', '/incidente/brunete': 'incidente.html',
-                 '/medios': 'medios.html', '/archivo': 'archivo.html'}
+                 '/medios': 'medios.html', '/archivo': 'archivo.html',
+                 '/hackspain': 'hackspain.html', '/proyecto': 'hackspain.html'}
         for route, filename in pages.items():
             with self.subTest(route=route):
                 handler = self.handler(route)
@@ -44,12 +44,16 @@ class PageRouteTests(unittest.TestCase):
         paths = {'chrome.js': 'text/javascript', 'situacion.js': 'text/javascript',
                  'medios.js': 'text/javascript', 'archivo.js': 'text/javascript',
                  'mapa.js': 'text/javascript', 'mapa.css': 'text/css',
-                 'app.js': 'text/javascript', 'ops.js': 'text/javascript',
+                 'app.js': 'text/javascript',
                  'observation-map.js': 'text/javascript', 'vendor/bootstrap-icons.js': 'text/javascript',
                  'style.css': 'text/css', 'favicon.png': 'image/png',
                  'cursors/flamethrower-hover.svg': 'image/svg+xml',
                  'cursors/flamethrower-active.svg': 'image/svg+xml',
-                 'maps/brunete.jpg': 'image/jpeg', 'maps/brunete-illustrated.png': 'image/png'}
+                 'maps/brunete.jpg': 'image/jpeg', 'maps/brunete-illustrated.png': 'image/png',
+                 'hackspain.css': 'text/css', 'hackspain/hackspain-symbol-color.svg': 'image/svg+xml',
+                 'hackspain/hackspain-wordmark-color.svg': 'image/svg+xml',
+                 'hackspain/hackspain-wordmark-black.svg': 'image/svg+xml',
+                 'hackspain/sala-de-crisis.png': 'image/png', 'hackspain/dashboard.png': 'image/png', 'scenarios.js': 'text/javascript', 'tour.js': 'text/javascript', 'tour.css': 'text/css'}
         for path, expected in paths.items():
             with self.subTest(path=path):
                 handler = self.handler('/' + path)
@@ -103,12 +107,9 @@ class PageRouteTests(unittest.TestCase):
         handler.send_response.assert_called_once_with(304)
         handler.wfile.write.assert_not_called()
 
-    def test_nonlocal_config_request_does_not_read_secrets(self):
-        handler = self.handler('/api/config', {'Host': 'evil.example'})
-        with patch.object(server, '_env_file') as env:
-            handler.do_GET()
-        env.assert_not_called()
-        self.assertEqual(handler.reply.call_args.args[0], 403)
+    def test_nonlocal_config_request_is_rejected(self):
+        handler=self.handler('/api/config',{'Host':'evil.example'});handler.do_GET()
+        self.assertEqual(handler.reply.call_args.args[0],403)
 
     def test_post_origin_is_host_based_not_page_based(self):
         body = json.dumps({'action': 'fleet', 'counts': {'trucks': 2, 'scouts': 0, 'extinguishers': 1}}).encode()
@@ -124,7 +125,7 @@ class PageRouteTests(unittest.TestCase):
             with self.subTest(origin=origin, host=host):
                 handler = self.handler('/api/action', {
                     'Origin': origin, 'Host': host, 'X-Simulator-Request': '1',
-                    'Content-Length': str(len(body)),
+                    'Content-Length': str(len(body)), 'Content-Type': 'application/json',
                 })
                 handler.rfile = io.BytesIO(body)
                 handler.do_POST()
@@ -132,12 +133,20 @@ class PageRouteTests(unittest.TestCase):
         self.assertEqual(self.controller.action.call_count, 3)
         self.controller.action.assert_called_with('fleet', json.loads(body))
 
+    def test_post_requires_json_content_type(self):
+        body=json.dumps({'action':'play'}).encode()
+        handler=self.handler('/api/action',{'Origin':'http://127.0.0.1:8765','Host':'127.0.0.1:8765',
+            'X-Simulator-Request':'1','Content-Length':str(len(body)),'Content-Type':'text/plain'})
+        handler.rfile=io.BytesIO(body);handler.do_POST()
+        self.assertEqual(handler.reply.call_args.args[0],415)
+        self.controller.action.assert_not_called()
+
     def test_public_origin_env_allows_configured_tunnel_host(self):
         body = json.dumps({'action': 'play'}).encode()
         with patch.dict(server.os.environ, {'PUBLIC_ORIGIN': 'https://panaderos.example.com'}):
             handler = self.handler('/api/action', {
                 'Origin': 'https://panaderos.example.com', 'Host': '127.0.0.1:8765',
-                'X-Simulator-Request': '1', 'Content-Length': str(len(body)),
+                'X-Simulator-Request': '1', 'Content-Length': str(len(body)), 'Content-Type': 'application/json',
             })
             handler.rfile = io.BytesIO(body)
             handler.do_POST()

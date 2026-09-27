@@ -61,7 +61,7 @@
 .hs-single{opacity:.75}
 .is-controlled .hs-halo{fill:url(#hsCtrl);animation:none}.is-controlled .hs-core{fill:#cfeee0}
 @keyframes hsFlicker{0%,100%{opacity:.82}50%{opacity:1}}
-.tag{pointer-events:none}
+.tag{pointer-events:none;cursor:pointer}
 .tag text{font-family:var(--meta);paint-order:stroke;stroke:#06101a;stroke-width:3px;stroke-linejoin:round;fill:#f6dccb}
 .tag-name{font-size:calc(9.5px / var(--z));font-weight:700;letter-spacing:.4px}
 .tag-meta{font-size:calc(8px / var(--z));fill:#d1ab99}
@@ -85,13 +85,21 @@
 .streamline{fill:none;stroke:#bfe9ff;stroke-width:.85;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-dasharray:16 30;animation:windFlow 3s linear infinite}
 .wind-arrow{fill:#7fd0f0;opacity:.8}
 @keyframes windFlow{from{stroke-dashoffset:92}to{stroke-dashoffset:0}}
+/* Brunete: the only simulated room. Standby = beacon inviting a click; live = steady alert pin. */
 .brunete{cursor:pointer}
 .brunete-halo{fill:var(--alert);opacity:0}
+.brunete-standby .brunete-halo{opacity:.35;animation:pinBeacon 2s ease-out infinite}
 .brunete-live .brunete-halo{opacity:.3;animation:pinPulse 1.8s ease-in-out infinite}
-.brunete-pin{fill:#0b1014;stroke:#91b9b2;stroke-width:1.5;vector-effect:non-scaling-stroke}
+.brunete-ring{fill:none;stroke:var(--alert-soft);stroke-width:1.2;vector-effect:non-scaling-stroke;opacity:.7}
+.brunete-live .brunete-ring{stroke:#fff;opacity:.9}
+.brunete-pin{fill:#1a0c09;stroke:var(--alert-soft);stroke-width:2;vector-effect:non-scaling-stroke;transition:fill .2s}
+.brunete:hover .brunete-pin,.brunete:focus-visible .brunete-pin{fill:var(--alert)}
 .brunete-live .brunete-pin{fill:var(--alert);stroke:#fff}
-.brunete-label{font:700 calc(9.5px / var(--z)) var(--meta);fill:#91b9b2;paint-order:stroke;stroke:#06101a;stroke-width:3px;letter-spacing:.8px;text-transform:uppercase}
+.brunete-label{font:800 calc(11px / var(--z)) var(--meta);fill:#ffd2c4;paint-order:stroke;stroke:#06101a;stroke-width:3px;letter-spacing:.9px;text-transform:uppercase}
+.brunete-sub{font:700 calc(7.5px / var(--z)) var(--meta);fill:var(--alert-soft);paint-order:stroke;stroke:#06101a;stroke-width:3px;letter-spacing:.7px;text-transform:uppercase}
 .brunete-live .brunete-label{fill:var(--warn)}
+.brunete-live .brunete-sub{fill:#ffc65c}
+@keyframes pinBeacon{0%{opacity:.5;r:10px}100%{opacity:0;r:26px}}
 .hide-hotspots #lyHotspots,.hide-perimeters #lyPerimeters,.hide-perimeters .incident-tags,.hide-risk #lyRisk,.hide-wind #lyWind,.hide-admin .border-ccaa,.hide-admin .graticule,.hide-roads #lyRoads,.hide-cities #lyCities,.hide-topo #lyTopo{display:none}
 /* Floating panels */
 .glass{position:absolute;z-index:2;background:rgba(7,15,24,.82);border:1px solid rgba(94,194,230,.22);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,.45);font-size:11px}
@@ -139,6 +147,10 @@
 .incident-head{display:flex;justify-content:space-between;gap:8px;align-items:center}
 .incident-head strong{font-size:11.5px;color:#eef5f9;line-height:1.3}
 .incident-meta{display:block;font:10px var(--meta);color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
+.incident-foot{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.incident-foot .incident-meta{flex:1;min-width:0}
+.incident-sim{flex:none;padding:2px 7px;font:700 8.5px var(--meta);letter-spacing:.8px;text-transform:uppercase;color:#ffd2c4;background:rgba(255,74,42,.14);border:1px solid rgba(255,122,90,.55);border-radius:2px;cursor:pointer;line-height:1.3}
+.incident-sim:hover,.incident-sim:focus-visible{background:var(--alert);color:#fff;border-color:var(--alert-soft);outline:none}
 .sev{font:700 8.5px var(--meta);letter-spacing:.8px;padding:2px 5px;border:1px solid;border-radius:2px;white-space:nowrap;flex:none}
 .sev-extreme{color:#ff6b5e;border-color:#ff3b2f;background:rgba(255,59,47,.12)}
 .sev-very_high{color:#ff9a4d;border-color:#ff7a1a;background:rgba(255,122,26,.12)}
@@ -172,6 +184,41 @@
 .gis-credit{position:absolute;right:12px;bottom:8px;z-index:2;font-size:9px;color:var(--dim);max-width:296px;text-align:right;line-height:1.3;pointer-events:none}
 .gis-tooltip{position:absolute;z-index:5;pointer-events:none;background:rgba(7,15,24,.94);border:1px solid rgba(94,194,230,.35);padding:7px 9px;font:10.5px var(--meta);color:var(--ink);max-width:250px;line-height:1.45;box-shadow:0 6px 20px #0008}
 .tip-title{font-weight:700;color:#fff;margin-bottom:2px}
+/* Simulacro entry points: launch card (bottom centre), pinned incident card (top centre), onboarding banner */
+.launch-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 18px;font:800 12px var(--meta);letter-spacing:1.2px;text-transform:uppercase;color:#fff;background:var(--alert);border:1px solid var(--alert-soft);border-radius:3px;cursor:pointer;box-shadow:0 0 0 0 rgba(255,74,42,.55);transition:background .15s,transform .15s;white-space:nowrap}
+.launch-btn:hover,.launch-btn:focus-visible{background:#ff5c3d;transform:translateY(-1px);outline:none}
+.launch-btn-sm{padding:7px 12px;font-size:10.5px;width:100%}
+.gis-launch{left:50%;bottom:40px;transform:translateX(-50%);width:min(520px,calc(100% - 560px));min-width:320px;padding:12px 16px;border-color:rgba(255,122,90,.45);box-shadow:0 8px 30px rgba(0,0,0,.55),0 0 24px rgba(255,74,42,.18);z-index:3}
+.gis-launch .launch-eyebrow{display:block;font:700 9px var(--meta);letter-spacing:1.8px;text-transform:uppercase;color:var(--alert-soft)}
+.gis-launch h3{margin:2px 0 4px;font:800 16px var(--meta);letter-spacing:.5px;color:#fff;text-transform:none;display:block}
+.gis-launch p{margin:0 0 10px;font-size:11px;line-height:1.45;color:#dbe9f1}
+.launch-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.launch-wind{display:flex;align-items:center;gap:3px}
+.launch-wind>span{font:600 8.5px var(--meta);letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);margin-right:5px}
+.wind-opt{padding:4px 8px;font:600 10px var(--meta);color:#c4d6e0;background:#0f1c28;border:1px solid #2a4657;border-radius:2px;cursor:pointer}
+.wind-opt+.wind-opt{margin-left:-1px}
+.wind-opt:hover{background:#17293a}
+.wind-opt.is-on{background:#1f6f8f;border-color:var(--cyan);color:#fff}
+.gis-launch:not(.is-live) .launch-btn{animation:launchPulse 2.2s ease-out infinite}
+.gis-launch.is-live{border-color:rgba(255,176,32,.5)}
+.gis-launch.is-live .launch-eyebrow{color:var(--warn)}
+.gis-launch.is-live .launch-btn{background:#b3341f;border-color:var(--alert)}
+@keyframes launchPulse{0%{box-shadow:0 0 0 0 rgba(255,74,42,.6)}70%{box-shadow:0 0 0 12px rgba(255,74,42,0)}100%{box-shadow:0 0 0 0 rgba(255,74,42,0)}}
+.gis-incident-card{left:50%;top:12px;transform:translateX(-50%);width:320px;padding:10px 12px 12px;border-color:rgba(255,176,32,.45);z-index:4}
+.gis-incident-card h3{margin:0 24px 6px 0;font:700 12px var(--meta);letter-spacing:.3px;text-transform:none;color:#fff}
+.gis-incident-card .card-lines{font:10.5px var(--meta);line-height:1.5;color:var(--ink)}
+.gis-incident-card .card-note{margin:8px 0;padding-top:6px;border-top:1px solid rgba(94,194,230,.14);font-size:9.5px;line-height:1.4;color:var(--muted)}
+.card-close{position:absolute;top:4px;right:4px;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--muted);font-size:15px;line-height:1;cursor:pointer}
+.card-close:hover{background:rgba(94,194,230,.12);color:#fff}
+.gis-onboard{display:flex;align-items:center;gap:12px;padding:8px 14px;border-bottom:1px solid rgba(255,122,90,.4);background:linear-gradient(90deg,rgba(255,74,42,.16),rgba(255,74,42,.04));color:var(--ink);font-size:12px}
+.gis-onboard[hidden]{display:none}
+.gis-onboard p{margin:0;flex:1;min-width:0}
+.onboard-mark{flex:none;width:18px;height:18px;border-radius:50%;border:1px solid var(--alert-soft);color:var(--alert-soft);font:800 11px var(--meta);display:inline-flex;align-items:center;justify-content:center}
+.onboard-start{padding:6px 12px;font:800 10px var(--meta);letter-spacing:1px;text-transform:uppercase;color:#fff;background:var(--alert);border:1px solid var(--alert-soft);border-radius:2px;cursor:pointer}
+.onboard-start:hover{background:#ff5c3d}
+.onboard-close{width:26px;height:26px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--muted);font-size:17px;line-height:1;cursor:pointer}
+.onboard-close:hover{background:rgba(94,194,230,.12);color:#fff}
+@media(prefers-reduced-motion:reduce){.launch-btn,.brunete-halo,.brunete-standby .brunete-halo,.brunete-live .brunete-halo{animation:none}.launch-btn{transition:none}}
 /* Timeline */
 .gis-timeline{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:8px 14px;border-top:1px solid var(--line);background:#08111a}
 .tl-controls{display:flex;gap:5px;align-items:center}
@@ -199,6 +246,8 @@
   .gis-stage{height:auto;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px}
   .gis-map{position:relative;grid-column:1/-1;height:min(70vw,560px)}
   .glass{position:static;width:auto;max-height:none}
+  .gis-launch,.gis-incident-card{transform:none;min-width:0;grid-column:1/-1}
+  .gis-launch{order:-1}
   .gis-zoom,.gis-tooltip{display:none}
   .gis-scale,.gis-credit{position:static;grid-column:1/-1;text-align:left;max-width:none}
   .gis-counters,.gis-row-ops .gis-weather{margin-left:0}

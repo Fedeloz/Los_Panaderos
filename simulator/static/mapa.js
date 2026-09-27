@@ -7,7 +7,8 @@
       canarias:'Islas Canarias',symbolicNote:'Perímetros y focos a escala simbólica sobre localizador esquemático. Datos de demostración.',mapCredit:'Base cartográfica derivada de Wikimedia Commons (NordNordWest) · CC BY-SA 3.0 · localizador esquemático, no cartografía oficial',
       tlLive:'En directo',timelineNote:'Evolución de las últimas 24 h · escenario de demostración',tlReplay:'REPRODUCCIÓN',tlNow:'AHORA',
       sevExtreme:'EXTREMO',sevVeryHigh:'MUY ALTO',sevHigh:'ALTO',sevModerate:'MODERADO',sevControlled:'CONTROLADO',hoursAgo:'Hace {h} h',minutesAgo:'Hace {m} min',detectedAt:'Detectado',controlledAt:'Controlado',threatened:'núcleos en riesgo',noIncidents:'Sin incendios activos en este instante',
-      bruneteLive:'Brunete · Madrid · sala de crisis abierta',bruneteStandby:'Brunete · Madrid · sala preparada',openRoom:'Abrir sala de crisis',seaCantabrico:'Mar Cantábrico',seaAtlantic:'Océano Atlántico',seaMed:'Mar Mediterráneo',baleares:'Islas Baleares',france:'FRANCIA',portugal:'PORTUGAL',morocco:'MARRUECOS',spain:'ESPAÑA',
+      bruneteLive:'Brunete · Madrid · sala de crisis abierta',bruneteStandby:'Brunete · Madrid · sala preparada',openRoom:'Abrir sala de crisis',
+      simulateFire:'Simular este incendio',simulateShort:'Simular',closeCard:'Cerrar ficha',simNote:'Escenario ilustrado sobre el terreno de Brunete · viento {dir} {speed} km/h · {sev}',pinStandby:'SIMULACRO · pulsa para empezar',pinLive:'EN CURSO · T+{tick}',seaCantabrico:'Mar Cantábrico',seaAtlantic:'Océano Atlántico',seaMed:'Mar Mediterráneo',baleares:'Islas Baleares',france:'FRANCIA',portugal:'PORTUGAL',morocco:'MARRUECOS',spain:'ESPAÑA',
       windFrom:{N:'N',NE:'NE',E:'E',SE:'SE',S:'S',SW:'SO',W:'O',NW:'NO'}},
     en:{mapSubtitle:'Wildfires — Spain',lgBrunete:'Brunete · simulated room',cActive:'Active',cRisk:'At risk',cRiskUnit:'settlements',cControlled:'Controlled',wxWind:'Wind',wxTemp:'Temperature',wxHumidity:'Humidity',lastUpdate:'Last update',
       layers:'Layers',lyHotspots:'Active fires',lyPerimeters:'Fire perimeters',lyRisk:'Risk zones',lyWind:'Wind',lyAdmin:'Administrative boundaries',lyRoads:'Roads',lyCities:'Cities',lyTopo:'Topography',zoomReset:'National view',
@@ -15,13 +16,19 @@
       canarias:'Canary Islands',symbolicNote:'Perimeters and hotspots drawn at symbolic scale over a schematic locator. Demonstration data.',mapCredit:'Base map derived from Wikimedia Commons (NordNordWest) · CC BY-SA 3.0 · schematic locator, not official cartography',
       tlLive:'Live',timelineNote:'Evolution over the last 24 h · demonstration scenario',tlReplay:'REPLAY',tlNow:'NOW',
       sevExtreme:'EXTREME',sevVeryHigh:'VERY HIGH',sevHigh:'HIGH',sevModerate:'MODERATE',sevControlled:'CONTROLLED',hoursAgo:'{h} h ago',minutesAgo:'{m} min ago',detectedAt:'Detected',controlledAt:'Controlled',threatened:'settlements at risk',noIncidents:'No active fires at this instant',
-      bruneteLive:'Brunete · Madrid · incident room open',bruneteStandby:'Brunete · Madrid · room on standby',openRoom:'Open incident room',seaCantabrico:'Cantabrian Sea',seaAtlantic:'Atlantic Ocean',seaMed:'Mediterranean Sea',baleares:'Balearic Islands',france:'FRANCE',portugal:'PORTUGAL',morocco:'MOROCCO',spain:'SPAIN',
+      bruneteLive:'Brunete · Madrid · incident room open',bruneteStandby:'Brunete · Madrid · room on standby',openRoom:'Open incident room',
+      simulateFire:'Simulate this fire',simulateShort:'Simulate',closeCard:'Close card',simNote:'Illustrated scenario on the Brunete terrain · wind {dir} {speed} km/h · {sev}',pinStandby:'DRILL · click to start',pinLive:'LIVE · T+{tick}',seaCantabrico:'Cantabrian Sea',seaAtlantic:'Atlantic Ocean',seaMed:'Mediterranean Sea',baleares:'Balearic Islands',france:'FRANCE',portugal:'PORTUGAL',morocco:'MOROCCO',spain:'SPAIN',
       windFrom:{N:'N',NE:'NE',E:'E',SE:'SE',S:'S',SW:'SW',W:'W',NW:'NW'}}
   });
   const SVG='http://www.w3.org/2000/svg',XLINK='http://www.w3.org/1999/xlink';
   const canSvg=typeof document.createElementNS==='function';
   const el=(tag,attrs={},text)=>{const node=document.createElementNS(SVG,tag);for(const [k,v] of Object.entries(attrs))node.setAttribute(k,v);if(text!=null)node.textContent=text;return node};
   const html=(tag,cls,text)=>{const node=document.createElement(tag);if(cls)node.className=cls;if(text!=null)node.textContent=text;return node};
+  // Simulacro entry points: every map incident maps onto a Brunete-terrain preset (scenarios.js).
+  const launchUrl=(preset,overrides)=>{try{const S=window.Scenarios;return S.toQuery(preset||S.get('ES-2026-BRUNETE'),overrides||{})}catch{return '/incidente'}};
+  const bruneteLaunchUrl=()=>launchUrl(null,{wind:'east'});
+  const fireLaunchUrl=f=>{try{return launchUrl(window.Scenarios.fromIncident(f))}catch{return '/incidente'}};
+  const go=url=>{try{location.assign(url)}catch{}};
   const MAP={width:1183.5554,height:1015.8372,top:44.4,bottom:34.7,left:-9.9,right:4.8};
   const KX=MAP.width/(MAP.right-MAP.left),KY=MAP.height/(MAP.top-MAP.bottom);
   const P=(lon,lat)=>c.project(lon,lat);
@@ -240,9 +247,10 @@
       windG.append(el('polyline',{points:pts.join(' '),class:'streamline','marker-end':'url(#windArrow)',style:`opacity:${(.2+w0.speed/70*.5).toFixed(2)};animation-duration:${(3.6-w0.speed/18).toFixed(2)}s`}));
     }
     // Brunete: the only simulated room in this product; status comes from /api/state.
-    const bp=P(-3.999,40.405),brunete=el('a',{class:'brunete brunete-standby',href:'/incidente'});
-    brunete.append(el('title',{},''),el('circle',{cx:bp.x.toFixed(1),cy:bp.y.toFixed(1),r:14,class:'brunete-halo'}),el('rect',{x:(bp.x-4.5).toFixed(1),y:(bp.y-4.5).toFixed(1),width:9,height:9,transform:`rotate(45 ${bp.x.toFixed(1)} ${bp.y.toFixed(1)})`,class:'brunete-pin'}),el('text',{x:(bp.x+9).toFixed(1),y:(bp.y+13).toFixed(1),class:'brunete-label'},'Brunete'));
-    groups.brunete=brunete;
+    const bp=P(-3.999,40.405),brunete=el('a',{class:'brunete brunete-standby',href:bruneteLaunchUrl()});
+    const sub=el('text',{x:(bp.x+15).toFixed(1),y:(bp.y+14).toFixed(1),class:'brunete-sub'},c.t('pinStandby'));
+    brunete.append(el('title',{},''),el('circle',{cx:bp.x.toFixed(1),cy:bp.y.toFixed(1),r:22,class:'brunete-halo'}),el('circle',{cx:bp.x.toFixed(1),cy:bp.y.toFixed(1),r:11,class:'brunete-ring'}),el('rect',{x:(bp.x-6.5).toFixed(1),y:(bp.y-6.5).toFixed(1),width:13,height:13,transform:`rotate(45 ${bp.x.toFixed(1)} ${bp.y.toFixed(1)})`,class:'brunete-pin'}),el('text',{x:(bp.x+15).toFixed(1),y:(bp.y+3).toFixed(1),class:'brunete-label'},'Brunete'),sub);
+    groups.brunete=brunete;groups.bruneteSub=sub;
     root.append(roadsG,perims,spots,tags,citiesG,labelsG,windG,brunete);
     Object.assign(groups,{topo,grat,risk,roads:roadsG,perims,spots,tags,cities:citiesG,labels:labelsG,wind:windG});
   }
@@ -306,7 +314,10 @@
       const li=html('li','incident'+(selected===f.id?' is-selected':''));li.dataset.id=f.id;li.tabIndex=0;
       const head=html('div','incident-head');head.append(html('strong','',`${f.name}`),html('span','sev sev-'+f.sev,c.t(SEV[f.sev].key)));
       const meta=html('span','incident-meta',`${f.province} · ${c.format(Math.round(f.ha*growth(f)))} ha · ${ago(f.detected-hoursBefore())}`);
-      li.append(head,meta);li.onclick=()=>select(f.id,true);li.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(f.id,true)}};
+      const sim=html('button','incident-sim',c.t('simulateShort'));sim.type='button';sim.setAttribute('aria-label',`${c.t('simulateFire')}: ${f.name}`);
+      sim.onclick=e=>{e?.stopPropagation?.();go(fireLaunchUrl(f))};sim.onkeydown=e=>{e?.stopPropagation?.()};
+      const foot=html('div','incident-foot');foot.append(meta,sim);
+      li.append(head,foot);li.onclick=()=>select(f.id,true);li.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(f.id,true)}};
       items.push(li);
     }
     if(!items.length)items.push(html('li','incident incident-empty',c.t('noIncidents')));
@@ -333,14 +344,19 @@
   }
   function renderState(s){
     const b=groups.brunete,live=c.isLive(s);
-    if(b){b.setAttribute('class','brunete '+(live?'brunete-live':'brunete-standby'));b.querySelector('title').textContent=live?`${c.t('bruneteLive')} · ${s.mission||''}`:c.t('bruneteStandby')}
+    if(b){b.setAttribute('class','brunete '+(live?'brunete-live':'brunete-standby'));b.setAttribute('href',live?'/incidente':bruneteLaunchUrl());b.querySelector('title').textContent=live?`${c.t('bruneteLive')} · ${s.mission||''}`:c.t('bruneteStandby')}
+    renderPinSub(s);
     renderDynamic();
   }
+  function renderPinSub(s){
+    const sub=groups.bruneteSub;if(!sub)return;
+    sub.textContent=s&&c.isLive(s)?c.t('pinLive').replace('{tick}',s.tick??0):c.t('pinStandby');
+  }
   function renderLabels(){
-    if(!groups.labels)return;
-    groups.labels.querySelectorAll('[data-key]').forEach(t=>{if(t.dataset.key)t.textContent=c.t(t.dataset.key)});
+    if(groups.labels)groups.labels.querySelectorAll('[data-key]').forEach(t=>{if(t.dataset.key)t.textContent=c.t(t.dataset.key)});
     $('updatedAt').textContent=`${clock(loadedAt)} · ${dateLabel(loadedAt)}`;
-    renderTicks();renderDynamic();
+    renderPinSub(c.state);
+    renderTicks();renderDynamic();renderCard();
   }
 
   // ---------- Interaction: layers, selection, zoom/pan, tooltip, timeline ----------
@@ -351,6 +367,19 @@
     document.querySelectorAll('#incidentList .incident').forEach(li=>li.classList.toggle('is-selected',li.dataset.id===selected));
     const f=incidents.find(f=>f.id===selected);
     if(zoom&&f&&!f.inset){const home=homeView(),w=home.w/3.2,h=home.h/3.2;animateView({x:f.p.x-w/2,y:f.p.y-h/2,w,h})}
+    renderCard();
+  }
+  // Pinned detail card for the selected incident: tooltip lines + "simulate this fire" entry point.
+  function renderCard(){
+    const card=$('incidentCard');if(!card)return;
+    const f=incidents.find(f=>f.id===selected);
+    if(!f){card.hidden=true;return}
+    const lines=tooltipFor(f),ctrl=controlledAt(f);
+    $('incidentCardTitle').textContent=lines[0];
+    $('incidentCardLines').replaceChildren(...lines.slice(1).map(l=>html('div','',l)));
+    $('incidentCardNote').textContent=c.t('simNote').replace('{dir}',c.t('windFrom')[windFrom(f.wind.u,f.wind.v)]).replace('{speed}',Math.round(f.wind.speed)).replace('{sev}',(ctrl?c.t('sevControlled'):c.t(SEV[f.sev].key)).toLowerCase());
+    const sim=$('incidentCardSim');if(sim){sim.textContent=c.t('simulateFire');sim.onclick=()=>go(fireLaunchUrl(f))}
+    card.hidden=false;
   }
   // Home view: the whole frame fitted into the stage area left free by the floating panels, so no panel covers Spain.
   let atHome=true;
@@ -419,7 +448,7 @@
       if(f&&tip){tip.replaceChildren(...tooltipFor(f).map((l,i)=>html('div',i?'':'tip-title',l)));tip.hidden=false;const r=$('gisStage').getBoundingClientRect();tip.style.left=`${Math.min(e.clientX-r.left+14,r.width-260)}px`;tip.style.top=`${Math.min(e.clientY-r.top+14,r.height-120)}px`}
       else if(tip)tip.hidden=true;
     });
-    const end=e=>{if(!drag)return;const g=e.target.closest?.('[data-id]');if(!drag.moved&&g)select(g.dataset.id,false);drag=null;stage.classList.remove('is-dragging')};
+    const end=e=>{if(!drag)return;const g=e.target.closest?.('[data-id]');if(!drag.moved){if(g)select(g.dataset.id,false);else if(selected&&!e.target.closest?.('.brunete'))select(selected,false)}drag=null;stage.classList.remove('is-dragging')};
     stage.addEventListener('pointerup',end);stage.addEventListener('pointercancel',()=>{drag=null;stage.classList.remove('is-dragging')});
     stage.addEventListener('pointerleave',()=>{if(tip)tip.hidden=true});
     stage.addEventListener('wheel',e=>{e.preventDefault();const rect=stage.getBoundingClientRect();zoomBy(e.deltaY<0?1.18:1/1.18,e.clientX-rect.left,e.clientY-rect.top)},{passive:false});
@@ -440,6 +469,7 @@
     if($('zoomIn'))$('zoomIn').onclick=()=>zoomBy(1.6);
     if($('zoomOut'))$('zoomOut').onclick=()=>zoomBy(1/1.6);
     if($('zoomReset'))$('zoomReset').onclick=()=>{if(selected)select(selected,false);goHome(true)};
+    if($('incidentCardClose'))$('incidentCardClose').onclick=()=>{if(selected)select(selected,false)};
     if($('tlRange'))$('tlRange').oninput=e=>setTime(Number(e.target.value),true);
     if($('tlPlay'))$('tlPlay').onclick=()=>playing?stopPlay():startPlay();
     if($('tlBack'))$('tlBack').onclick=()=>{stopPlay();setTime(-1440)};

@@ -42,8 +42,8 @@
       16
     ],
     "farm": [
-      60,
-      26
+      73,
+      27
     ]
   },
   "population_source": {
@@ -292,8 +292,8 @@
         21
       ],
       "refuge": [
-        60,
-        26
+        73,
+        27
       ],
       "polygon": [
         [
@@ -1890,6 +1890,18 @@
       24
     ],
     [
+      72,
+      26
+    ],
+    [
+      72,
+      27
+    ],
+    [
+      72,
+      28
+    ],
+    [
       73,
       16
     ],
@@ -1912,6 +1924,18 @@
     [
       73,
       24
+    ],
+    [
+      73,
+      26
+    ],
+    [
+      73,
+      27
+    ],
+    [
+      73,
+      28
     ],
     [
       74,
@@ -1946,6 +1970,18 @@
       24
     ],
     [
+      74,
+      26
+    ],
+    [
+      74,
+      27
+    ],
+    [
+      74,
+      28
+    ],
+    [
       75,
       21
     ],
@@ -1964,5 +2000,5 @@
     "https://origin-www.bocm.es/boletin/CM_Orden_BOCM/2014/04/16/BOCM-20140416-40.PDF",
     "https://brunetehistoriayvida.es/tercera-fase/"
   ],
-  "refuges_note": "One muster point per district, each on a road cell (fuel 0) that fire cannot reach, 2-3 cells from its own anchor and at least 12 cells from any other muster point so the four town districts never converge on the same place. Facility names are real Brunete municipal facilities; their placement on this illustration is a scenario convention, not a georeferenced location. See docs/population-provenance.md."
+  "refuges_note": "District refuge locations are illustrative scenario conventions, not real evacuation advice. The farm refuge is a cleared area just south of the farm at (73, 27). Town refuges remain at their district muster points."
 }

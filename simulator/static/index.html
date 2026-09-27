@@ -6,6 +6,7 @@
 <title>Central de operaciones · Brunete</title>
 <link rel="icon" href="/favicon.png" type="image/png">
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/tour.css">
 </head>
 <body>
 <div class="ops">
@@ -15,6 +16,7 @@
     <div>
       <span class="eyebrow" id="eyebrow" data-i18n="eyebrow">CENTRAL DE OPERACIONES · CECOP</span>
       <h1 id="headline">Brunete · Madrid</h1>
+      <p id="terrainNote" class="terrain-note" hidden>terreno de simulación: Brunete · escenario ilustrado</p>
       <p id="subhead" data-i18n="subhead">PROTECCIÓN CIVIL · EXTINCIÓN</p>
     </div>
   </div>
@@ -43,21 +45,52 @@
 
 <div class="duty">
   <p id="connection" role="status" aria-live="polite" aria-atomic="true">Listo</p>
-  <span class="agent-chain" data-i18n="agentChain">HappyRobot · Central → Exploración / Extinción</span>
+  <span class="agent-chain" data-i18n="agentChain">Política de decisión · Central → Exploración / Extinción</span>
 </div>
 <section class="toolbar strip">
   <button id="play" data-i18n="playBtn">Reproducir</button>
+  <button id="callAlert" type="button" class="call-alert" data-i18n="callAlert" hidden>📞 Llamada de aviso</button>
   <button data-action="decision" id="btnAsk" data-i18n="ask">Preguntar a los agentes</button>
   <button id="addFire" type="button" aria-pressed="false">Añadir fuego en el mapa</button>
   <button id="resetSim" data-action="reset" class="quiet" data-i18n="reset">↺ Reiniciar</button>
-  <a class="setup-jump" href="#setupPanel"><span data-i18n="setup">Preparar incidente</span><span id="operatingSummary"></span></a>
+  <a class="setup-jump" href="#setupPanel"><span data-i18n="setup">Configuración avanzada</span><span id="operatingSummary"></span></a>
 </section>
 <div id="error" role="alert" hidden></div>
+<button id="resumeSim" type="button" hidden>Reanudar simulacro</button>
 
 <section class="order-ticket" aria-labelledby="missionLbl">
-  <div class="order-label"><span class="eyebrow" id="missionLbl" data-i18n="mission">MISIÓN / ORDEN</span><span class="order-channel" data-i18n="orderChannel">HAPPYROBOT · CENTRAL</span></div>
+  <div class="order-label"><span class="eyebrow" id="missionLbl" data-i18n="mission">MISIÓN / ORDEN</span><span class="order-channel" data-i18n="orderChannel">POLÍTICA DE DECISIÓN · CENTRAL</span></div>
   <h2 id="mission">A la espera de aviso</h2>
   <div id="people" class="unit-tags"></div>
+</section>
+<section id="launchHero" class="launch-hero" aria-labelledby="launchTitle" hidden>
+  <div class="launch-copy">
+    <span class="eyebrow" data-i18n="launchEyebrow">SIMULACRO CON DRONES</span>
+    <h2 id="launchTitle" data-i18n="launchTitle">Prepara el simulacro</h2>
+    <p data-i18n="launchText">Elige las condiciones y pinta el origen del fuego sobre el terreno.</p>
+  </div>
+  <div class="launch-controls">
+    <div class="launch-options launch-compass" data-i18n-aria-label="launchWind">
+      <span class="eyebrow" data-i18n="launchWind">Viento</span>
+      <svg id="heroWindVector" viewBox="0 0 86 86" role="slider" tabindex="0" aria-valuemin="-3" aria-valuemax="3" data-i18n-aria-label="launchWind"><path d="M5 43H81 M43 5V81" stroke="#2a4657"/><circle cx="43" cy="43" r="36" fill="none" stroke="#2a4657"/><text x="43" y="12" class="compass-n">N</text><path id="heroWindArrow" stroke="#9fd3ea" stroke-width="3" fill="none"/><circle id="heroWindTip" r="4" fill="#9fd3ea"/></svg>
+      <output id="heroWindReadout" class="compass-readout">X 1.00 · Y 0.00</output>
+      <button type="button" id="heroWindCalm" class="compass-calm" data-i18n="windCalm">Calma</button>
+    </div>
+    <div class="launch-options" role="radiogroup" data-i18n-aria-label="launchSpread">
+      <span class="eyebrow" data-i18n="launchSpread">Propagación</span>
+      <button type="button" role="radio" data-spread="0.5" class="is-selected" aria-checked="true" data-i18n="spreadSlow">Lenta 0.5×</button>
+      <button type="button" role="radio" data-spread="1" aria-checked="false" data-i18n="spreadMedium">Media 1×</button>
+      <button type="button" role="radio" data-spread="2" aria-checked="false" data-i18n="spreadFast">Rápida 2×</button>
+    </div>
+    <div class="launch-options" role="radiogroup" data-i18n-aria-label="launchFleet">
+      <span class="eyebrow" data-i18n="launchFleet">Flota</span>
+      <button type="button" role="radio" data-fleet="1,1,1" class="is-selected" aria-checked="true" data-i18n="fleetBasic">Básica 1·1·1</button>
+      <button type="button" role="radio" data-fleet="2,1,1" aria-checked="false" data-i18n="fleetReinforced">Reforzada 2·1·1</button>
+      <button type="button" role="radio" data-fleet="2,2,1" aria-checked="false" data-i18n="fleetMaximum">Máxima 2·2·1</button>
+    </div>
+    <button type="button" id="launchStart" class="launch-start" data-i18n="launchStart">Lanzar simulacro</button>
+    <a id="launchManual" class="launch-manual" href="#setupPanel" data-i18n="launchManual">Prefiero configurarlo a mano</a>
+  </div>
 </section>
 
 <main class="maps">
@@ -66,6 +99,8 @@
     <div class="map-stage">
       <div id="globe" hidden></div>
       <canvas id="truth" width="800" height="560"></canvas>
+      <canvas id="truthOverlay" class="map-overlay" width="800" height="560" aria-hidden="true"></canvas>
+      <div id="paintHint" class="paint-hint" data-i18n="paintHint" hidden>🔥 Haz clic en el mapa para empezar el fuego</div>
       <span class="map-paused" data-i18n="mapPaused">RELOJ EN PAUSA</span>
       <span class="map-replay" data-i18n="replay">Reproducción</span>
     </div>
@@ -85,6 +120,9 @@
     <div class="maptitle"><h2 id="beliefTitle" data-i18n="belief">Lo que el sistema ve</h2><span id="beliefTag" data-i18n="beliefTag">SENSORES + SATÉLITE RETARDADO</span></div>
     <div class="map-stage">
       <canvas id="belief" width="800" height="560"></canvas>
+      <div id="callEffect" class="call-effect" hidden><i class="call-ring"></i><i class="call-ring"></i><i class="call-ring"></i><b>📞</b><span data-i18n="callingFarm">Llamando · Granja El Álamo</span></div>
+      <div id="beliefToasts" class="belief-toasts" aria-live="polite" aria-atomic="false"></div>
+      <div id="beliefBanner" class="belief-banner" hidden></div>
       <span class="map-paused" data-i18n="mapPaused">RELOJ EN PAUSA</span>
       <span class="map-replay" data-i18n="replay">Reproducción</span>
     </div>
@@ -105,8 +143,8 @@
 </section>
 
 <section class="lower">
-  <details class="setup" id="setupPanel" open>
-    <summary id="setupSummary">Preparar incidente</summary>
+  <details class="setup" id="setupPanel">
+    <summary id="setupSummary">Configuración avanzada</summary>
     <div class="setup-content">
       <section class="toolbar fleet-panel" data-i18n-aria-label="fleetTitle">
         <strong class="eyebrow" data-i18n="fleetTitle">Medios de respuesta</strong>
@@ -134,7 +172,7 @@
         <button id="calmWind" data-i18n="calmWind">Calma</button>
       </section>
       <p id="setupHint" data-i18n="hint">Clic en el terreno para el origen. Aplica viento y el aviso de humo para lanzar los agentes.</p>
-      <p class="explain" id="explain" data-i18n="explain">HappyRobot decide explorar, contener o avisar a cada distrito. Terreno ilustrado, fuego y satélite simulados. No es una predicción operativa.</p>
+      <p class="explain" id="explain" data-i18n="explain">La política de decisión elige explorar, contener o avisar a cada distrito. Terreno ilustrado, fuego y satélite simulados. No es una predicción operativa.</p>
       <details class="record-tools">
         <summary data-i18n="recordTools">Archivo y reproducción</summary>
         <section class="toolbar">
@@ -147,6 +185,10 @@
       </details>
     </div>
   </details>
+  <article class="panel" id="decisionsPanel">
+    <div class="radio-heading"><span class="eyebrow" data-i18n="decisionsTitle">DECISIONES DE LOS AGENTES</span><small data-i18n="decisionsSubtitle">Política de decisión determinista · validada por el simulador</small></div>
+    <div id="decisions"></div>
+  </article>
   <article class="panel">
     <div class="radio-heading"><span class="eyebrow" id="trailLbl" data-i18n="trail">COMUNICACIONES</span><small data-i18n="radioChannel">CANAL OPERATIVO</small></div>
     <div id="trail" role="log"></div>
@@ -154,14 +196,14 @@
 </section>
 
 <footer>
-  <span id="footerNote" data-i18n="footerNote">HappyRobot decide. Ilustración inspirada en Brunete; rejilla educativa, no Rothermel/Catastro. El reloj se pausa durante la deliberación; la reproducción no llama a la IA.</span>
-  <details><summary id="inspectLbl" data-i18n="inspect">Registro técnico de HappyRobot</summary><pre id="evidence"></pre></details>
-  <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo</a>
+  <span id="footerNote" data-i18n="footerNote">Política de decisión determinista. Ilustración inspirada en Brunete; rejilla educativa, no Rothermel/Catastro. La reproducción no ejecuta la política.</span>
   <div class="attribution"><a href="https://brunete.org/nuestro-pueblo/datos-estadisticos/" data-i18n="censusLink">Ayuntamiento de Brunete · padrón 2025</a><span data-i18n="censusAssumptions">Distribución por distritos estimada; ocupación de granja y refugios supuestos.</span><span data-i18n="pnoaIntro">Ilustración adaptada de una referencia</span> <a href="https://pnoa.ign.es/pnoa-imagen/ortofotos-pnoa-maxima-actualidad">PNOA</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0 scne.es</a></div>
 </footer>
 </div>
 <script src="/vendor/bootstrap-icons.js"></script>
 <script src="/observation-map.js"></script>
+<script src="/scenarios.js"></script>
 <script src="/app.js"></script>
+<script src="/tour.js"></script>
 </body>
 </html>

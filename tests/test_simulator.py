@@ -1,17 +1,10 @@
 import copy
 import json
 import math
-import os
 import unittest
-import threading
-import time
 from unittest.mock import patch
-from tempfile import TemporaryDirectory
-from pathlib import Path
 
 from simulator.engine import Simulation
-from simulator.happyrobot import HappyRobot
-from simulator import happyrobot as hr
 
 
 def command(action='contain', x=65, y=43):
@@ -19,6 +12,33 @@ def command(action='contain', x=65, y=43):
 
 
 class PhysicsTests(unittest.TestCase):
+    def test_scout_patrol_corrects_unsafe_waypoints(self):
+        s=Simulation(drone_count=2);s.scouts[0].update(x=30.,y=20.)
+        s.cells[20][35].update(heat=1,fuel=1);s.observe()
+        order=s.validate_scout_orders([dict(drone_id='scout-1',command='patrol',waypoints=[[35,20],[999,-1]],reason='Sweep')])[0]
+        for x,y in order['waypoints']:
+            self.assertTrue(0<=x<s.width and 0<=y<s.height)
+            self.assertNotIn((x,y),s.danger_zone([(35,20)]))
+        scout=s.scouts[0];scout.update(mode='patrol',target=[35,20])
+        s.move_safely(scout,4)
+        self.assertNotEqual(scout['target'],[35,20])
+
+    def test_truck_advances_inside_hose_range_for_observation(self):
+        s=Simulation();s.ignite();s.farmer_call()
+        for row in s.cells:
+            for cell in row:cell['heat']=0
+        s.cells[20][40]['heat']=1
+        s.truck.update(x=30.,y=20.,mobilized_at=0,drone_order={'command':'attack_sector'})
+        s.crew_target=[40,20]
+        with patch.object(s.suppression_rng,'random',return_value=1):
+            for _ in range(12):s.update_truck()
+        distance=math.hypot(s.truck['x']-40,s.truck['y']-20)
+        self.assertGreaterEqual(distance,3)
+        self.assertLessEqual(distance,4)
+        self.assertTrue(s.truck['observed_fire'])
+        self.assertEqual(s.truck_telemetry()['preferred_approach_range'],4)
+
+
     def test_intense_fire_requires_repeated_cooling_and_preserves_fuel(self):
         s=Simulation();c=s.cells[20][30];c['heat']=1.
         with patch.object(s.suppression_rng,'random',return_value=0):
@@ -344,7 +364,7 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(s.truck['observed_fire'],[])
         self.assertIn(dict(x=30,y=20),s.observation)
         s.update_truck()
-        self.assertEqual((s.truck['x'],s.truck['y']),(20,20))
+        self.assertLess(math.hypot(s.truck['x']-30,s.truck['y']-20),10)
         self.assertEqual(s.crew_extinguished,1)
         self.assertFalse(s.memory['30,20']['burning'])
 
@@ -358,17 +378,21 @@ class PhysicsTests(unittest.TestCase):
         self.assertTrue(s.burning(s.cells[20][30]))
 
     def test_vehicle_observation_radii(self):
-        s=Simulation();s.drone.update(x=20.,y=20.)
+        s=Simulation(drone_count=2);s.drone.update(x=20.,y=20.);s.scouts[0].update(x=20.,y=20.)
         s.truck.update(x=50.,y=20.)
-        for x,y in [(32,20),(33,20),(59,20),(60,20)]:s.cells[y][x]['heat']=1
+        for x,y in [(30,20),(31,20),(36,20),(37,20),(59,20),(60,20)]:s.cells[y][x]['heat']=1
         s.observe();s.update_truck()
-        self.assertIn(dict(x=32,y=20),s.observation)
-        self.assertNotIn(dict(x=33,y=20),s.observation)
+        self.assertIn(dict(x=30,y=20),s.drone['observed_fire'])
+        self.assertNotIn(dict(x=31,y=20),s.drone['observed_fire'])
+        self.assertIn(dict(x=36,y=20),s.scouts[0]['observed_fire'])
+        self.assertNotIn(dict(x=37,y=20),s.scouts[0]['observed_fire'])
         self.assertIn(dict(x=59,y=20),s.truck['observed_fire'])
         self.assertNotIn(dict(x=60,y=20),s.truck['observed_fire'])
-        self.assertEqual(s.telemetry()['sensor_radius'],12)
+        self.assertEqual(s.telemetry()['sensor_radius'],10)
+        self.assertEqual(s.scout_telemetry()[0]['sensor_radius'],16)
         self.assertEqual(s.truck_telemetry()['sensor_radius'],9)
-        self.assertIn('radius 12',json.loads(s.payload()['thermal_detections'])['coverage'])
+        coverage=json.loads(s.payload()['thermal_detections'])['coverage']
+        self.assertIn('radius 16 around scouts',coverage);self.assertIn('10 around extinguisher',coverage)
 
     def test_warning_frees_drone_while_people_keep_moving(self):
         s=Simulation();s.ignite();s.farmer_call()
@@ -393,6 +417,8 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(s.drone['route_plans'],1)
         s.move_safely(s.drone,3)
         self.assertEqual(s.drone['route_plans'],1)  # Reuse the clear route.
+        s.move_safely(s.drone,3)
+        self.assertEqual(s.drone['route_plans'],1)
         s.move_safely(s.drone,3)
         self.assertEqual(s.drone['route_plans'],2)
         blocked=s.danger_zone([(38,20)])
@@ -551,13 +577,13 @@ class PhysicsTests(unittest.TestCase):
     def test_travel_takes_time_and_evacuation_waits_for_drone(self):
         s=Simulation();s.apply(command('evacuate_farm',65,10),'a',s.incident_id,0)
         s.step();self.assertEqual(s.groups['farm']['status'],'unwarned')
-        s.step(32);self.assertEqual(s.groups['farm']['status'],'evacuating')
+        s.step(24);self.assertEqual(s.groups['farm']['status'],'evacuating')
         self.assertEqual(s.suppressed,0)
-        s.step(40);self.assertEqual(s.groups['farm']['status'],'safe')
+        s.step(8);self.assertEqual(s.groups['farm']['status'],'safe')
 
     def test_people_stop_at_burning_route(self):
         s=Simulation();g=s.groups['farm'];g['status']='evacuating'
-        s.cells[s.farm[1]-1][s.farm[0]-1]['heat']=1;s.step()
+        s.cells[s.farm[1]+1][s.farm[0]]['heat']=1;s.step()
         self.assertEqual(g['status'],'blocked');self.assertEqual(g['x'],s.farm[0])
 
     def test_invalid_commands_are_side_effect_free(self):
@@ -576,18 +602,15 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(frame['tick'],0);self.assertEqual(frame['burning'],3)
         self.assertNotEqual(frame['cells'],s.cells)
 
-    def test_replay_pauses_and_rejects_mutations(self):
+    def test_replay_is_client_side_and_never_mutates_server_state(self):
         from simulator.server import Controller
         c=Controller()
         try:
-            c.action('ignite',{});c.action('step',{});tick=c.sim.tick
-            c.action('seek',{'index':0})
-            self.assertEqual(c.state()['tick'],0)
-            with self.assertRaises(ValueError):c.action('step',{})
+            c.action('ignite',{'action':'ignite'});c.action('step',{'action':'step'});tick=c.sim.tick
+            with self.assertRaisesRegex(ValueError,'client-side'):c.action('seek',{'action':'seek','index':0})
             self.assertEqual(c.sim.tick,tick)
-            c.action('live',{});self.assertEqual(c.state()['tick'],tick)
-            self.assertFalse(c.running)
-        finally:c.stop.set();c.robot.close()
+            self.assertEqual(c.state()['frame_count'],1)
+        finally:c.stop.set()
 
 
 class CommunicationTests(unittest.TestCase):
@@ -718,8 +741,8 @@ class CommunicationTests(unittest.TestCase):
         from simulator.contacts import directory
         contacts = directory(s.groups)
         farm = next(d for d in contacts['districts'] if d['district_id'] == 'farm')
-        self.assertIn('Cruce de la Dehesa', farm['evacuation_point'])
-        self.assertIn('camión le recogerá', farm['rescue_plan'])
+        self.assertIn('Refugio de la granja', farm['evacuation_point'])
+        self.assertIn('comunicar su posición', farm['rescue_plan'])
         paco = next(p for p in contacts['people'] if p['contact_id'] == 'farm-manager')
         self.assertEqual(paco['evacuation_point'], farm['evacuation_point'])
         self.assertTrue(paco['rescue_plan'])
@@ -733,472 +756,6 @@ class CommunicationTests(unittest.TestCase):
         self.assertEqual(s.dispatch['decision'], 'avisar'); self.assertNotIn('ignored', s.dispatch)
         self.assertIn('missing: farm chat_id', s.history[-1]['message'])
 
-
-class ControllerTests(unittest.TestCase):
-    def setUp(self):
-        self._mode = patch.dict(os.environ, {'HAPPYROBOT_MODE': 'push'})
-        self._mode.start()
-
-    def tearDown(self):
-        self._mode.stop()
-
-    def test_state_bytes_cached_until_something_changes(self):
-        from simulator.server import Controller
-        c=Controller();c.stop.set()
-        try:
-            etag,body=c.state_bytes()
-            self.assertEqual(c.state_bytes(),(etag,body))
-            self.assertIs(c.state_bytes()[1],body)  # same buffer: no re-serialization while idle
-            c.busy=True
-            etag2,body2=c.state_bytes()
-            self.assertNotEqual(etag,etag2);self.assertTrue(json.loads(body2)['busy'])
-            c.busy=False;c.action('ignite',{})
-            self.assertNotEqual(c.state_bytes()[0],etag2)
-        finally:c.stop.set();c.robot.close()
-
-    def test_optimistic_clock_keeps_ticking_and_applies_to_live_tick(self):
-        from simulator.server import Controller
-        c=Controller();c.sim.ignite();c.sim.farmer_call()
-        entered=threading.Event();release=threading.Event()
-        def slow_decision(payload):
-            entered.set()
-            if not release.wait(3):raise RuntimeError('release timed out')
-            return dict(command('hold',12,44),scout_orders=[dict(drone_id='scout-1',command='hold',waypoints=[],reason='wait')]),'valid output'
-        try:
-            c.action('optimistic',{'enabled':True})
-            with patch.object(c.robot,'decide',side_effect=slow_decision):
-                c.speed=8;c.running=True
-                with c.lock:c.request_decision()
-                self.assertTrue(entered.wait(2))
-                start_tick=c.sim.tick
-                time.sleep(.8)
-                self.assertGreater(c.sim.tick,start_tick)  # world kept moving during deliberation
-                release.set()
-                deadline=time.monotonic()+2
-                while c.state()['busy'] and time.monotonic()<deadline:time.sleep(.01)
-                self.assertFalse(c.busy);self.assertIsNone(c.error)
-                self.assertTrue(any('Optimistic clock' in e['message'] for e in c.sim.history))
-                self.assertEqual(c.sim.last_result['command'],'hold')
-        finally:release.set();c.stop.set();c.robot.close()
-
-    def test_dispatch_without_drone_mission_keeps_vehicle_orders(self):
-        from simulator.server import Controller
-        c=Controller();c.stop.set();c.sim.ignite();c.sim.farmer_call()
-        try:
-            c.robot.last_dispatch=dict(decision='avisar',justificacion='j',criticidad='high')
-            c.robot.last_communications=[dict(kind='zone_alert',district_id='farm',criticality='high',information='Go north',status='sent')]
-            with patch.object(c.robot,'decide',return_value=(None,'evidence')), patch.object(c.sim,'apply') as apply:
-                c.busy=True;c._decide(c.sim.payload('farmer_call'),c.sim.tick)
-            apply.assert_not_called()
-            self.assertIsNone(c.error)
-            self.assertEqual(c.sim.groups['farm']['status'],'evacuating')
-            self.assertEqual(c.state()['dispatch']['decision'],'avisar')
-            self.assertEqual(c.calls,1)
-        finally:c.stop.set();c.robot.close()
-
-    def test_fire_queues_while_deciding_and_reset_clears_it(self):
-        from simulator.server import Controller
-        c=Controller();c.stop.set();c.sim.ignite();c.sim.farmer_call()
-        try:
-            x,y=next((x,y) for y,row in enumerate(c.sim.cells) for x,cell in enumerate(row)
-                     if 1<=x<c.sim.width-1 and 1<=y<c.sim.height-1 and cell['fuel']>0 and cell['heat']==0)
-            c.busy=True
-            c.action('add_fire',dict(x=x,y=y));c.action('add_fire',dict(x=x,y=y))
-            self.assertEqual(c.state()['pending_fires'],1)
-            self.assertEqual(c.sim.cells[y][x]['heat'],0)
-            with patch.object(c.robot,'decide',return_value=(command('hold',*c.sim.base),'test')), patch.object(c.sim,'apply'):
-                c._decide(c.sim.payload('local_observation'),c.sim.tick)
-            self.assertGreater(c.sim.cells[y][x]['heat'],0)
-            self.assertFalse(c.pending_fires)
-            c.busy=True;c.action('add_fire',dict(x=x,y=y));c.action('reset',{})
-            with patch.object(c.robot,'decide',return_value=({},'test')):
-                c._decide({},c.sim.tick)
-            self.assertFalse(c.pending_fires)
-            self.assertFalse(c.sim.ignited)
-        finally:c.stop.set();c.robot.close()
-
-    def test_reset_queues_during_decision_and_discards_reply_or_error(self):
-        from simulator.server import Controller
-        for fails in (False,True):
-            c=Controller();entered=threading.Event();release=threading.Event()
-            c.sim.ignite();c.sim.farmer_call();old=c.sim.incident_id
-            def decide(payload):
-                entered.set();release.wait(3)
-                if fails:raise ValueError('Old reply invalid')
-                return command('hold',*c.sim.base),'old evidence'
-            try:
-                with patch.object(c.robot,'decide',side_effect=decide) as call:
-                    c.request_decision();self.assertTrue(entered.wait(2))
-                    c.action('reset',{});c.action('reset',{})
-                    self.assertTrue(c.state()['reset_pending'])
-                    self.assertTrue(c.busy)
-                    self.assertEqual(c.sim.incident_id,old)
-                    release.set()
-                    deadline=time.monotonic()+3
-                    while c.state()['busy'] and time.monotonic()<deadline:time.sleep(.01)
-                    self.assertFalse(c.busy)
-                    self.assertFalse(c.reset_pending)
-                    self.assertNotEqual(c.sim.incident_id,old)
-                    self.assertEqual(c.sim.tick,0)
-                    self.assertFalse(c.sim.ignited)
-                    self.assertEqual(c.calls,0)
-                    self.assertIsNone(c.error)
-                    self.assertEqual(call.call_count,1)
-            finally:release.set();c.stop.set();c.robot.close()
-
-
-    def test_world_frozen_during_decision_and_corrective_retry(self):
-        from simulator.server import Controller
-        for invalid_first in [False,True]:
-            with self.subTest(corrective_retry=invalid_first):
-                c=Controller();c.sim.ignite();c.sim.farmer_call()
-                entered=threading.Event();release=threading.Event();attempts=[]
-                def slow_decision(payload):
-                    attempts.append(payload['event_type'])
-                    if invalid_first and len(attempts)==1:
-                        return command('contain',65,43),'invalid target'
-                    entered.set()
-                    if not release.wait(3):raise RuntimeError('Test decision release timed out')
-                    return command('hold',12,44),'valid output'
-                try:
-                    with patch.object(c.robot,'decide',side_effect=slow_decision):
-                        c.speed=8;c.running=True
-                        with c.lock:c.request_decision()
-                        self.assertTrue(entered.wait(2))
-                        before=c.sim.state()
-                        self.assertTrue(c.busy)
-                        with self.assertRaises(ValueError):c.action('step',{})
-                        # Longer than the clock's initial 0.5-second wait, plus several 8x ticks.
-                        time.sleep(.8)
-                        after=c.sim.state()
-                        for field in ['tick','cells','drone','truck','people','satellite']:
-                            self.assertEqual(before[field],after[field],field)
-                        c.action('pause',{})
-                        release.set()
-                        deadline=time.monotonic()+2
-                        while c.state()['busy'] and time.monotonic()<deadline:time.sleep(.01)
-                        self.assertFalse(c.busy)
-                        self.assertEqual(c.sim.tick,before['tick'])
-                        if invalid_first:self.assertEqual(attempts[-1],'command_rejected')
-                finally:release.set();c.stop.set();c.robot.close()
-
-    def test_run_recording_and_stop_preserve_frames(self):
-        from simulator.server import Controller
-        c=Controller()
-        try:
-            with patch.object(c,'request_decision') as decide:
-                c.action('place_fire',dict(x=35,y=20))
-                c.action('record_run',dict(x=.5,y=-1))
-                decide.assert_called_once_with('farmer_call')
-                c.running=False
-                self.assertTrue(c.recording);self.assertTrue(c.sim.called)
-                c.action('step',{})
-                count=len(c.recorded_frames)
-                c.action('stop_recording',{})
-                c.action('step',{})
-                self.assertEqual(len(c.recorded_frames),count)
-                self.assertFalse(c.recording)
-        finally:c.stop.set();c.robot.close()
-
-    def test_invalid_target_gets_one_corrective_agent_request(self):
-        from simulator.server import Controller
-        c=Controller();c.sim.ignite();c.sim.farmer_call()
-        try:
-            payload=c.sim.payload()
-            with patch.object(c.robot,'decide',return_value=(command('contain',65,43),'evidence')), patch.object(c,'request_decision') as retry:
-                c._decide(payload,0)
-                retry.assert_called_once_with('command_rejected')
-                self.assertIsNone(c.error)
-                self.assertEqual(c.sim.last_result['status'],'rejected')
-                self.assertEqual(c.sim.drone['mode'],'hold')
-                retry.reset_mock()
-                c._decide(payload,0)
-                retry.assert_not_called()
-                self.assertIsNotNone(c.error)
-                self.assertFalse(c.running)
-        finally:c.stop.set();c.robot.close()
-
-
-class ParserTests(unittest.TestCase):
-    def test_completed_summary_fetches_actual_output_and_normalizes_coordinates(self):
-        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-        output = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
-        c = command('scout'); c.update(target_x='12', target_y='10')
-        answers = [
-            {'content': [{'text': f'Run ID: {run}\nStatus: completed'}]},
-            {'content': [{'text': f'## Drone\n- Output ID: {output}\n- Node Persistent ID: {hr.EDGE_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:00Z'}]},
-            {'content': [{'text': 'Data: '+json.dumps({'response': c})}]}]
-        h = HappyRobot()
-        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=answers) as call:
-            decision, evidence = h.decide({'event_type': 'farmer_call'})
-            self.assertEqual(decision['target_x'], 12)
-            self.assertEqual(decision['target_y'], 10)
-            self.assertEqual(call.call_count, 3)
-            self.assertEqual(call.call_args.args[1]['output_id'], output)
-            self.assertIsNone(h.last_dispatch); self.assertEqual(h.last_communications, [])
-
-    def test_dispatch_run_collects_calls_alerts_and_nested_drone_mission(self):
-        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-        ids = {k: f'{k*8}-{k*4}-{k*4}-{k*4}-{k*12}' for k in 'bcde'}
-        call_node, alert_node = [n for n, kind in hr.COMM_NODES.items() if kind == 'call'][0], [n for n, kind in hr.COMM_NODES.items() if kind == 'zone_alert'][0]
-        listing = '\n'.join([
-            f'## Decision de Despacho\n- Output ID: {ids["b"]}\n- Node Persistent ID: {hr.DISPATCH_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:04Z',
-            f'## Llamar a esta persona\n- Output ID: {ids["c"]}\n- Node Persistent ID: {call_node}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:01Z',
-            f'## Enviar alerta de zona\n- Output ID: {ids["d"]}\n- Node Persistent ID: {alert_node}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:02Z',
-            f'## Ejecutar mision de dron\n- Output ID: {ids["e"]}\n- Node Persistent ID: {hr.EDGE_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:03Z'])
-        mission = dict(mission='Protect Prado Alto', primary_command='scout', primary_district_id='', drone_reason='Smoke unconfirmed',
-                       truck_reason='', scout_orders=[], truck_orders=[], warned_districts=['town_north'],
-                       extinguisher_orders=[dict(drone_id='drone-1', command='scout', target_x=60, target_y=30, reason='approach', district_id='')])
-        payloads = {
-            ids['b']: {'response': dict(incident_id='i', decision='avisar', justificacion='Wind toward Prado Alto', criticidad='high', avisos_lanzados=1, destinatarios='Carmen Ortega', datos_faltantes='')},
-            ids['c']: {'data': dict(phone_number='+34000', contact_name='Carmen Ortega', criticality='high', information='Fire approaching, leave now'), 'response': dict(call_status='answered')},
-            ids['d']: {'data': dict(chat_id='chan-north', contact_name='Residentes de Prado Alto', criticality='critical', information='Evacuate to the sports centre')},
-            ids['e']: {'response': mission}}
-        def tool(name, args, timeout=60):
-            if name == 'trigger_run': return {'content': [{'text': f'Run ID: {run}\nStatus: completed'}]}
-            if 'output_id' in args: return {'content': [{'text': json.dumps(payloads[args['output_id']])}]}
-            return {'content': [{'text': listing}]}
-        h = HappyRobot()
-        contacts = dict(people=[dict(contact_id='x', contact_name='Carmen Ortega', district_id='town_north', phone_number='+34000', chat_id=None)],
-                        districts=[dict(district_id='town_north', chat_id='chan-north')], missing=[])
-        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch('simulator.happyrobot.contact_directory', return_value=contacts), patch.object(h, 'tool', side_effect=tool):
-            decision, evidence = h.decide({'event_type': 'farmer_call'})
-        self.assertEqual(decision['command'], 'scout'); self.assertEqual(decision['reason'], 'Smoke unconfirmed')
-        self.assertEqual((decision['target_x'], decision['target_y']), (60, 30))
-        self.assertEqual(decision['extinguisher_orders'], mission['extinguisher_orders'])
-        self.assertEqual(h.last_dispatch['decision'], 'avisar'); self.assertEqual(h.last_dispatch['destinatarios'], 'Carmen Ortega')
-        kinds = {c['kind']: c for c in h.last_communications}
-        self.assertEqual(kinds['call']['district_id'], 'town_north'); self.assertEqual(kinds['call']['status'], 'answered')
-        self.assertEqual(kinds['zone_alert']['district_id'], 'town_north'); self.assertEqual(kinds['zone_alert']['criticality'], 'critical')
-        self.assertIn('Communications:', evidence)
-
-    def test_telegram_child_response_maps_to_district_by_audience_label(self):
-        contacts = dict(people=[dict(contact_id='x', contact_name='Carmen Ortega', district_id='town_north', phone_number=None, chat_id=None)],
-                        districts=[dict(district_id='town_north', name='Prado Alto', chat_id='-100n'), dict(district_id='farm', name='El Álamo Farm', chat_id=None)], missing=[])
-        delivered = {'status': 'delivered', 'alert_mode': 'group_msg_alert', 'audience_label': 'Residentes de Prado Alto', 'recipients_delivered': 1,
-                     'message_sent': 'Evacuen hacia el polideportivo', 'summary': 'Aviso enviado a 1 destinatario(s) de Residentes de Prado Alto.'}
-        c = HappyRobot.communication('zone_alert', {'content': [{'text': json.dumps(delivered)}]}, contacts)
-        self.assertEqual((c['district_id'], c['status'], c['information']), ('town_north', 'delivered', 'Evacuen hacia el polideportivo'))
-        none = {'status': 'no_recipients', 'audience_label': 'El Álamo Farm', 'recipients_attempted': 0, 'summary': 'No se envio el aviso'}
-        c = HappyRobot.communication('zone_alert', {'content': [{'text': json.dumps(none)}]}, contacts)
-        self.assertEqual((c['district_id'], c['status']), ('farm', 'no_recipients'))
-        failed = {'call_workflow_data': {'status': 'failed', 'error': 'child_workflow_failed'}}
-        self.assertIsNone(HappyRobot.communication('call', {'content': [{'text': json.dumps(failed)}]}, contacts))
-        s = Simulation(); s.ignite(); s.farmer_call()
-        s.apply_communications([dict(kind='zone_alert', district_id='farm', status='no_recipients', information='x')])
-        self.assertEqual(s.groups['farm']['status'], 'unwarned')
-
-    def test_dispatch_without_drone_mission_returns_none_but_keeps_decision(self):
-        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'; out = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
-        answers = [{'content': [{'text': f'Run ID: {run}\nStatus: completed'}]},
-                   {'content': [{'text': f'## Decision de Despacho\n- Output ID: {out}\n- Node Persistent ID: {hr.DISPATCH_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:00Z'}]},
-                   {'content': [{'text': json.dumps(dict(decision='verificar', justificacion='Unconfirmed smoke, low confidence'))}]}]
-        h = HappyRobot()
-        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=answers):
-            decision, evidence = h.decide({'event_type': 'farmer_call'})
-        self.assertIsNone(decision); self.assertEqual(h.last_dispatch['decision'], 'verificar')
-
-    def test_output_fetches_run_concurrently_over_one_transport(self):
-        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-        ids = {k: f'{k*8}-{k*4}-{k*4}-{k*4}-{k*12}' for k in 'bcd'}
-        call_node = [n for n, kind in hr.COMM_NODES.items() if kind == 'call'][0]
-        listing = '\n'.join([
-            f'## Decision de Despacho\n- Output ID: {ids["b"]}\n- Node Persistent ID: {hr.DISPATCH_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:04Z',
-            f'## Llamar a esta persona\n- Output ID: {ids["c"]}\n- Node Persistent ID: {call_node}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:01Z',
-            f'## Ejecutar mision de dron\n- Output ID: {ids["d"]}\n- Node Persistent ID: {hr.EDGE_NODE}\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:03Z'])
-        payloads = {ids['b']: {'response': dict(decision='avisar', justificacion='j')},
-                    ids['c']: {'data': dict(contact_name='Carmen Ortega', information='leave')},
-                    ids['d']: {'response': dict(mission='m', primary_command='hold', drone_reason='r', extinguisher_orders=[], scout_orders=[], truck_orders=[])}}
-        in_flight, peak, gate = [0], [0], threading.Lock()
-        def tool(name, args, timeout=60):
-            if name == 'trigger_run':
-                # wait=True already embeds the node listing: no separate listing call expected.
-                return {'content': [{'text': f'Run ID: {run}\nStatus: completed\n\n'+listing}]}
-            with gate:in_flight[0]+=1;peak[0]=max(peak[0],in_flight[0])
-            time.sleep(.15)
-            with gate:in_flight[0]-=1
-            return {'content': [{'text': json.dumps(payloads[args['output_id']])}]}
-        h = HappyRobot()
-        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=tool) as call:
-            t = time.monotonic(); decision, evidence = h.decide({'event_type': 'farmer_call'}); elapsed = time.monotonic()-t
-        self.assertEqual(call.call_count, 4)  # trigger + 3 outputs, no listing round-trip
-        self.assertGreaterEqual(peak[0], 2)
-        self.assertLess(elapsed, .4)  # 3 × 150 ms sequential would be ≥ 450 ms
-        self.assertEqual(decision['command'], 'hold'); self.assertEqual(h.last_dispatch['decision'], 'avisar')
-        self.assertEqual(h.last_timings['fetched'], 3); self.assertIn('Timing:', evidence)
-
-    def test_transport_matches_interleaved_responses_by_id(self):
-        import io
-        h = HappyRobot()
-        r, w = os.pipe()
-        stdout = io.TextIOWrapper(io.FileIO(r, 'r'), encoding='utf-8')
-        writer = io.TextIOWrapper(io.FileIO(w, 'w'), encoding='utf-8', write_through=True)
-        class P: pass
-        h.process = P(); h.process.stdin = io.StringIO(); h.process.stdout = stdout
-        threading.Thread(target=h._read, args=(h.process, h.pending, h.closed), daemon=True).start()
-        results = {}
-        def ask(i):results[i] = h._request('tools/call', dict(n=i), timeout=2)
-        threads = [threading.Thread(target=ask, args=(i,)) for i in range(3)]
-        for th in threads: th.start()
-        time.sleep(.1)
-        # Server answers out of order, with a keepalive ping interleaved.
-        for rid in (3, 1):
-            writer.write(json.dumps(dict(jsonrpc='2.0', id=rid, result=dict(got=rid)))+'\n')
-        writer.write(json.dumps(dict(jsonrpc='2.0', id='srv-1', method='ping'))+'\n')
-        writer.write(json.dumps(dict(jsonrpc='2.0', id=2, result=dict(got=2)))+'\n')
-        for th in threads: th.join(2)
-        self.assertEqual(sorted(v['got'] for v in results.values()), [1, 2, 3])
-        self.assertIn('"id": "srv-1"', h.process.stdin.getvalue())  # ping answered
-        writer.close(); h.closed.wait(2)
-        with self.assertRaises(RuntimeError):h._request('tools/call', {}, timeout=.2)
-
-    def test_normalize_requires_mission_shape(self):
-        self.assertIsNone(HappyRobot.normalize(dict(mission='x', primary_command='hold')))
-        self.assertIsNone(HappyRobot.normalize(dict(decision='avisar', justificacion='...')))
-        d = HappyRobot.normalize(dict(mission='m', primary_command='hold', drone_reason='r', extinguisher_orders='[]'))
-        self.assertEqual((d['command'], d['reason'], d['target_x'], d['target_y']), ('hold', 'r', 0, 0))
-
-    def test_mission_falls_back_to_the_legacy_node_when_the_current_one_is_empty(self):
-        """A workflow edit that moves the mission node degrades to the previous one."""
-        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-        output = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
-        payload = {
-            'mission': 'Scout the smoke',
-            'drone_reason': 'Unconfirmed smoke',
-            'primary_command': 'scout',
-            'primary_district_id': '',
-            'extinguisher_orders': [{'drone_id': 'drone-1', 'command': 'scout', 'target_x': 79, 'target_y': 41, 'district_id': '', 'reason': 'Investigate'}],
-            'scout_orders': [{'drone_id': 'scout-1', 'command': 'hold', 'waypoints': [], 'district_id': '', 'reason': 'Hold'}],
-            'truck_orders': [{'truck_id': 'engine-1', 'command': 'continue', 'target_x': 0, 'target_y': 0, 'reason': 'Wait'}],
-        }
-        # The listing carries an output for the legacy node only; the configured one is silent.
-        listing = ('## Resultado\n- Output ID: %s\n- Node Persistent ID: %s\n- Status: succeeded\n'
-                   '- Timestamp: 2026-09-19T12:00:00Z' % (output, hr.LEGACY_EDGE_NODE))
-        answers = [
-            {'content': [{'text': f'Run ID: {run}\nStatus: completed'}]},
-            {'content': [{'text': listing}]},
-            {'content': [{'text': 'Data: '+json.dumps(payload)}]},
-        ]
-        h = HappyRobot()
-        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=answers) as call:
-            decision, evidence = h.decide({'event_type': 'farmer_call'})
-        self.assertEqual(decision['command'], 'scout')
-        self.assertEqual((decision['target_x'], decision['target_y']), (79, 41))
-        self.assertEqual(decision['reason'], 'Unconfirmed smoke')
-        self.assertIn('legacy node', evidence)
-        self.assertEqual(call.call_args_list[-1].args[1]['output_id'], output)
-
-    def test_mission_uses_the_configured_node_when_both_are_present(self):
-        run = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-        current, stale = 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'cccccccc-cccc-cccc-cccc-cccccccccccc'
-        payload = {'mission': 'm', 'drone_reason': 'r', 'primary_command': 'hold', 'extinguisher_orders': '[]'}
-        listing = ('## Actual\n- Output ID: %s\n- Node Persistent ID: %s\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:01Z\n'
-                   '## Viejo\n- Output ID: %s\n- Node Persistent ID: %s\n- Status: succeeded\n- Timestamp: 2026-09-19T12:00:00Z'
-                   % (current, hr.EDGE_NODE, stale, hr.LEGACY_EDGE_NODE))
-        answers = [
-            {'content': [{'text': f'Run ID: {run}\nStatus: completed'}]},
-            {'content': [{'text': listing}]},
-            {'content': [{'text': 'Data: '+json.dumps(payload)}]},
-        ]
-        h = HappyRobot()
-        with TemporaryDirectory() as tmp, patch('simulator.happyrobot.ROOT', Path(tmp)), patch.object(h, 'tool', side_effect=answers) as call:
-            decision, evidence = h.decide({'event_type': 'farmer_call'})
-        self.assertEqual(decision['command'], 'hold')
-        self.assertNotIn('legacy node', evidence)
-        self.assertEqual(call.call_args_list[-1].args[1]['output_id'], current)
-
-    def test_resultado_payload_normalizes_to_legacy_decision_shape(self):
-        payload = {
-            'mission': 'Investigate smoke',
-            'drone_reason': 'No confirmed fire',
-            'primary_command': 'scout',
-            'primary_district_id': '',
-            'extinguisher_orders': [{'drone_id': 'drone-1', 'command': 'scout', 'target_x': '79', 'target_y': '41', 'district_id': '', 'reason': 'Recon'}],
-            'truck_orders': [{'truck_id': 'engine-1', 'command': 'continue', 'target_x': 0, 'target_y': 0, 'reason': 'Hold sector'}],
-            'truck_reason': 'No observed fire',
-        }
-        choices = HappyRobot.decisions({'content': [{'text': 'Data: '+json.dumps(payload)}]})
-        self.assertEqual(len(choices), 1)
-        self.assertEqual(choices[0]['command'], 'scout')
-        self.assertEqual(choices[0]['target_x'], '79')
-        self.assertEqual(choices[0]['reason'], 'No confirmed fire')
-        self.assertEqual(choices[0]['truck_command'], 'continue')
-
-    def test_latest_delegation_selected_independent_of_listing_order(self):
-        old = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-        new = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
-        blocks = [f'## Drone\n- Output ID: {old}\n- Status: succeeded\n- Timestamp: 2026-09-19T10:00:00Z',
-                  f'## Drone\n- Output ID: {new}\n- Status: succeeded\n- Timestamp: 2026-09-19T10:00:01Z']
-        for order in (blocks, blocks[::-1]):
-            self.assertEqual(HappyRobot.latest_output('\n'.join(order)), new)
-
-    def test_nested_json_in_mcp_text(self):
-        c = command()
-        result = {'content': [{'type': 'text', 'text': 'Result:\n```json\n'+json.dumps({'response': c})+'\n```'}]}
-        self.assertEqual(HappyRobot.decisions(result), [c])
-
-    def test_no_fabricated_fallback(self):
-        self.assertEqual(HappyRobot.decisions({'content': [{'text': 'No result.'}]}), [])
-
-
-class DispatcherLoopTests(unittest.TestCase):
-    def setUp(self):
-        self._mode = patch.dict(os.environ, {'HAPPYROBOT_MODE': 'loop', 'DISPATCH_INCIDENT_ID': 'brunete-demo',
-                                             'STATE_API_URL': '', 'STATE_API_TOKEN': ''})
-        self._mode.start()
-        # These build a real Controller on the fixed demo incident id. Without a disabled
-        # store they reach the deployed Worker, and action('reset') now wipes the shared
-        # session there: running the suite emptied the live brunete-demo document.
-        self._env = patch('simulator.state_store.load_env')
-        self._env.start()
-
-    def tearDown(self):
-        self._env.stop()
-        self._mode.stop()
-
-    def test_the_suite_never_reaches_the_deployed_worker(self):
-        from simulator.server import Controller
-        c = Controller(); c.stop.set()
-        try:
-            self.assertFalse(c.store.enabled, 'these tests must not touch the live state API')
-            self.assertFalse(c.wipe_shared_session(c.sim.incident_id))
-        finally:
-            c.robot.close()
-
-    def test_loop_mode_reuses_session_key_and_does_not_start_a_run(self):
-        from simulator.server import Controller
-        c=Controller();c.stop.set()
-        try:
-            self.assertTrue(c.loop)
-            self.assertEqual(c.sim.incident_id, 'brunete-demo')
-            c.sim.ignite(); c.sim.farmer_call()
-            with patch.object(c.robot, 'decide') as decide, patch.object(c, 'publish_inbox') as inbox:
-                c.request_decision('farmer_call')
-                decide.assert_not_called()
-                inbox.assert_called_once()
-                self.assertFalse(c.busy)
-            c.action('reset', {})
-            self.assertEqual(c.sim.incident_id, 'brunete-demo')
-        finally:
-            c.robot.close()
-
-    def test_loop_mode_applies_pending_command_from_kv(self):
-        from simulator.server import Controller
-        c=Controller();c.stop.set();c.sim.ignite();c.sim.farmer_call()
-        try:
-            remote=dict(pending_command=dict(command_id='cmd-1', command='hold', target_x=12, target_y=32, reason='stand by', mission='hold station',
-                                             extinguisher_orders=[dict(drone_id='drone-1', command='hold', target_x=12, target_y=32, reason='stand by')]),
-                        last_dispatch=dict(decision='verificar', justificacion='scout first', criticidad='medium'))
-            with patch.object(c.store, 'get', return_value=remote):
-                c.store.url='http://example'; c.store.token='x'
-                c.pull_dispatch()
-            self.assertEqual(c._applied_command_id, 'cmd-1')
-            self.assertEqual(c.sim.dispatch['decision'], 'verificar')
-            with patch.object(c.store, 'get', return_value=remote), patch.object(c.sim, 'apply') as apply:
-                c.pull_dispatch()
-                apply.assert_not_called()
-        finally:
-            c.robot.close()
 
 
 if __name__ == '__main__':

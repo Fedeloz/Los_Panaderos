@@ -1,0 +1,21 @@
+#tourOverlay{position:fixed;inset:0;z-index:10000;overflow:hidden;pointer-events:none}
+/* Highlight, not a blackout: a glowing frame around the target and the rest of the page untouched. */
+#tourOverlay .tour-hole{position:fixed;border:2px solid var(--cyan,#5ec2e6);border-radius:6px;box-shadow:0 0 0 4px rgba(94,194,230,.22),0 0 34px 6px rgba(94,194,230,.55);transition:left .18s ease,top .18s ease,width .18s ease,height .18s ease;pointer-events:none;animation:tour-glow 1.6s ease-in-out infinite}
+.tour-target{outline:0!important}
+@keyframes tour-glow{0%,100%{box-shadow:0 0 0 4px rgba(94,194,230,.18),0 0 26px 4px rgba(94,194,230,.45)}50%{box-shadow:0 0 0 6px rgba(94,194,230,.32),0 0 44px 10px rgba(94,194,230,.7)}}
+#tourCard{position:fixed;right:20px;bottom:20px;z-index:10002;width:min(340px,calc(100vw - 32px));padding:16px;background:rgba(7,15,24,.94);color:var(--ink,#d7e6ee);border:1px solid var(--line-strong,rgba(94,194,230,.35));border-left:3px solid var(--cyan,#5ec2e6);border-radius:3px;box-shadow:0 18px 60px rgba(0,0,0,.65);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+#tourCard.tour-card-left{right:auto;left:max(20px,calc(var(--nav-w,200px) + 20px))}#tourCard.tour-card-top{bottom:auto;top:20px}
+#tourCard .tour-count{display:block;margin-bottom:7px;color:var(--cyan-soft,#9fd3ea);font:700 10px var(--meta,ui-monospace,monospace);letter-spacing:1.2px;text-transform:uppercase}
+#tourCard h2{margin:0 0 8px;color:#eef5f9;font-size:19px;line-height:1.2}
+#tourCard .tour-copy{margin:0;color:var(--ink,#d7e6ee);font-size:13px;line-height:1.5}
+#tourCard .tour-hint{margin:11px 0 0;padding-top:9px;border-top:1px solid var(--line,rgba(94,194,230,.18));color:var(--cyan-soft,#9fd3ea);font:600 10px/1.45 var(--meta,ui-monospace,monospace)}
+#tourCard .tour-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;margin-top:14px}
+#tourCard button{padding:7px 9px;font-size:11px}
+#tourCard .tour-skip{margin-right:auto;background:transparent;border-color:transparent;color:var(--muted,#8aa3b3)}
+#tourCard .tour-secondary,#tourCard .tour-helper{background:transparent;color:var(--cyan-soft,#9fd3ea);border-color:var(--line-strong,rgba(94,194,230,.35))}
+#tourCard .tour-helper{order:5;margin-left:auto}
+#tourCard .tour-primary{background:var(--green,#1f6f8f);color:#fff;border-color:var(--green-2,#2a89ad);font-weight:700}
+#tourCard .tour-primary:disabled{min-width:150px}
+@keyframes tour-pulse{0%,100%{outline-color:rgba(94,194,230,.65)}50%{outline-color:#dff4fc}}
+@media(max-width:950px){#tourCard{left:0;right:0;bottom:0;width:100%;max-width:none;border-width:1px 0 0;border-left:0;border-top:3px solid var(--cyan,#5ec2e6);border-radius:0;padding:14px 16px calc(14px + env(safe-area-inset-bottom))}#tourCard .tour-copy{font-size:12px}#tourCard .tour-actions{margin-top:10px}}
+@media(prefers-reduced-motion:reduce){#tourOverlay .tour-hole{transition:none;animation:none}}

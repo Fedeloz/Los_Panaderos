@@ -2,6 +2,10 @@
 *.mcpb
 __pycache__/
 .venv/
+.venv-workers/
 .env
 .runtime/
+.wrangler/
+python_modules/
+node_modules/
 *.pyc
