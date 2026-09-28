@@ -14,12 +14,11 @@
 
 ![Sala de crisis: estado de la población, flota y mapas de la situación real simulada y de las observaciones disponibles.](docs/sala-de-crisis.png)
 
-*Sala de crisis: incidente simulado, pausado en T+13. Captura local sin
-conexión a HappyRobot ni órdenes de agentes.*
+*Sala de crisis: incidente simulado, pausado en T+13. Captura local.*
 
 <!--
-  Short demo video: simulation (maps, fleet, wind) + HappyRobot in action
-  (Despacho, drones, Telegram / llamada). Drop the file and uncomment:
+  Short demo video: simulation (maps, fleet, wind) + the policy deciding and
+  the fleet acting. Drop the file and uncomment:
 
   <video src="docs/demo.mp4" controls width="100%"></video>
 -->
@@ -43,12 +42,11 @@ permanece oculto para los agentes hasta que sus sensores lo descubren.
 
 ## Cómo funciona
 
-Usamos HappyRobot junto a un motor de simulación.
+El motor de simulación es el mundo: incendio, viento, sensores, vehículos y
+población. Avanza el fuego, mueve la flota y comprueba cada orden.
 
-HappyRobot es el cerebro. Agentes que razonan, avisan y asignan misiones.
-El simulador es el mundo: incendio, viento, sensores, vehículos y población.
-HappyRobot no sustituye la física. El motor avanza el fuego, mueve la flota
-y comprueba cada orden.
+Una política de decisión decide a quién avisar y qué enviar a cada vehículo.
+No sustituye la física: elige objetivos y el motor los valida.
 
 ```mermaid
 flowchart LR
@@ -58,19 +56,19 @@ flowchart LR
     OBSERVAR -->|"Volver a decidir"| INFO
 ```
 
-El simulador escribe en el buzón. HappyRobot lee y decide. El motor aplica la
-orden o la rechaza a la vista. El reloj se para mientras los agentes deliberan.
+El simulador lee, la política decide y el motor aplica la orden o la rechaza
+a la vista.
 
 Cada vehículo tiene autonomía táctica en el simulador: planificador de ruta,
-distancia de seguridad al fuego y sistema de extinción. HappyRobot no pilota
+distancia de seguridad al fuego y sistema de extinción. La decisión no pilota
 cada celda.
 
-| Quién | Responsabilidad |
+| Pieza | Responsabilidad |
 |:---|:---|
-| **Despacho Central** | Decide qué verificar, a quién avisar y qué misión encargar a la flota. |
-| **Los Panaderos** | Coordina las órdenes de exploración, contención y camiones, con una orden por vehículo. |
-| **Llamadas y Telegram** | Comunican instrucciones a contactos y distritos; informar y evacuar son acciones distintas. |
-| **Marina** | Atiende consultas de residentes: pregunta nombre y barrio y consulta el estado público. |
+| **Política de decisión** (`simulator/policy.py`) | Decide qué verificar, a quién avisar y qué misión encargar a la flota. |
+| **Coordinación de flota** | Una orden por vehículo: exploración, contención y camiones. |
+| **Comunicaciones** | Instrucciones a contactos y distritos; informar y evacuar son acciones distintas. |
+| **Consulta pública** | Un residente pregunta nombre y barrio y lee el estado compartido. |
 
 | Medio | Papel |
 |:---|:---|
@@ -85,18 +83,18 @@ extinción o se alerta a un distrito.
 ### Un ejemplo
 
 1. **Llega un aviso de humo**, todavía sin confirmación local.
-2. **Despacho decide qué hacer primero:** verificar, avisar preventivamente o
+2. **La política decide qué hacer primero:** verificar, avisar preventivamente o
    movilizar recursos según la información disponible.
 3. **La flota ejecuta:** el scout explora o avisa, el dron de extinción contiene
    desde posiciones seguras y el camión ataca el sector asignado.
 4. **Aparece información nueva:** cambia el viento o el scout descubre otro foco.
-   El simulador envía un nuevo evento para que Despacho reconsidere la respuesta.
+   El simulador envía un nuevo evento para que la política reconsidere la respuesta.
 
 No se evacúa el municipio entero. Se avisa el distrito amenazado, o se informa
 sin mover a la población. Un mensaje de calma no debe salir como evacuación.
 
-La llamada del vecino no pasa por el buzón. Marina pregunta nombre y barrio
-y lee el estado público (`GET /lookup`).
+La llamada del vecino no pasa por el buzón de incidentes. Se consulta el
+estado público del distrito.
 
 ## Qué encontrarás en CECOP
 
@@ -129,36 +127,30 @@ python3 -m simulator.server
 Abre **<http://127.0.0.1:8765>** y entra en **Sala de crisis**.
 Configura flota y viento, pulsa **1 · Ignición** y después **2 · Aviso de humo**.
 
-En un checkout limpio puedes explorar la interfaz y el fuego simulado sin
-credenciales. **Las decisiones de agentes requieren conectar HappyRobot**;
-el servidor local no las inventa.
+En un checkout limpio la demo funciona sin credenciales, sin cuentas y sin
+servicios externos. La decisión la toma `simulator/policy.py`, una política
+determinista que se ejecuta dentro del propio simulador.
 
 <details>
-<summary><strong>Conectar HappyRobot y las comunicaciones</strong></summary>
+<summary><strong>Cómo se decide ahora</strong></summary>
 
-1. Copia [`.env.example`](.env.example) a `.env`.
-2. Configura `STATE_API_URL` y `STATE_API_TOKEN` para el Worker y su KV
-   ([código de la API](state-api/)). Configura la misma conexión en los
-   workflows de HappyRobot.
-3. Mantén `HAPPYROBOT_MODE=loop` y usa el mismo `DISPATCH_INCIDENT_ID`
-   en simulador y Despacho; el valor por defecto es `brunete-demo`.
-4. Configura los contactos `DEMO_*` con teléfonos y Telegram del equipo:
-   **los canales conectados envían llamadas y mensajes reales**.
-5. Reinicia el servidor y abre un run de **Despacho Central** en
-   **development** antes de iniciar el incidente y enviar el aviso de humo.
+El proyecto se desarrolló con HappyRobot como cerebro: los workflows
+*Despacho Central*, *Los Panaderos* y *Marina* razonaban, avisaban y
+asignaban misiones, y el simulador validaba cada orden. Esa integración se
+retiró en `bec869f`. Hoy la decisión es determinista y local:
 
-En modo `loop`, el simulador escribe en el buzón compartido y recoge las
-órdenes que deja Despacho. El simulador no inicia runs de HappyRobot.
+- `simulator/policy.py` devuelve exactamente la misma estructura de decisión
+  que `Simulation.apply()` ya validaba: una orden por vehículo, más `mission`
+  y `reason`.
+- La política solo lee el estado limitado por observaciones, nunca la verdad
+  oculta del incendio. El motor sigue rechazando órdenes obsoletas,
+  inseguras, incompletas o duplicadas.
+- `SimulatorSession` es la única costura: llama a `policy.decide(sim)` y luego
+  a `sim.apply(...)`. Sustituir la política no toca el motor ni el servidor.
 
-**Reiniciar también solicita borrar el estado compartido** cuando la API está
-conectada. Comprueba el estado de conexión si el borrado falla.
-
-El modo alternativo `HAPPYROBOT_MODE=push` inicia un run por decisión y requiere
-un proxy MCP local autenticado; sus variables están en `.env.example`.
-
-[Despacho Central](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/zqtnabjy5loj/editor/wm9viy0rm87v)
-· [Los Panaderos](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/ol9kqyjzgq0m)
-· [Marina](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/8angdc9uc7nz/editor/m3cs7r55sfuv)
+El motor de simulación, los agentes de comunicación y la experiencia
+recuperada siguen siendo los mismos. Los workflows de HappyRobot ya no son
+necesarios para la demo.
 
 </details>
 
