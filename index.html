@@ -1,170 +1,152 @@
 <!doctype html>
 <html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Los Panaderos · Demo grabada</title>
-<link rel="icon" href="./favicon.png" type="image/png">
-<link rel="stylesheet" href="./style.css">
-<script>window.RECORDED_DEMO="./recordings/brunete-demo.json.gz";</script></head>
-<body data-page="incidente" class="recorded-demo">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CECOP · Situación</title><link rel="icon" href="./favicon.png" type="image/png"><link rel="stylesheet" href="./style.css"><link rel="stylesheet" href="./mapa.css"><script>window.RECORDED_SITE=true;window.RECORDED_DEMO="./recordings/brunete-demo.json.gz";</script><script src="./recorded-site.js"></script></head>
+<body data-page="situacion" class="recorded-demo">
 <div class="shell">
 <aside class="cecop-nav" aria-label="CECOP">
   <div class="nav-brand"><div class="badge">112</div><span>CECOP</span></div>
-  <div class="nav-links"><a href="./" class="active">Demo grabada</a><a href="https://github.com/Fedeloz/Los_Panaderos">Repositorio</a></div>
+  <div class="nav-links">
+    <a href="./" data-nav="situacion" data-i18n="navSituation">Situación</a>
+    <a href="./incidente.html" data-nav="incidente" data-i18n="navIncident">Sala de crisis</a>
+    <a href="./medios.html" data-nav="medios" data-i18n="navFleet">Medios</a>
+    <a href="./archivo.html" data-nav="archivo" data-i18n="navArchive">Archivo</a>
+  </div>
   <div class="nav-lang"><button type="button" id="langToggle" class="quiet" data-i18n-aria-label="changeLanguage">EN</button></div>
 </aside>
 <div class="ops">
 <header class="mast">
-  <div class="brand">
-    <div class="badge">112</div>
-    <div>
-      <span class="eyebrow" id="eyebrow" data-i18n="eyebrow">CENTRAL DE OPERACIONES · CECOP</span>
-      <h1 id="headline">Brunete · Madrid</h1>
-      <p id="subhead" data-i18n="subhead">PROTECCIÓN CIVIL · EXTINCIÓN</p>
-    </div>
-  </div>
-  <div class="header-actions">
-    <div class="incident-meta"><span id="incidentCode">ES-2026-BRUNETE</span><span id="wx" class="wx" hidden></span></div>
-  </div>
+  <div class="brand"><div class="badge">112</div><div><span class="eyebrow" data-i18n="eyebrow">CENTRAL DE OPERACIONES · CECOP</span><h1 data-i18n="nationalTitle">España</h1><p data-i18n="nationalSubhead">PROTECCIÓN CIVIL · CECOP NACIONAL</p></div></div>
+  <div class="header-actions"><div class="incident-meta"><span id="incidentCode" data-i18n="nationalCode">CECOP-ES</span><span class="official-time"><span data-i18n="officialTime">Hora oficial</span> <time id="officialClock">--:--:--</time></span></div></div>
 </header>
-<section class="kpis">
-  <div class="kpi-threat"><span class="kpi-label" id="kThreatLbl" data-i18n="kThreat">Amenaza</span><strong id="threat">Vigilancia</strong></div>
-  <div class="people-board" id="peopleBoard">
-    <span class="kpi-label" id="kPeopleLbl" data-i18n="kPeople">Personas en riesgo</span>
-    <div id="peopleKpi" class="people-counts">
-      <div><strong id="peopleUnwarned">0</strong><span data-i18n="unwarnedLbl">sin aviso</span></div>
-      <div><strong id="peopleEvacuating">0</strong><span data-i18n="evacLbl">evacuando</span></div>
-      <div><strong id="peopleSafe">0</strong><span data-i18n="safeLbl">a salvo</span></div>
-      <div><strong id="peopleExposed">0</strong><span data-i18n="exposedLbl">expuestos</span></div>
-    </div>
-  </div>
-  <div><span class="kpi-label" id="kDroneLbl" data-i18n="kDrone">Drones</span><strong id="droneKpi">—</strong><small id="droneStatus" class="kpi-detail"></small></div>
-  <div><span class="kpi-label" id="kCrewLbl" data-i18n="kCrew">Camiones</span><strong id="crew">—</strong><small id="crewStatus" class="kpi-detail"></small></div>
-  <div><span class="kpi-label" id="kAgentLbl" data-i18n="kAgents">Agentes</span><strong id="runs">0</strong></div>
-  <div><span class="kpi-label" id="kClockLbl" data-i18n="kClock">Reloj</span><strong id="clock">T+0</strong></div>
-</section>
-<div class="duty">
-  <p id="connection" role="status" aria-live="polite" aria-atomic="true">Listo</p>
-  <span class="agent-chain" data-i18n="agentChain">HappyRobot · Central → Exploración / Extinción</span>
-</div>
-<p class="demo-note">DEMO GRABADA · Reproduce la respuesta al incendio y explora las decisiones de los agentes.</p><section class="toolbar strip"><button id="restartDemo" type="button">↺ Repetir desde el inicio</button>
-  <button id="play" data-i18n="playBtn">Reproducir</button>
-  <button data-action="decision" id="btnAsk" data-i18n="ask">Preguntar a los agentes</button>
-  <button id="addFire" type="button" aria-pressed="false">Añadir fuego en el mapa</button>
-  <button id="resetSim" data-action="reset" class="quiet" data-i18n="reset">↺ Reiniciar</button>
-  <button id="recordRun" data-i18n="recordRun">Guardar última simulación</button>
-  <button id="importSimulation" type="button" data-i18n="openRec">Importar simulación</button>
-  <input id="openRecording" type="file" accept="application/json,application/gzip,.json,.gz" hidden>
-  <a class="setup-jump" href="#setupPanel"><span data-i18n="setup">Preparar incidente</span><span id="operatingSummary"></span></a>
-</section>
 <div id="error" role="alert" hidden></div>
-<section class="order-ticket" aria-labelledby="missionLbl">
-  <div class="order-label"><span class="eyebrow" id="missionLbl" data-i18n="mission">MISIÓN / ORDEN</span><span class="order-channel" data-i18n="orderChannel">HAPPYROBOT · CENTRAL</span></div>
-  <h2 id="mission">A la espera de aviso</h2>
-  <div id="people" class="unit-tags"></div>
-</section>
-<main class="maps">
-  <article class="map-card">
-    <div class="maptitle"><h2 id="truthTitle" data-i18n="truth">Situación real</h2><span id="truthTag">BRUNETE · TERRENO ILUSTRADO</span></div>
-    <div class="map-stage">
-      <div id="globe" hidden></div>
-      <canvas id="truth" width="800" height="560"></canvas>
-      <canvas id="truthOverlay" class="map-overlay" width="800" height="560" aria-hidden="true"></canvas>
-      <span class="map-paused" data-i18n="mapPaused">RELOJ EN PAUSA</span>
-      <span class="map-replay" data-i18n="replay">Reproducción</span>
+<main class="lower">
+  <section class="gis gis-hero" aria-labelledby="gisHeading">
+    <header class="gis-top">
+      <div class="gis-row gis-row-national">
+        <div class="gis-brand"><h2 id="gisHeading">CECOP</h2><span data-i18n="mapSubtitle">Incendios Forestales — España</span></div>
+        <div class="gis-counters gis-national" role="group" data-i18n-aria-label="nationalKpis" aria-label="Situación nacional">
+          <div class="counter counter-plain"><span data-i18n="kOpenIncidents">Incidentes abiertos</span><strong id="openIncidents">—</strong><small id="openDetail"></small></div>
+          <div class="counter counter-plain"><span data-i18n="kCcaa">CCAA afectadas</span><strong id="ccaaCount">—</strong><small id="ccaaDetail"></small></div>
+          <div class="counter counter-plain"><span data-i18n="kRiskPeople">Personas en riesgo</span><strong id="riskPeople">—</strong><small id="riskDetail"></small></div>
+          <div class="counter counter-plain"><span data-i18n="kAssetsCommitted">Medios comprometidos</span><strong id="assetsCommitted">—</strong><small id="assetsDetail"></small></div>
+          <div class="counter counter-plain kpi-level" id="levelCell"><span data-i18n="kLevel">Nivel</span><strong id="nationalLevel">—</strong><small id="levelDetail"></small></div>
+        </div>
+        <div class="gis-updated"><span data-i18n="lastUpdate">Última actualización</span><strong id="updatedAt">—</strong></div>
+      </div>
+      <div class="gis-row gis-row-ops">
+        <div class="duty gis-duty"><p id="connection" role="status" aria-live="polite" aria-atomic="true" data-i18n="connecting">Conectando…</p><a href="./incidente.html" class="duty-link" data-i18n="openIncident">Abrir sala de crisis</a></div>
+        <div class="gis-counters" role="group" aria-label="Contadores operativos">
+          <div class="counter counter-active"><i class="dot"></i><span data-i18n="cActive">Activos</span><strong id="countActive">—</strong></div>
+          <div class="counter counter-risk"><i class="dot"></i><span data-i18n="cRisk">En riesgo</span><strong id="countRisk">—</strong><small data-i18n="cRiskUnit">núcleos</small></div>
+          <div class="counter counter-controlled"><i class="dot"></i><span data-i18n="cControlled">Controlados</span><strong id="countControlled">—</strong></div>
+        </div>
+        <div class="gis-weather" role="group" aria-label="Meteorología">
+          <div><span data-i18n="wxWind">Viento</span><strong id="wxWind">—</strong></div>
+          <div><span data-i18n="wxTemp">Temperatura</span><strong id="wxTemp">—</strong></div>
+          <div><span data-i18n="wxHumidity">Humedad</span><strong id="wxHumidity">—</strong></div>
+        </div>
+      </div>
+    </header>
+    <div class="gis-stage" id="gisStage">
+      <div class="gis-map" id="gisMap" aria-label="Mapa de incendios forestales de España"></div>
+      <aside class="glass gis-layers" aria-labelledby="layersHeading">
+        <h3 id="layersHeading"><i class="ico ico-layers"></i><span data-i18n="layers">Capas</span></h3>
+        <ul id="layerList">
+          <li><i class="sw sw-hotspot"></i><label><span data-i18n="lyHotspots">Incendios activos</span><input type="checkbox" role="switch" data-layer="hotspots" checked></label></li>
+          <li><i class="sw sw-perimeter"></i><label><span data-i18n="lyPerimeters">Perímetros de incendio</span><input type="checkbox" role="switch" data-layer="perimeters" checked></label></li>
+          <li><i class="sw sw-risk"></i><label><span data-i18n="lyRisk">Zonas de riesgo</span><input type="checkbox" role="switch" data-layer="risk" checked></label></li>
+          <li><i class="sw sw-wind"></i><label><span data-i18n="lyWind">Viento</span><input type="checkbox" role="switch" data-layer="wind" checked></label></li>
+          <li><i class="sw sw-admin"></i><label><span data-i18n="lyAdmin">Límites administrativos</span><input type="checkbox" role="switch" data-layer="admin" checked></label></li>
+          <li><i class="sw sw-roads"></i><label><span data-i18n="lyRoads">Carreteras</span><input type="checkbox" role="switch" data-layer="roads" checked></label></li>
+          <li><i class="sw sw-cities"></i><label><span data-i18n="lyCities">Ciudades</span><input type="checkbox" role="switch" data-layer="cities" checked></label></li>
+          <li><i class="sw sw-topo"></i><label><span data-i18n="lyTopo">Topografía</span><input type="checkbox" role="switch" data-layer="topo" checked></label></li>
+        </ul>
+      </aside>
+      <div class="gis-zoom glass" role="group" aria-label="Zoom">
+        <button type="button" id="zoomIn" aria-label="Acercar">+</button>
+        <button type="button" id="zoomOut" aria-label="Alejar">−</button>
+        <button type="button" id="zoomReset" data-i18n-aria-label="zoomReset" aria-label="Vista nacional">⌖</button>
+      </div>
+      <aside class="glass gis-canarias" aria-labelledby="canariasHeading">
+        <div class="inset-head"><h3 id="canariasHeading" data-i18n="canarias">Islas Canarias</h3><span class="inset-tag">INSET</span></div>
+        <svg id="canariasInset" viewBox="0 0 260 112" role="img" aria-labelledby="canariasHeading"></svg>
+      </aside>
+      <aside class="glass gis-incidents" aria-labelledby="incidentsHeading">
+        <h3><i class="ico ico-fire"></i><span id="incidentsHeading" data-i18n="activeIncidents">Incendios activos</span><span class="pill pill-alert" id="incidentCount">—</span></h3>
+        <ol id="incidentList" class="incident-list"></ol>
+        <p class="panel-note" data-i18n="symbolicNote">Perímetros y focos a escala simbólica sobre localizador esquemático. Datos de demostración.</p>
+      </aside>
+      <aside class="glass gis-legend" aria-labelledby="legendHeading">
+        <h3 id="legendHeading" data-i18n="legend">Leyenda</h3>
+        <ul class="legend-list">
+          <li><i class="lg lg-hotspot"></i><span data-i18n="lgHotspot">Foco de incendio</span></li>
+          <li><i class="lg lg-perimeter"></i><span data-i18n="lgPerimeter">Perímetro de incendio</span></li>
+          <li><i class="lg lg-controlled"></i><span data-i18n="lgControlled">Incendio controlado</span></li>
+          <li class="lg-group"><i class="lg lg-risk"></i><span data-i18n="lgRisk">Zona de riesgo</span>
+            <ul>
+              <li><i class="lg lg-extreme"></i><span data-i18n="lgExtreme">Extremo</span></li>
+              <li><i class="lg lg-veryhigh"></i><span data-i18n="lgVeryHigh">Muy alto</span></li>
+              <li><i class="lg lg-high"></i><span data-i18n="lgHigh">Alto</span></li>
+              <li><i class="lg lg-moderate"></i><span data-i18n="lgModerate">Moderado</span></li>
+              <li><i class="lg lg-low"></i><span data-i18n="lgLow">Bajo</span></li>
+            </ul>
+          </li>
+          <li><i class="lg lg-wind"></i><span data-i18n="lgWind">Viento (dirección / intensidad)</span></li>
+          <li><i class="lg lg-ccaa"></i><span data-i18n="lgCcaa">Límite de comunidad autónoma</span></li>
+          <li><i class="lg lg-country"></i><span data-i18n="lgCountry">Límite de país</span></li>
+          <li><i class="lg lg-road"></i><span data-i18n="lgRoads">Carreteras principales</span></li>
+          <li><i class="lg lg-city"></i><span data-i18n="lgCities">Ciudades principales</span></li>
+          <li><i class="lg lg-brunete"></i><span data-i18n="lgBrunete">Brunete · sala simulada</span></li>
+        </ul>
+      </aside>
+      <div class="gis-scale" aria-hidden="true"><svg id="scaleBar" viewBox="0 0 250 30" width="250" height="30"></svg></div>
+      <div class="gis-credit" data-i18n="mapCredit">Base cartográfica derivada de Wikimedia Commons (NordNordWest) · CC BY-SA 3.0 · localizador esquemático, no cartografía oficial</div>
+      <div id="tooltip" class="gis-tooltip" role="tooltip" hidden></div>
     </div>
-    <p id="mapNote" class="mapnote" hidden></p>
-    <p id="firePlacementHint" class="fire-placement-hint" hidden></p>
-    <ul class="legend">
-      <li><i style="background:#e8862f"></i><span data-i18n="legendSim">Frente simulado (rejilla educativa)</span></li>
-      <li id="legendFirms" hidden><i style="background:#d43b2f"></i><span data-i18n="legendFirms">FIRMS · focos reales 24 h (NASA)</span></li>
-      <li><i style="background:#e8c14a"></i><span data-i18n="legendDrone">Squirtle</span></li>
-      <li><i style="background:#7b8cff"></i><span data-i18n="legendScout">Explorador</span></li>
-      <li><i style="background:#c62828"></i><span data-i18n="legendTruck">Camión</span></li>
-      <li><i class="hollow"></i><span data-i18n="legendArea">Distritos ilustrados</span></li>
-    </ul>
-    <p id="truthstats"></p>
-  </article>
-  <article class="map-card">
-    <div class="maptitle"><h2 id="beliefTitle" data-i18n="belief">Lo que el sistema ve</h2><span id="beliefTag" data-i18n="beliefTag">SENSORES + SATÉLITE RETARDADO</span></div>
-    <div class="map-stage">
-      <canvas id="belief" width="800" height="560"></canvas>
-      <div id="beliefToasts" class="belief-toasts" aria-live="polite" aria-atomic="false"></div>
-      <span class="map-paused" data-i18n="mapPaused">RELOJ EN PAUSA</span>
-      <span class="map-replay" data-i18n="replay">Reproducción</span>
+    <footer class="gis-timeline">
+      <div class="tl-controls">
+        <button type="button" id="tlBack" aria-label="Inicio de la ventana">⏮</button>
+        <button type="button" id="tlPlay" class="tl-play" aria-label="Reproducir">▶</button>
+        <button type="button" id="tlFwd" aria-label="Avanzar una hora">⏭</button>
+        <select id="tlSpeed" aria-label="Velocidad"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select>
+      </div>
+      <div class="tl-track">
+        <div class="tl-head"><time id="tlTime">—</time><span id="tlPhase" class="tl-phase"></span></div>
+        <input type="range" id="tlRange" min="-1440" max="0" step="5" value="0" aria-label="Línea temporal (últimas 24 h)">
+        <div class="tl-ticks" id="tlTicks"></div>
+      </div>
+      <button type="button" id="tlLive" class="tl-live is-live"><i></i><span data-i18n="tlLive">En directo</span></button>
+      <span class="tl-note" data-i18n="timelineNote">Evolución de las últimas 24 h · escenario de demostración</span>
+    </footer>
+  </section>
+  <section class="panel" aria-labelledby="eventsHeading">
+    <h2 id="eventsHeading" data-i18n="activeEvents">Expedientes abiertos</h2>
+    <div class="event-list">
+      <article class="order-ticket event-live" id="bruneteEvent">
+        <div class="order-label"><span class="eyebrow">ES-2026-BRUNETE</span><span id="eventThreat" class="event-status">—</span><span id="eventLevel" class="event-level">—</span></div>
+        <div><h2>Brunete · Madrid</h2><p class="event-meta" id="eventMeta">—</p><p id="eventMission" class="event-mission">—</p><p id="eventPeople">—</p></div>
+        <a href="./incidente.html" data-i18n="openIncident">Abrir sala de crisis</a>
+      </article>
+      <div id="watchList"></div>
     </div>
-    <div class="map-legend" data-i18n-aria-label="observationLegend"><span><i class="legend-town"></i><span data-i18n="legendTown">Viviendas urbanas</span></span><span><i class="legend-farm"></i><span data-i18n="legendFarm">Viviendas de granja</span></span><span><i class="legend-fields"></i><span data-i18n="legendFields">Cultivos</span></span><span><i class="legend-woodland"></i><span data-i18n="legendWoodland">Bosque</span></span><span><i class="legend-refuge"></i><span data-i18n="legendRefuge">Refugio</span></span><small data-i18n="legendDistricts">Distritos ficticios · terreno ilustrado</small></div>
-    <p id="populationSource" class="population-source" hidden></p>
-    <p class="knowledge-note" data-i18n="knowledgeNote">Observaciones locales y satélite simulado retardado. No es el frente real.</p>
-    <p id="beliefstats"></p>
-  </article>
+    <h2 class="closed-heading" data-i18n="closedEvents">Cerrados</h2>
+    <div id="closedList" class="closed-strip"></div>
+    <a href="./archivo.html" class="closed-link" data-i18n="openArchive">Abrir archivo</a>
+  </section>
+  <section class="panel" aria-labelledby="dataHeading">
+    <h2 id="dataHeading" data-i18n="salaHeading">Sala abierta</h2>
+    <p class="kpi-detail" data-i18n="salaHelp">Única sala simulada bajo mando CECOP. Las órdenes proceden de HappyRobot y se muestran sin traducir.</p>
+    <div class="data-grid"><div><span class="eyebrow" data-i18n="lastOrder">Última orden</span><p id="regionalMission">—</p><p class="kpi-detail" data-i18n="agentChain">HappyRobot · Central → Exploración / Extinción</p></div></div>
+    <div class="data-grid"><div><span class="eyebrow" data-i18n="salaClock">Reloj de sala</span><p id="salaClock" class="sala-clock">T+0</p></div><div><span class="eyebrow" data-i18n="kAgents">Agentes</span><p id="salaRuns" class="sala-clock">0</p></div></div>
+  </section>
 </main>
-<section class="timeline">
-  <button id="back" data-i18n-aria-label="backFrame">←</button>
-  <button id="replayPlay" data-i18n="replayStart">▶ Repetir</button>
-  <input id="timeline" type="range" min="0" max="0" value="0" data-i18n-aria-label="recordedFrame">
-  <button id="forward" data-i18n-aria-label="forwardFrame">→</button>
-  <button data-action="live" data-i18n="liveBtn">En vivo</button>
-  <span id="frame">En vivo</span>
-</section>
-<section class="lower">
-  <details class="setup" id="setupPanel" hidden>
-    <summary id="setupSummary">Preparar incidente</summary>
-    <div class="setup-content">
-      <section class="toolbar fleet-panel" data-i18n-aria-label="fleetTitle">
-        <strong class="eyebrow" data-i18n="fleetTitle">Medios de respuesta</strong>
-        <label><span data-i18n="fleetTrucks">camiones</span><select id="fleet-trucks"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
-        <label><span data-i18n="fleetScouts">exploradores</span><select id="fleet-scouts"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
-        <label><span data-i18n="fleetExtinguishers">drones Squirtle</span><select id="fleet-extinguishers"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
-        <button id="applyFleet" data-i18n="applyFleet">Aplicar flota</button>
-        <span id="fleetSummary"></span>
-        <small data-i18n="fleetHelp">Configura antes de la ignición. Reinicia para cambiar los medios; los recuentos se conservan.</small>
-      </section>
-      <section class="toolbar">
-        <button data-action="ignite" class="primary" id="btnIgnite" data-i18n="ignite">1 · Ignición</button>
-        <button data-action="call" class="primary" id="btnCall" data-i18n="call">2 · Aviso de humo</button>
-        <button data-action="step" data-i18n="step">+1</button>
-        <label><span data-i18n="speed">Velocidad</span> <select id="speed"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option><option value="8">8×</option></select></label>
-      </section>
-      <section class="wind-panel">
-        <div><span class="eyebrow" id="windTitle" data-i18n="wind">VIENTO</span><p id="windHelp" data-i18n="windHelp">X este · Y sur · unidades demo</p></div>
-        <label>X <input id="windX" type="range" min="-3" max="3" step="0.05" value="1"><output id="windXValue">1.0</output></label>
-        <label>Y <input id="windY" type="range" min="-3" max="3" step="0.05" value="0"><output id="windYValue">0.0</output></label>
-        <svg id="windVector" viewBox="0 0 86 86" data-i18n-aria-label="wind"><path d="M5 43H81 M43 5V81" stroke="#2a4657"/><circle cx="43" cy="43" r="36" fill="none" stroke="#2a4657"/><path id="windArrow" stroke="#9fd3ea" stroke-width="3" fill="none"/><circle id="windTip" r="4" fill="#9fd3ea"/></svg>
-        <label class="spread-control"><span class="spread-label" data-i18n="spread">Propagación</span><input id="spreadFactor" type="range" min="0.25" max="4" step="0.25" value="0.5"><output id="spreadFactorValue">0.5×</output></label>
-        <div><strong id="windStrength"></strong><p id="windPending">Viento aplicado</p></div>
-        <button id="applyWind" data-i18n="applyWind">Aplicar</button>
-        <button id="calmWind" data-i18n="calmWind">Calma</button>
-      </section>
-      <p id="setupHint" data-i18n="hint">Clic en el terreno para el origen. Aplica viento y el aviso de humo para lanzar los agentes.</p>
-      <p class="explain" id="explain" data-i18n="explain">HappyRobot decide explorar, contener o avisar a cada distrito. Terreno ilustrado, fuego y satélite simulados. No es una predicción operativa.</p>
-      <details class="record-tools">
-        <summary data-i18n="recordTools">Archivo y reproducción</summary>
-        <section class="toolbar">
-          <button hidden id="stopRecord" data-i18n="stopRec">Detener</button>
-          <button hidden id="playRecord" data-i18n="playRec">Reproducir grabación</button>
-          <button hidden id="downloadRecord" data-i18n="download">Descargar</button>
-        </section>
-      </details>
-    </div>
-  </details>
-  <article class="panel">
-    <div class="radio-heading"><span class="eyebrow" id="trailLbl" data-i18n="trail">COMUNICACIONES</span><small data-i18n="radioChannel">CANAL OPERATIVO</small></div>
-    <div id="trail" role="log"></div>
-  </article>
-</section>
 <footer class="site-footer">
-  <span id="footerNote" data-i18n="footerNote">HappyRobot decide. Ilustración inspirada en Brunete; rejilla educativa, no Rothermel/Catastro. El reloj se pausa durante la deliberación; la reproducción no llama a la IA.</span>
+  <span data-i18n="demoBoard">Tablero de demostración: Brunete es la única sala simulada; el resto son expedientes estáticos de demostración.</span>
   <a hidden id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo HappyRobot</a>
-  <div class="attribution"><a href="https://brunete.org/nuestro-pueblo/datos-estadisticos/" data-i18n="censusLink">Ayuntamiento de Brunete · padrón 2025</a><span data-i18n="censusAssumptions">Distribución por distritos estimada; ocupación de granja y refugios supuestos.</span><span data-i18n="pnoaIntro">Ilustración adaptada de una referencia</span> <a href="https://pnoa.ign.es/pnoa-imagen/ortofotos-pnoa-maxima-actualidad">PNOA</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0 scne.es</a></div>
-  <details><summary id="inspectLbl" data-i18n="inspect">Registro técnico de HappyRobot</summary><pre id="evidence"></pre></details>
+  <span data-i18n="baseMapCredit">Mapa base derivado de Wikimedia Commons (NordNordWest) · CC BY-SA 3.0. Localizador esquemático, no cartografía oficial. Incendios, perímetros, riesgo y viento son un escenario de demostración.</span>
 </footer>
 </div>
 </div>
-<script src="./chrome.js"></script>
-<script src="./vendor/bootstrap-icons.js"></script>
-<script src="./observation-map.js"></script>
-<script src="./app.js"></script>
+<script src="./chrome.js"></script><script src="./situacion.js"></script><script src="./mapa.js"></script>
 </body>
 </html>

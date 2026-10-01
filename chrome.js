@@ -25,7 +25,7 @@ window.cecop=(()=>{
   function project(lon,lat){return {x:(lon-MAP.left)/(MAP.right-MAP.left)*MAP.width,y:(MAP.top-lat)/(MAP.top-MAP.bottom)*MAP.height}}
   // Frozen demonstration dossiers. Only ES-2026-BRUNETE is simulated; the rest never move and never call HappyRobot.
   const catalog=[
-    {id:'ES-2026-BRUNETE',place:'Brunete · Madrid',ccaa:'madrid',lon:-3.999,lat:40.405,status:'live',level:'observacion',people:0,year:2026,href:'/incidente'},
+    {id:'ES-2026-BRUNETE',place:'Brunete · Madrid',ccaa:'madrid',lon:-3.999,lat:40.405,status:'live',level:'observacion',people:0,year:2026,href:'./incidente.html'},
     {id:'ES-2026-GATA',place:'Sierra de Gata · Cáceres',ccaa:'extremadura',lon:-6.6,lat:40.24,label:'left',status:'watch',level:'observacion',people:0,year:2026,noteKey:'dossierGata'},
     {id:'ES-2026-OURENSE',place:'Verín · Ourense',ccaa:'galicia',lon:-7.44,lat:41.94,status:'watch',level:'alerta',people:1900,year:2026,noteKey:'dossierOurense'},
     {id:'ES-2026-EMPORDA',place:'Cap de Creus · Girona',ccaa:'catalunya',lon:3.32,lat:42.32,label:'left',status:'watch',level:'observacion',people:450,year:2026,noteKey:'dossierEmporda'},
@@ -86,7 +86,7 @@ window.cecop=(()=>{
     document.querySelectorAll('[data-i18n]').forEach(el=>{if(hasKey(el.dataset.i18n))el.textContent=t(el.dataset.i18n)});
     document.querySelectorAll('[data-i18n-aria-label]').forEach(el=>{if(hasKey(el.dataset.i18nAriaLabel))el.setAttribute('aria-label',t(el.dataset.i18nAriaLabel))});
     if($('langToggle')){$('langToggle').textContent=language==='es'?'EN':'ES';$('langToggle').setAttribute('aria-label',t('changeLanguage'))}
-    const active=({'/':'situacion','/situacion':'situacion','/incidente':'incidente','/incidente/brunete':'incidente','/medios':'medios','/archivo':'archivo'})[location.pathname];
+    const active=window.RECORDED_SITE?document.body.dataset.page:({'/':'situacion','/situacion':'situacion','./incidente.html':'incidente','/incidente/brunete':'incidente','/medios':'medios','/archivo':'archivo'})[location.pathname];
     document.querySelectorAll('[data-nav]').forEach(el=>{if(el.dataset.nav===active)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current')});
   }
   function renderError(){if(!$('error'))return;const messages=[clientError,pollingError?t('serverUnavailable'):'',currentState?.error].filter(Boolean);$('error').textContent=[...new Set(messages)].join('\n');$('error').hidden=!messages.length}
@@ -98,7 +98,7 @@ window.cecop=(()=>{
     let label=busy?t('busy')+wait:s.replay?t('replay'):s.running?t('live'):t('paused');
     if(s.reset_pending)label+=` · ${t('resetPending')}`;
     if(!s.replay&&s.pending_fires)label+=` · ${s.pending_fires} ${t('queuedFires')}`;
-    $('connection').textContent=pollingError?t('serverUnavailable'):`${t('salaPrefix')} · ${label}`;
+    $('connection').textContent=window.RECORDED_SITE?`${language==='es'?'DEMO GRABADA':'RECORDED DEMO'} · BRUNETE · T+${s.tick}`:pollingError?t('serverUnavailable'):`${t('salaPrefix')} · ${label}`;
     document.body.classList.toggle('is-busy',busy);
     document.body.classList.toggle('is-live',!!s.running&&!s.busy&&!s.replay);
     document.body.classList.toggle('is-replay',!!s.replay);
@@ -117,6 +117,7 @@ window.cecop=(()=>{
   async function readJSON(response){let data;try{data=await response.json()}catch{throw Error(t('actionFailed'))}if(!response.ok)throw Error(typeof data?.error==='string'?data.error:t('actionFailed'));return data}
   async function pollState(){
     if(incident||polling||actionsPending)return currentState;
+    if(window.RECORDED_SITE){try{publish(await window.RecordedSite.state())}catch(e){setError(e)}return currentState;}
     const version=epoch;polling=true;
     try{const s=await readJSON(await fetch('/api/state'));if(version===epoch&&!actionsPending){pollingError=false;publish(s)}}
     catch(e){if(version===epoch&&!actionsPending){pollingError=true;renderError();$('connection').textContent=t('serverUnavailable')}}
@@ -124,6 +125,7 @@ window.cecop=(()=>{
     return currentState;
   }
   async function action(name,extra={}){
+    if(window.RECORDED_SITE)return false;
     const version=++epoch;actionsPending++;
     try{
       const s=await readJSON(await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json','X-Simulator-Request':'1'},body:JSON.stringify({action:name,...extra})}));
@@ -139,7 +141,7 @@ window.cecop=(()=>{
   function format(n){return Number(n).toLocaleString(language==='es'?'es-ES':'en-US')}
   function populationText(s){const p=s.geography?.population_source;if(!p)return t('populationUnavailable');const farm=p.farm_occupancy?.count??Object.values(s.people||{}).filter(g=>g.kind==='farm').reduce((n,g)=>n+g.count,0);return t('populationSummary').replace('{total}',format(p.official_total)).replace('{year}',p.reference_year).replace('{farm}',format(farm))}
   function statusText(value){return Object.hasOwn(statuses[language],value)?statuses[language][value]:value}
-  function openArchive(mode){if(mode!=='play'&&mode!=='open')return;try{sessionStorage.setItem('cecop-archive-intent',mode)}catch{}location.assign('/incidente')}
+  function openArchive(mode){if(mode!=='play'&&mode!=='open')return;if(window.RECORDED_SITE){location.assign('./incidente.html');return;}try{sessionStorage.setItem('cecop-archive-intent',mode)}catch{}location.assign('./incidente.html')}
   function incidentArchive(){
     let mode=null;try{mode=sessionStorage.getItem('cecop-archive-intent');sessionStorage.removeItem('cecop-archive-intent')}catch{}
     if(mode==='play'&&$('playRecord')?.onclick){Promise.resolve($('playRecord').onclick()).catch(e=>window.setClientError?window.setClientError(e):setError(e))}
@@ -149,7 +151,7 @@ window.cecop=(()=>{
       else{const observer=new MutationObserver(()=>{if(window.state){observer.disconnect();reveal()}});observer.observe($('clock'),{childList:true,subtree:true})}
     }
   }
-  async function tick(){await pollState();setTimeout(tick,600)}
+  async function tick(){await pollState();if(!window.RECORDED_SITE)setTimeout(tick,600)}
   function officialClock(){
     const el=$('officialClock');if(!el)return;
     try{el.textContent=new Date().toLocaleTimeString(language==='es'?'es-ES':'en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Europe/Madrid'})}catch{el.textContent=new Date().toLocaleTimeString()}
@@ -157,7 +159,7 @@ window.cecop=(()=>{
   }
   function start(){if(started)return;started=true;applyLang();if(incident){languageListeners.forEach(fn=>fn(language));incidentArchive()}else{$('langToggle').onclick=()=>setLang(language==='es'?'en':'es');officialClock();tick()}}
   window.addEventListener('storage',e=>{if(e.key==='cecop-lang'&&e.newValue!==language&&(e.newValue==='es'||e.newValue==='en'))setLang(e.newValue,false)});
-  const api={get lang(){return language},get state(){return currentState},t,applyLang,setLang,useTranslations(values){for(const lang of ['es','en'])Object.assign(pageTranslations[lang],values[lang]||{});applyLang()},onLanguageChange(fn){languageListeners.add(fn);return()=>languageListeners.delete(fn)},subscribe(fn){listeners.add(fn);if(currentState)fn(currentState);return()=>listeners.delete(fn)},pollState,action,setError,format,fleet,populationText,statusText,openArchive,catalog,pools,dossiers,summary,project,statusKey,levelKey,ccaaName,isLive,assignedTo,liveFleetTotal};
+  const api={get lang(){return language},get state(){return currentState},t,applyLang,setLang,useTranslations(values){for(const lang of ['es','en'])Object.assign(pageTranslations[lang],values[lang]||{},window.RecordedSite?.translations[lang]||{});applyLang()},onLanguageChange(fn){languageListeners.add(fn);return()=>languageListeners.delete(fn)},subscribe(fn){listeners.add(fn);if(currentState)fn(currentState);return()=>listeners.delete(fn)},pollState,action,setError,format,fleet,populationText,statusText,openArchive,catalog,pools,dossiers,summary,project,statusKey,levelKey,ccaaName,isLive,assignedTo,liveFleetTotal};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else setTimeout(start,0);
   return api;
 })();

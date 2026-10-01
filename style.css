@@ -182,6 +182,6 @@ body[data-page="medios"] .lower,body[data-page="archivo"] .lower{grid-template-c
 .comm-none{border-left-color:var(--line-strong)}
 
 .recorded-demo .demo-note{padding:12px 0;color:var(--cyan-soft);font-weight:600}
-.recorded-demo .lower{grid-template-columns:1fr}
+.recorded-demo[data-page="incidente"] .lower{grid-template-columns:1fr}
 .recorded-demo #truth{cursor:default}
 .recorded-demo .radio-body{max-height:480px;overflow:auto}

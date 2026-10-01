@@ -802,6 +802,7 @@ function showRecorded(index){
   const frame=recordingPlayback[index],vehicles=fleetVehicles(frame);
   render({...state,...frame,drone:frame.drone??vehicles.extinguishers[0]??null,truck:frame.truck??vehicles.trucks[0]??null,scouts:vehicles.scouts,extinguishers:vehicles.extinguishers,trucks:vehicles.trucks,fleet_counts:frame.fleet_counts??null,geography:frame.geography??null,workflow_url:state?.workflow_url,pending_fires:0,busy:false,reset_pending:false,running:false,replay:true,frame_index:index,frame_count:recordingPlayback.length,run_evidence:'Recorded simulation replay. No new HappyRobot calls.'});
   if(window.RECORDED_DEMO){
+    window.RecordedSite?.remember(index);
     $('restartDemo').disabled=false;
     $('play').disabled=false;$('play').textContent=replayTimer?I18N[lang].pauseBtn:I18N[lang].playBtn;
     $('connection').textContent=(lang==='es'?'DEMO GRABADA':'RECORDED DEMO')+` · ${index+1}/${recordingPlayback.length}`;
@@ -823,7 +824,7 @@ async function loadRecording(readData){
     if(!await act('pause',{},token)||token!==loadEpoch)return false;
     const previousRecording=recordingPlayback,previousState=state;
     viewEpoch++;recordingPlayback=frames;
-    try{showRecorded(0)}catch(e){recordingPlayback=previousRecording;if(previousState)render(previousState);throw e}
+    try{showRecorded(window.RECORDED_DEMO?window.RecordedSite?.cursor(frames.length)||0:0)}catch(e){recordingPlayback=previousRecording;if(previousState)render(previousState);throw e}
     clientError='';updateErrors();
     if(frames.length>1)await startReplay();
     return true;
