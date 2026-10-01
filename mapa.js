@@ -96,15 +96,15 @@
   const INSET={left:-18.5,top:29.45,scale:48};
   const insetP=(lon,lat)=>({x:(lon-INSET.left)*INSET.scale,y:(INSET.top-lat)*INSET.scale});
 
-  // Wind field: synoptic base plus regional regimes (tramontana, cierzo, poniente, levante, nordés).
+  // Illustrative southwest-to-northeast wind, with regional speed variations.
   const regimes=[
     {lon:2.8,lat:42.3,s:1.1,u:0.05,v:-1,speed:38},{lon:-0.9,lat:41.7,s:0.9,u:0.75,v:-0.65,speed:32},{lon:-0.5,lat:39.3,s:0.9,u:1,v:0.05,speed:22},
     {lon:-5.4,lat:36.2,s:0.9,u:-1,v:0.1,speed:30},{lon:-8.0,lat:42.8,s:1.3,u:-0.85,v:-0.55,speed:26},{lon:-16.5,lat:28.3,s:2.5,u:-0.7,v:-0.7,speed:24}
   ];
   function wind(lon,lat){
-    let u=-0.72,v=-0.7,speed=18,w=0.55;
-    for(const r of regimes){const d=((lon-r.lon)**2+((lat-r.lat)*1.3)**2)/(2*r.s*r.s),g=Math.exp(-d);u+=r.u*g;v+=r.v*g;speed+=r.speed*g;w+=g}
-    const n=Math.hypot(u,v)||1;return {u:u/n,v:v/n,speed:speed/w};
+    let speed=18,w=0.55;
+    for(const r of regimes){const d=((lon-r.lon)**2+((lat-r.lat)*1.3)**2)/(2*r.s*r.s),g=Math.exp(-d);speed+=r.speed*g;w+=g}
+    return {u:Math.SQRT1_2,v:Math.SQRT1_2,speed:speed/w};
   }
   function windFrom(u,v){const deg=(Math.atan2(-u,-v)*180/Math.PI+360)%360;return ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg/45)%8]}
   const noisyRing=(cx,cy,rx,ry,rot,seed,amp,n)=>{
