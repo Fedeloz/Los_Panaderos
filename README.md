@@ -21,7 +21,7 @@ la rama [`codex/recorded-demo-pages`](https://github.com/Fedeloz/Los_Panaderos/t
 
 <p align="center">
   <a href="#cómo-funciona">Cómo funciona</a> ·
-  <a href="#explorar-la-demo">Probar la demo</a> ·
+  <a href="#explorar-la-demo">Explorar la demo</a> ·
   <a href="#próximos-pasos">Próximos pasos</a> ·
   <a href="#documentación">Documentación</a>
 </p>
@@ -117,13 +117,13 @@ y lee el estado público (`GET /lookup`).
 | Pantalla | Para qué sirve |
 |:---|:---|
 | **Situación** | Vista general del incidente y acceso a la sala de crisis. |
-| **Sala de crisis** | Dos mapas, misión, población, órdenes, viento y controles de simulación. |
+| **Sala de crisis** | Demo grabada con dos mapas, misión, población, órdenes y controles de reproducción. |
 | **Medios** | Disponibilidad y estado de los recursos. |
-| **Archivo** | Consulta del estado compartido, eventos y comunicaciones del incidente. |
+| **Archivo** | Distritos, mensajes y decisiones de la grabación; descarga de la simulación. |
 
-La interfaz está disponible en **español e inglés**. Puedes configurar la flota,
-pausar el reloj, cambiar el viento y añadir focos para observar cómo evoluciona
-la información disponible. El operador ve la sala CECOP.
+La interfaz está disponible en **español e inglés**. La web publicada permite
+explorar la situación y reproducir la simulación grabada, con sus observaciones
+y decisiones, desde **Sala de crisis**.
 
 Más adelante: cruce con bases gubernamentales de residentes en zona, y cámaras
 térmicas en los drones. Hoy el aviso usa el directorio de demo y sensores
@@ -131,50 +131,15 @@ simulados.
 
 ## Explorar la demo
 
-**Necesitas Python 3.** El servidor local usa la biblioteca estándar, sin
-dependencias Python externas ni compilación del frontend.
+Abre **[la web de Los Panaderos](https://fedeloz.github.io/Los_Panaderos/)**
+para explorar **Situación, Sala de crisis, Medios y Archivo**.
 
-```sh
-git clone https://github.com/Fedeloz/Los_Panaderos.git
-cd Los_Panaderos
-python3 -m simulator.server
-```
+En **[Sala de crisis](https://fedeloz.github.io/Los_Panaderos/incidente.html)**
+está la **demo grabada**: puedes reproducirla, pausarla y recorrer la línea de
+tiempo para ver las observaciones, comunicaciones y decisiones de los agentes.
 
-Abre **<http://127.0.0.1:8765>** y entra en **Sala de crisis**.
-Configura flota y viento, pulsa **1 · Ignición** y después **2 · Aviso de humo**.
-
-En un checkout limpio puedes explorar la interfaz y el fuego simulado sin
-credenciales. **Las decisiones de agentes requieren conectar HappyRobot**;
-el servidor local no las inventa.
-
-<details>
-<summary><strong>Conectar HappyRobot y las comunicaciones</strong></summary>
-
-1. Copia [`.env.example`](.env.example) a `.env`.
-2. Configura `STATE_API_URL` y `STATE_API_TOKEN` para el Worker y su KV
-   ([código de la API](state-api/)). Configura la misma conexión en los
-   workflows de HappyRobot.
-3. Mantén `HAPPYROBOT_MODE=loop` y usa el mismo `DISPATCH_INCIDENT_ID`
-   en simulador y Despacho; el valor por defecto es `brunete-demo`.
-4. Configura los contactos `DEMO_*` con teléfonos y Telegram del equipo:
-   **los canales conectados envían llamadas y mensajes reales**.
-5. Reinicia el servidor y abre un run de **Despacho Central** en
-   **development** antes de iniciar el incidente y enviar el aviso de humo.
-
-En modo `loop`, el simulador escribe en el buzón compartido y recoge las
-órdenes que deja Despacho. El simulador no inicia runs de HappyRobot.
-
-**Reiniciar también solicita borrar el estado compartido** cuando la API está
-conectada. Comprueba el estado de conexión si el borrado falla.
-
-El modo alternativo `HAPPYROBOT_MODE=push` inicia un run por decisión y requiere
-un proxy MCP local autenticado; sus variables están en `.env.example`.
-
-[Despacho Central](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/zqtnabjy5loj/editor/wm9viy0rm87v)
-· [Los Panaderos](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/mg9barxt86w3/editor/ol9kqyjzgq0m)
-· [Marina](https://platform.eu.happyrobot.ai/hackspainteam9/workflows/8angdc9uc7nz/editor/m3cs7r55sfuv)
-
-</details>
+No necesitas instalar nada, configurar la flota ni conectar HappyRobot o una API.
+La web reproduce la simulación guardada; no inicia nuevas ejecuciones.
 
 ## Documentación
 
