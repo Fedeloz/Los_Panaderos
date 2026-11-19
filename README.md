@@ -1,5 +1,7 @@
 # Los Panaderos — recorded demo
 
+**[Web](https://fedeloz.github.io/Los_Panaderos/)** · **[Demo grabada · Sala de crisis](https://fedeloz.github.io/Los_Panaderos/incidente.html)** · [Código en GitHub](https://github.com/Fedeloz/Los_Panaderos)
+
 Static GitHub Pages playback of recordings/brunete-demo.json.gz. No Python server, API key or live simulation is required.
 
 Situation, Incident room, Assets and Archive are available. The incident room only replays the bundled recording; other tabs show its last viewed frame.
