@@ -1,3 +1,17 @@
+## Web y demo grabada
+
+- **[Abrir la web de Los Panaderos](https://fedeloz.github.io/Los_Panaderos/)**
+- **[Ver la demo grabada en Sala de crisis](https://fedeloz.github.io/Los_Panaderos/incidente.html)**
+- [Código en GitHub](https://github.com/Fedeloz/Los_Panaderos)
+
+La demo se reproduce directamente en el navegador, con las observaciones,
+comunicaciones y decisiones de los agentes. Puedes pausar, avanzar o retroceder;
+no necesitas instalar nada ni conectar HappyRobot o una API.
+
+La web incluye **Situación, Sala de crisis, Medios y Archivo**. La versión
+publicada reproduce únicamente la simulación guardada y se despliega desde
+la rama [`codex/recorded-demo-pages`](https://github.com/Fedeloz/Los_Panaderos/tree/codex/recorded-demo-pages).
+
 <div align="center">
   <img src="simulator/static/favicon.png" width="64" alt="">
   <h1>Los Panaderos</h1>
